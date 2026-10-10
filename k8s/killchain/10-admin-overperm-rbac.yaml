@@ -1,0 +1,39 @@
+# ② 권한상승 (T1078 Valid Accounts) — 과권한 ServiceAccount
+# "흔한 실수": 사내 관리 대시보드에 "가시성 확보용"으로 넓은 조회 권한을 붙임.
+# admin-dashboard 파드가 이 SA 토큰을 들고 있어, 침해 시 전 네임스페이스 Secret(= DB 크레덴셜)을
+# 읽고 타 NS를 정찰할 수 있다 → ④ 목표로 가는 또 다른 경로.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: admin-sa
+  namespace: internal
+  labels: { app.kubernetes.io/part-of: capstone-killchain }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: admin-tools
+  labels: { app.kubernetes.io/part-of: capstone-killchain }
+rules:
+  # ★ 위험: 전 네임스페이스 Secret 조회 (postgres-credentials, db-connection 등 평문 획득)
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  # 타 네임스페이스 정찰 (서비스·파드·네임스페이스 열거)
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps", "namespaces"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: admin-tools-binding
+  labels: { app.kubernetes.io/part-of: capstone-killchain }
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin-tools
+subjects:
+  - kind: ServiceAccount
+    name: admin-sa
+    namespace: internal

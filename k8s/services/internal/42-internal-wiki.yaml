@@ -37,8 +37,10 @@ data:
     <li>database: PostgreSQL, Redis</li></ul>
     <h3>헬스체크</h3>
     <p>각 API의 <code>/health</code> 엔드포인트로 상태 확인.</p>
-    <h3>DB 접속</h3>
-    <p>DB 자격증명은 쿠버네티스 Secret으로 관리됩니다. (상세는 인프라팀 문의)</p>
+    <h3>DB 접속 (임시 메모)</h3>
+    <p>온콜 중 빠른 확인용 커넥션 스트링:</p>
+    <p><code>postgresql://appuser:devpassword123@postgres.database.svc.cluster.local:5432/customerdb</code></p>
+    <p style="color:#888;font-size:13px">※ 원래는 Secret으로만 써야 하는데, 지난 장애 때 급해서 여기 적어둠. 나중에 지울 것.</p>
     <p><a href="index.html">← 목록</a></p></body></html>
   architecture.html: |
     <!doctype html><html lang="ko"><head><meta charset="utf-8"><title>아키텍처</title>

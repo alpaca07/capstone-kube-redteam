@@ -1,0 +1,22 @@
+# 방어 레퍼런스 — ③ 측면이동(T1210) 차단. ★ 베이스라인엔 적용 안 함(방어자가 적용할 패치 예시).
+# database ns 인그레스를 backend/internal 네임스페이스에서만 허용 → frontend(웹) 파드에서
+# postgres/redis 직접 접근 차단. 웹은 원래 backend API를 거치므로 정상 서비스엔 영향 없음.
+# k3s는 kube-router 기반 NetworkPolicy 컨트롤러를 내장 → 실제로 강제됨.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: database-ingress-restrict
+  namespace: database
+spec:
+  podSelector: {}                 # database ns 전 파드 대상
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { tier: backend }
+        - namespaceSelector:
+            matchLabels: { tier: internal }
+      ports:
+        - { protocol: TCP, port: 5432 }   # postgres
+        - { protocol: TCP, port: 6379 }   # redis
+  # frontend(tier: frontend) 는 from 목록에 없음 → 웹 파드 직접 접근 차단(= ③ 공격 경로 봉쇄)

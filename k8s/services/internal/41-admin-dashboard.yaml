@@ -85,6 +85,8 @@ spec:
     metadata:
       labels: { app: admin-dashboard, tier: internal }
     spec:
+      serviceAccountName: admin-sa              # 3단계 ② — 과권한 SA (k8s/killchain/10-admin-overperm-rbac.yaml)
+      automountServiceAccountToken: true        # 토큰을 파드에 마운트 → 침해 시 악용
       containers:
         - name: admin-dashboard
           image: python:3.12-slim

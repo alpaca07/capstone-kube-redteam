@@ -1,0 +1,31 @@
+# 방어 레퍼런스 — ② 권한상승(T1078) 완화. ★ 베이스라인엔 적용 안 함.
+# 방어자 조치: 과권한 ClusterRoleBinding 제거 후 최소 권한 Role로 교체.
+#   kubectl delete clusterrolebinding admin-tools-binding
+#   kubectl delete clusterrole admin-tools
+#   kubectl apply -f rbac-reduced.yaml
+# admin-dashboard는 실제로 DB에 직접 붙으므로 쿠버네티스 Secret 읽기 자체가 불필요하지만,
+# 운영상 자기 NS의 특정 secret만 읽어야 한다면 아래처럼 범위를 좁힌다.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: admin-minimal
+  namespace: internal
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["db-connection"]   # 자기 NS의 지정된 secret 하나만
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: admin-minimal-binding
+  namespace: internal
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: admin-minimal
+subjects:
+  - kind: ServiceAccount
+    name: admin-sa
+    namespace: internal
