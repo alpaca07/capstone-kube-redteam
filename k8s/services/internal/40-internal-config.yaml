@@ -1,0 +1,14 @@
+# internal ns DB 연결 (admin-dashboard가 고객 PII 조회에 사용)
+# 2단계: 정상 Secret 주입. 3단계에서 이 크레덴셜이 internal-wiki 런북에 평문으로 새는 게 ①.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-connection
+  namespace: internal
+type: Opaque
+stringData:
+  DB_HOST: postgres.database.svc.cluster.local
+  DB_PORT: "5432"
+  DB_NAME: customerdb
+  DB_USER: appuser
+  DB_PASSWORD: devpassword123

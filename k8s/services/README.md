@@ -1,35 +1,40 @@
 # k8s/services — 자체 서비스 스택 (환경 구축 2단계)
 
-Goat(1단계) 위에, 킬체인이 관통할 **진짜 3-tier 서비스**를 세운다. 가짜 사내
-"고객관리 포털"이며, 이 단계에선 **취약점 없이 정상 동작**하는 깨끗한 스택까지만 만든다.
-실제 취약점(①②③)은 3단계에서 이식한다.
+Goat(1단계) 위에, 킬체인이 관통할 **현실적인 이커머스 회사(ShopFlow)**를 세운다.
+서비스가 여럿이라 취약점이 "흔한 운영 실수"처럼 묻히고, 공격자는 정찰로 약한 고리를
+찾아내야 한다. 이 단계는 **취약점 없이 정상 동작**하는 깨끗한 스택까지. 취약점 이식은 3단계.
 
-## 구조
+## 서비스 구성 (9개 + 트래픽)
 
-| 계층 | 네임스페이스 | 파드 | 이미지 | 역할 |
-|------|-------------|------|--------|------|
-| 프론트 | `frontend` | `frontend-web` (nginx) | nginx:1.27-alpine | 포털 UI + `/api` 리버스 프록시, NodePort **30080** |
-| 백엔드 | `frontend` | `backend` (Flask) | python:3.12-slim | 고객 조회 API, DB 연결 |
-| DB | `database` | `postgres` | postgres:16-alpine | 가짜 고객 PII + **FLAG** (킬체인 ④ 목표) |
-| 측정 | `frontend` | `traffic-generator` | curlimages/curl | 주기 호출 → 가용성 baseline + 배경 노이즈 |
+| 네임스페이스 | 서비스 | 이미지 | 역할 | 노출 |
+|------|--------|--------|------|------|
+| `frontend` | storefront | nginx | 쇼핑몰 메인 (상품) | NodePort **30080** |
+| `frontend` | customer-portal | nginx | 고객센터 (로그인+주문) | NodePort **30081** |
+| `frontend` | traffic-generator | curl | 가용성 baseline | — |
+| `backend` | catalog-api | python/Flask | 상품 API | ClusterIP |
+| `backend` | order-api | python/Flask | 주문 API (조인) | ClusterIP |
+| `backend` | auth-service | python/Flask | 로그인/토큰 (Redis) | ClusterIP |
+| `database` | postgres | postgres | 고객·상품·주문 + **FLAG** | ClusterIP |
+| `database` | redis | redis | 세션/캐시 | ClusterIP |
+| `internal` | admin-dashboard | python/Flask | 관리자 콘솔 (**고객 PII 전체**) | ClusterIP(내부) |
+| `internal` | internal-wiki | nginx | 사내 문서 | ClusterIP(내부) |
 
-**네임스페이스를 둘로 나눈 이유**: `frontend`(웹앱)와 `database`(DB)의 경계가
-킬체인 ③(측면이동)이 넘어야 할 선이다.
+**토폴로지**: 공개 웹(frontend) → 내부 API(backend) → 데이터(database). 사내 도구(internal)는
+관리자 전용(NodePort 없음 → 밖에서 직접 못 감). 고객 PII는 공개 포털이 아니라 `admin-dashboard`에만.
 
 ## 킬체인 자리 (지금은 전부 '깨끗', 3단계에서 심음)
 
-| 단계 | 지금 (2단계, 정상) | 3단계에서 심을 취약점 |
-|------|-------------------|----------------------|
-| ① 초기침투 | DB 자격증명을 Secret(env)으로 정상 주입 | 같은 값을 웹앱 소스/디버그 페이지에 **평문 노출** (T1552) |
-| ② 권한상승 | 웹앱 파드에 기본 SA(권한 거의 없음) | 웹앱 SA에 **과다 RBAC** 부여 (T1078) |
-| ③ 측면이동 | frontend↔database 네트워크 자유롭게 열림 | NetworkPolicy 부재를 그대로 둬 **경계 통과** 허용 (T1210) |
-| ④ 목표탈취 | `internal_secrets`에 placeholder FLAG | 4단계에서 **실제 랜덤 FLAG**로 교체(gitignore secret) |
+| 단계 | 3단계에서 심을 취약점 | 위치 |
+|------|----------------------|------|
+| ① 초기침투 | DB 크레덴셜 평문 유출 (T1552) | `internal-wiki` 런북 / `admin` 디버그 |
+| ② 권한상승 | 과다 RBAC SA (T1078) | `admin-dashboard` SA |
+| ③ 측면이동 | NetworkPolicy 부재 (T1210) | `internal`/`backend` → `database` |
+| ④ 목표탈취 | 고객데이터 + FLAG (T1213) | `postgres.database` |
 
 ## 이미지 전략
 
-개발 단계는 **공식 이미지 + ConfigMap 코드 주입** (커스텀 빌드/레지스트리 없이 git YAML만으로 배포).
-backend는 기동 시 `pip install` 하므로 인터넷이 필요하다. **실험 직전엔**(5단계) 코드를 박은
-진짜 이미지로 구워서 VM 스냅샷에 담는다(인터넷 OFF 대비).
+개발 단계는 **공식 이미지 + ConfigMap 코드 주입**. Flask들이 기동 때 `pip install` 하므로
+인터넷 필요 + 첫 배포 1~3분. **실험 전**(5단계)엔 코드 박은 이미지로 구워 스냅샷(인터넷 OFF 대비).
 
 ## 배포 / 검증 / 정리
 
@@ -38,17 +43,17 @@ backend는 기동 시 `pip install` 하므로 인터넷이 필요하다. **실�
 git pull
 bash k8s/services/setup-services.sh
 
-# 파드 확인 (backend는 pip 설치로 ~30초+ 걸림)
-kubectl get pods -n database
-kubectl get pods -n frontend
+# 파드 (flask는 pip로 ~1~3분)
+kubectl get pods -n database -n backend   # 아래처럼 ns별로
+kubectl get pods -n backend ; kubectl get pods -n frontend ; kubectl get pods -n internal
 
-# 브라우저:  http://<VM B IP>:30080   → 고객 포털 (목록 클릭하면 상세+주민번호)
-# 가용성 로그:
-kubectl -n frontend logs deploy/traffic-generator --tail=5   # list=200 detail/..=200
+# 공개:  http://<VM B IP>:30080 (쇼핑몰) · :30081 (고객센터)
+# 내부 관리자(포트포워딩):
+kubectl -n internal port-forward --address 0.0.0.0 svc/admin-dashboard 30090:8080 &
+#   → http://<VM B IP>:30090  (고객 PII 콘솔)
 
-# DB에서 FLAG 자리 직접 확인(심판 관점):
-kubectl -n database exec deploy/postgres -- \
-  psql -U appuser -d customerdb -c "SELECT key,value FROM internal_secrets;"
+# ④ 목표물 확인(심판 관점):
+kubectl -n database exec deploy/postgres -- psql -U appuser -d customerdb -c "SELECT key,value FROM internal_secrets;"
 
 # 정리
 bash k8s/services/teardown-services.sh

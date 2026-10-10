@@ -1,0 +1,106 @@
+# customer-portal — 고객 계정 (frontend ns, 공개). auth-service 로그인 + order-api 주문 조회. NodePort 30081.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: customer-portal-web
+  namespace: frontend
+data:
+  default.conf: |
+    server {
+        listen 80;
+        root /usr/share/nginx/html;
+        index index.html;
+        location /api/login { proxy_pass http://auth-service.backend.svc.cluster.local:8080/login; }
+        location /api/me    { proxy_pass http://auth-service.backend.svc.cluster.local:8080/api/me; }
+        location /api/orders { proxy_pass http://order-api.backend.svc.cluster.local:8080; }
+        location / { try_files $uri $uri/ /index.html; }
+    }
+  index.html: |
+    <!doctype html><html lang="ko"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1"><title>ShopFlow 고객센터</title>
+    <style>
+      body{font-family:system-ui,sans-serif;margin:0;background:#f6f7f9;color:#222}
+      header{background:#1c5a87;color:#fff;padding:16px 24px;font-size:20px;font-weight:800}
+      .wrap{max-width:760px;margin:24px auto;padding:0 16px}
+      .box{background:#fff;border-radius:10px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px}
+      input,button{font-size:14px;padding:8px 12px;border-radius:7px;border:1px solid #ccc}
+      button{background:#1c5a87;color:#fff;border:0;font-weight:700;cursor:pointer}
+      table{width:100%;border-collapse:collapse;font-size:14px}
+      th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #eee}
+      th{color:#888;font-weight:700}
+      .pill{font-size:11px;padding:2px 8px;border-radius:10px;background:#eef2f6}
+    </style></head><body>
+    <header>ShopFlow 고객센터</header>
+    <div class="wrap">
+      <div class="box">
+        <b>로그인</b><br><br>
+        <input id="u" placeholder="사용자명" value="guest">
+        <button onclick="login()">로그인</button>
+        <span id="who" style="margin-left:10px;color:#16a34a"></span>
+      </div>
+      <div class="box">
+        <b>최근 주문</b>
+        <table><thead><tr><th>#</th><th>고객</th><th>상품</th><th>수량</th><th>상태</th></tr></thead>
+        <tbody id="orders"><tr><td colspan="5">로그인 후 조회</td></tr></tbody></table>
+      </div>
+    </div>
+    <script>
+      async function login(){
+        const u=document.getElementById('u').value;
+        const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u})});
+        const j=await r.json();
+        document.getElementById('who').textContent='토큰 발급됨';
+        loadOrders();
+      }
+      async function loadOrders(){
+        try{
+          const os=await (await fetch('/api/orders')).json();
+          const tb=document.getElementById('orders');tb.innerHTML='';
+          for(const o of os.slice(0,10)){
+            const tr=document.createElement('tr');
+            tr.innerHTML=`<td>${o.id}</td><td>${o.customer}</td><td>${o.product}</td><td>${o.qty}</td><td><span class="pill">${o.status}</span></td>`;
+            tb.appendChild(tr);
+          }
+        }catch(e){document.getElementById('orders').innerHTML='<tr><td colspan="5">조회 실패</td></tr>';}
+      }
+    </script></body></html>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: customer-portal
+  namespace: frontend
+  labels: { app: customer-portal, tier: frontend }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: customer-portal }
+  template:
+    metadata:
+      labels: { app: customer-portal, tier: frontend }
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports: [{ containerPort: 80 }]
+          volumeMounts:
+            - { name: web, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf }
+            - { name: web, mountPath: /usr/share/nginx/html/index.html, subPath: index.html }
+          readinessProbe:
+            httpGet: { path: /, port: 80 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: web
+          configMap: { name: customer-portal-web }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: customer-portal
+  namespace: frontend
+  labels: { app: customer-portal }
+spec:
+  type: NodePort
+  selector: { app: customer-portal }
+  ports: [{ port: 80, targetPort: 80, nodePort: 30081 }]

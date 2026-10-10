@@ -1,24 +1,18 @@
-# 더미 트래픽 생성기 — 가용성 측정 baseline + 배경 노이즈
-# 주기적으로 포털을 호출. 방어 패치가 서비스를 깨뜨리면 여기서 non-200이 찍혀 '가용성 저하'로 감지됨.
-# stdout 로그(HH:MM:SS list=200 detail/3=200)를 오케스트레이터가 수집해 가용성 지표로 활용 가능.
+# 더미 트래픽 생성기 — 여러 서비스를 주기 호출. 가용성 baseline + 배경 노이즈.
+# 방어 패치가 서비스를 깨뜨리면 해당 서비스 코드가 non-200으로 찍혀 감지됨.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: traffic-generator
   namespace: frontend
-  labels:
-    app: traffic-generator
-    tier: ops
+  labels: { app: traffic-generator, tier: ops }
 spec:
   replicas: 1
   selector:
-    matchLabels:
-      app: traffic-generator
+    matchLabels: { app: traffic-generator }
   template:
     metadata:
-      labels:
-        app: traffic-generator
-        tier: ops
+      labels: { app: traffic-generator, tier: ops }
     spec:
       containers:
         - name: curl
@@ -26,20 +20,16 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
-              BASE="http://frontend-web.frontend.svc.cluster.local"
-              echo "traffic-generator start -> $BASE"
-              i=1
+              echo "traffic-generator start"
+              hit(){ curl -s -m 5 -o /dev/null -w "%{http_code}" "$1"; }
               while true; do
-                list=$(curl -s -m 5 -o /dev/null -w "%{http_code}" "$BASE/api/customers")
-                det=$(curl -s -m 5 -o /dev/null -w "%{http_code}" "$BASE/api/customers/$i")
-                echo "$(date -u +%H:%M:%S) list=$list detail/$i=$det"
-                i=$(( (i % 12) + 1 ))
+                sf=$(hit "http://storefront.frontend.svc.cluster.local/api/products")
+                cp=$(hit "http://customer-portal.frontend.svc.cluster.local/")
+                oa=$(hit "http://order-api.backend.svc.cluster.local:8080/api/orders")
+                ad=$(hit "http://admin-dashboard.internal.svc.cluster.local:8080/api/stats")
+                echo "$(date -u +%H:%M:%S) store=$sf portal=$cp orders=$oa admin=$ad"
                 sleep 5
               done
           resources:
-            requests:
-              cpu: 10m
-              memory: 16Mi
-            limits:
-              cpu: 50m
-              memory: 32Mi
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { cpu: 50m, memory: 32Mi }

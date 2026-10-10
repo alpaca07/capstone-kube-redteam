@@ -1,0 +1,114 @@
+# admin-dashboard — 사내 관리자 콘솔 (internal ns, 비공개/ClusterIP).
+# 고객 PII 전체·주문·통계 조회. 3단계에서 이 파드 SA가 과권한(②)을 받게 됨.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: admin-dashboard-code
+  namespace: internal
+data:
+  app.py: |
+    import os
+    from flask import Flask, jsonify, Response
+    import psycopg2, psycopg2.extras
+    app = Flask(__name__)
+    def conn():
+        return psycopg2.connect(host=os.environ["DB_HOST"], port=os.environ.get("DB_PORT","5432"),
+            dbname=os.environ["DB_NAME"], user=os.environ["DB_USER"],
+            password=os.environ["DB_PASSWORD"], connect_timeout=5)
+    PAGE = r'''<!doctype html><html lang="ko"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1"><title>ShopFlow Admin</title>
+    <style>
+      body{font-family:system-ui,sans-serif;margin:0;background:#0f172a;color:#e2e8f0}
+      header{background:#1e293b;padding:14px 22px;font-size:18px;font-weight:800;border-bottom:2px solid #334155}
+      .wrap{max-width:1000px;margin:22px auto;padding:0 16px}
+      .tiles{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+      .tile{background:#1e293b;border-radius:10px;padding:14px 18px;flex:1 1 150px}
+      .tile b{font-size:26px;display:block} .tile span{color:#94a3b8;font-size:13px}
+      table{width:100%;border-collapse:collapse;font-size:13px;background:#1e293b;border-radius:10px;overflow:hidden}
+      th,td{text-align:left;padding:8px 11px;border-bottom:1px solid #334155}
+      th{color:#94a3b8}
+    </style></head><body>
+    <header>ShopFlow 관리자 콘솔 <span style="font-size:12px;color:#64748b">· internal</span></header>
+    <div class="wrap">
+      <div class="tiles" id="tiles"></div>
+      <h3>고객 목록 (PII)</h3>
+      <table><thead><tr><th>ID</th><th>이름</th><th>이메일</th><th>전화</th><th>주민번호</th><th>등급</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="6">불러오는 중…</td></tr></tbody></table>
+    </div>
+    <script>
+      fetch('/api/stats').then(r=>r.json()).then(s=>{
+        document.getElementById('tiles').innerHTML=
+          `<div class="tile"><b>${s.customers}</b><span>고객</span></div>
+           <div class="tile"><b>${s.products}</b><span>상품</span></div>
+           <div class="tile"><b>${s.orders}</b><span>주문</span></div>`;});
+      fetch('/api/customers').then(r=>r.json()).then(cs=>{
+        const tb=document.getElementById('rows');tb.innerHTML='';
+        for(const c of cs){const tr=document.createElement('tr');
+          tr.innerHTML=`<td>${c.id}</td><td>${c.name}</td><td>${c.email}</td><td>${c.phone}</td><td>${c.ssn}</td><td>${c.tier}</td>`;
+          tb.appendChild(tr);}});
+    </script></body></html>'''
+    @app.get("/health")
+    def health():
+        try:
+            with conn() as c, c.cursor() as cur: cur.execute("SELECT 1")
+            return {"status": "ok"}
+        except Exception as e:
+            return {"status": "error", "detail": str(e)}, 500
+    @app.get("/")
+    def index():
+        return Response(PAGE, mimetype="text/html")
+    @app.get("/api/stats")
+    def stats():
+        with conn() as c, c.cursor() as cur:
+            cur.execute("SELECT (SELECT count(*) FROM customers),(SELECT count(*) FROM products),(SELECT count(*) FROM orders)")
+            cu, pr, od = cur.fetchone()
+            return {"customers": cu, "products": pr, "orders": od}
+    @app.get("/api/customers")
+    def customers():
+        with conn() as c, c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT id,name,email,phone,address,ssn,tier FROM customers ORDER BY id")
+            return jsonify(cur.fetchall())
+    if __name__ == "__main__":
+        app.run(host="0.0.0.0", port=8080)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-dashboard
+  namespace: internal
+  labels: { app: admin-dashboard, tier: internal }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: admin-dashboard }
+  template:
+    metadata:
+      labels: { app: admin-dashboard, tier: internal }
+    spec:
+      containers:
+        - name: admin-dashboard
+          image: python:3.12-slim
+          command: ["/bin/sh", "-c"]
+          args: ["pip install --no-cache-dir flask==3.0.3 psycopg2-binary==2.9.9 && python /app/app.py"]
+          ports: [{ containerPort: 8080 }]
+          envFrom:
+            - secretRef: { name: db-connection }
+          volumeMounts: [{ name: code, mountPath: /app }]
+          readinessProbe:
+            httpGet: { path: /health, port: 8080 }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+      volumes:
+        - name: code
+          configMap: { name: admin-dashboard-code }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-dashboard
+  namespace: internal
+  labels: { app: admin-dashboard }
+spec:
+  selector: { app: admin-dashboard }
+  ports: [{ port: 8080, targetPort: 8080 }]

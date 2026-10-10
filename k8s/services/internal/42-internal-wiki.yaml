@@ -1,0 +1,88 @@
+# internal-wiki — 사내 문서 위키 (internal ns, 비공개/ClusterIP). nginx 정적.
+# 2단계: 평범한 사내 문서. 3단계에서 런북 페이지에 DB 접속정보가 '실수로' 들어가는 게 ① 유출 지점.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: internal-wiki-content
+  namespace: internal
+data:
+  index.html: |
+    <!doctype html><html lang="ko"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1"><title>ShopFlow Wiki</title>
+    <style>body{font-family:system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 16px;color:#222}
+    h1{font-size:22px} a{color:#1c5a87;display:block;padding:8px 0;font-size:15px} .m{color:#888;font-size:13px}</style>
+    </head><body>
+    <h1>ShopFlow 사내 위키</h1>
+    <p class="m">내부 전용 문서 공간입니다.</p>
+    <a href="onboarding.html">🧭 신입 개발자 온보딩</a>
+    <a href="runbook.html">📘 서비스 운영 런북</a>
+    <a href="architecture.html">🏗️ 시스템 아키텍처 개요</a>
+    </body></html>
+  onboarding.html: |
+    <!doctype html><html lang="ko"><head><meta charset="utf-8"><title>온보딩</title>
+    <style>body{font-family:system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 16px;color:#222;line-height:1.7}</style>
+    </head><body><h1>신입 개발자 온보딩</h1>
+    <p>환영합니다. 개발 환경 세팅은 사내 레포의 README를 참고하세요.</p>
+    <ul><li>사내 Slack #dev 채널 참여</li><li>VPN 설정 후 사내 서비스 접근</li>
+    <li>코드 리뷰는 PR 2명 승인 필수</li><li>배포는 운영 런북 절차를 따를 것</li></ul>
+    <p><a href="index.html">← 목록</a></p></body></html>
+  runbook.html: |
+    <!doctype html><html lang="ko"><head><meta charset="utf-8"><title>운영 런북</title>
+    <style>body{font-family:system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 16px;color:#222;line-height:1.7}
+    code{background:#f0f2f5;padding:1px 6px;border-radius:4px}</style>
+    </head><body><h1>서비스 운영 런북</h1>
+    <h3>서비스 구성</h3>
+    <ul><li>frontend: storefront, customer-portal (nginx)</li>
+    <li>backend: catalog-api, order-api, auth-service (Flask)</li>
+    <li>database: PostgreSQL, Redis</li></ul>
+    <h3>헬스체크</h3>
+    <p>각 API의 <code>/health</code> 엔드포인트로 상태 확인.</p>
+    <h3>DB 접속</h3>
+    <p>DB 자격증명은 쿠버네티스 Secret으로 관리됩니다. (상세는 인프라팀 문의)</p>
+    <p><a href="index.html">← 목록</a></p></body></html>
+  architecture.html: |
+    <!doctype html><html lang="ko"><head><meta charset="utf-8"><title>아키텍처</title>
+    <style>body{font-family:system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 16px;color:#222;line-height:1.7}</style>
+    </head><body><h1>시스템 아키텍처 개요</h1>
+    <p>ShopFlow는 쿠버네티스 위의 마이크로서비스로 구성됩니다.</p>
+    <ul><li>공개 웹(frontend) → 내부 API(backend) → 데이터스토어(database)</li>
+    <li>사내 도구(internal)는 관리자 전용</li></ul>
+    <p><a href="index.html">← 목록</a></p></body></html>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: internal-wiki
+  namespace: internal
+  labels: { app: internal-wiki, tier: internal }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: internal-wiki }
+  template:
+    metadata:
+      labels: { app: internal-wiki, tier: internal }
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports: [{ containerPort: 80 }]
+          volumeMounts:
+            - { name: content, mountPath: /usr/share/nginx/html }
+          readinessProbe:
+            httpGet: { path: /, port: 80 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: content
+          configMap: { name: internal-wiki-content }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: internal-wiki
+  namespace: internal
+  labels: { app: internal-wiki }
+spec:
+  selector: { app: internal-wiki }
+  ports: [{ port: 80, targetPort: 80 }]

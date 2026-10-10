@@ -1,18 +1,29 @@
-# 자체 서비스 스택 네임스페이스 (2단계)
-# frontend = 웹앱(nginx+Flask), database = PostgreSQL
-# 킬체인 ③ 측면이동이 이 두 네임스페이스 경계를 넘는 구조.
+# 자체 서비스 스택 네임스페이스 (2단계 — 이커머스 회사 구성)
+#   frontend = 공개 웹 (storefront, customer-portal)
+#   backend  = 내부 API (catalog, order, auth)
+#   database = 데이터스토어 (postgres, redis)  ← 킬체인 ④ 목표
+#   internal = 사내 도구 (admin-dashboard, internal-wiki)
+# 킬체인 ③ 측면이동은 다른 ns → database 경계를 넘는 것.
 apiVersion: v1
 kind: Namespace
 metadata:
   name: frontend
-  labels:
-    app.kubernetes.io/part-of: capstone-target
-    tier: frontend
+  labels: { app.kubernetes.io/part-of: capstone-target, tier: frontend }
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: backend
+  labels: { app.kubernetes.io/part-of: capstone-target, tier: backend }
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: database
-  labels:
-    app.kubernetes.io/part-of: capstone-target
-    tier: database
+  labels: { app.kubernetes.io/part-of: capstone-target, tier: database }
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: internal
+  labels: { app.kubernetes.io/part-of: capstone-target, tier: internal }

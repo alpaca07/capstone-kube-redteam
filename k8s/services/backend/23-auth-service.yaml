@@ -1,0 +1,78 @@
+# auth-service — 로그인/토큰 (backend ns). redis에 세션 저장.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: auth-service-code
+  namespace: backend
+data:
+  app.py: |
+    import os, secrets, json
+    from flask import Flask, request
+    import redis
+    app = Flask(__name__)
+    r = redis.Redis(host=os.environ["REDIS_HOST"], port=int(os.environ.get("REDIS_PORT","6379")),
+                    decode_responses=True, socket_connect_timeout=5)
+    @app.get("/health")
+    def health():
+        try:
+            r.ping(); return {"status": "ok"}
+        except Exception as e:
+            return {"status": "error", "detail": str(e)}, 500
+    @app.post("/login")
+    def login():
+        data = request.get_json(silent=True) or {}
+        user = data.get("username", "guest")
+        token = secrets.token_hex(16)
+        r.setex("session:" + token, 3600, json.dumps({"user": user}))
+        return {"token": token}
+    @app.get("/api/me")
+    def me():
+        token = request.headers.get("Authorization", "").replace("Bearer ", "")
+        s = r.get("session:" + token)
+        if not s:
+            return {"error": "unauthorized"}, 401
+        return {"session": json.loads(s)}
+    if __name__ == "__main__":
+        app.run(host="0.0.0.0", port=8080)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: backend
+  labels: { app: auth-service, tier: backend }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: auth-service }
+  template:
+    metadata:
+      labels: { app: auth-service, tier: backend }
+    spec:
+      containers:
+        - name: auth-service
+          image: python:3.12-slim
+          command: ["/bin/sh", "-c"]
+          args: ["pip install --no-cache-dir flask==3.0.3 redis==5.0.8 && python /app/app.py"]
+          ports: [{ containerPort: 8080 }]
+          envFrom:
+            - configMapRef: { name: app-config }
+          volumeMounts: [{ name: code, mountPath: /app }]
+          readinessProbe:
+            httpGet: { path: /health, port: 8080 }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+      volumes:
+        - name: code
+          configMap: { name: auth-service-code }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  namespace: backend
+  labels: { app: auth-service }
+spec:
+  selector: { app: auth-service }
+  ports: [{ port: 8080, targetPort: 8080 }]
