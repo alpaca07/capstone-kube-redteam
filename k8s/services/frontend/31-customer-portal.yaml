@@ -1,4 +1,5 @@
-# customer-portal — 고객 계정 (frontend ns, 공개). auth-service 로그인 + order-api 주문 조회. NodePort 30081.
+# customer-portal — 고객 계정 (frontend ns, 공개). auth-service 로그인 + order-api 주문. NodePort 30081.
+# storefront와 동일한 디자인 시스템 (IBM Plex Sans KR + 코랄 액센트, 라이트 테마).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -10,59 +11,103 @@ data:
         listen 80;
         root /usr/share/nginx/html;
         index index.html;
-        location /api/login { proxy_pass http://auth-service.backend.svc.cluster.local:8080/login; }
-        location /api/me    { proxy_pass http://auth-service.backend.svc.cluster.local:8080/api/me; }
+        location /api/login  { proxy_pass http://auth-service.backend.svc.cluster.local:8080/login; }
+        location /api/me     { proxy_pass http://auth-service.backend.svc.cluster.local:8080/api/me; }
         location /api/orders { proxy_pass http://order-api.backend.svc.cluster.local:8080; }
         location / { try_files $uri $uri/ /index.html; }
     }
   index.html: |
-    <!doctype html><html lang="ko"><head><meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1"><title>ShopFlow 고객센터</title>
+    <!doctype html><html lang="ko"><head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ShopFlow 고객센터</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-      body{font-family:system-ui,sans-serif;margin:0;background:#f6f7f9;color:#222}
-      header{background:#1c5a87;color:#fff;padding:16px 24px;font-size:20px;font-weight:800}
-      .wrap{max-width:760px;margin:24px auto;padding:0 16px}
-      .box{background:#fff;border-radius:10px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px}
-      input,button{font-size:14px;padding:8px 12px;border-radius:7px;border:1px solid #ccc}
-      button{background:#1c5a87;color:#fff;border:0;font-weight:700;cursor:pointer}
-      table{width:100%;border-collapse:collapse;font-size:14px}
-      th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #eee}
-      th{color:#888;font-weight:700}
-      .pill{font-size:11px;padding:2px 8px;border-radius:10px;background:#eef2f6}
+      :root{
+        --bg:#f5f6f8; --surface:#fff; --ink:#18181b; --muted:#71717a;
+        --line:#e7e8ec; --accent:#f0502e; --radius:14px;
+        --font:"IBM Plex Sans KR",-apple-system,system-ui,sans-serif;
+      }
+      *{box-sizing:border-box}
+      body{margin:0;font-family:var(--font);background:var(--bg);color:var(--ink);line-height:1.5}
+      a{color:inherit;text-decoration:none}
+      .wrap{max-width:1000px;margin:0 auto;padding:0 20px}
+      header{position:sticky;top:0;z-index:10;background:rgba(245,246,248,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+      .nav{display:flex;align-items:center;gap:28px;height:64px}
+      .brand{font-weight:700;font-size:20px;letter-spacing:-.02em}
+      .brand b{color:var(--accent)}
+      .links{display:flex;gap:22px;font-size:14.5px;color:var(--muted);font-weight:500;margin-left:auto}
+      .links a:hover{color:var(--ink)}
+      .hero{padding:40px 0 22px}
+      .hero h1{font-size:28px;font-weight:700;letter-spacing:-.02em;margin:0 0 8px}
+      .hero p{font-size:15px;color:var(--muted);margin:0}
+      .cols{display:grid;grid-template-columns:300px 1fr;gap:20px;padding-bottom:50px;align-items:start}
+      .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px}
+      .card h3{font-size:15px;font-weight:700;margin:0 0 14px}
+      label{display:block;font-size:12.5px;color:var(--muted);font-weight:500;margin:0 0 6px}
+      input{width:100%;font-family:inherit;font-size:14px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fbfbfc}
+      input:focus{outline:2px solid var(--accent);outline-offset:0;border-color:transparent}
+      button{width:100%;margin-top:12px;font-family:inherit;font-size:14.5px;font-weight:600;color:#fff;background:var(--ink);border:0;padding:11px;border-radius:10px;cursor:pointer;transition:transform .12s ease}
+      button:active{transform:scale(.98)}
+      .hint{font-size:12.5px;color:#15803d;margin:10px 0 0;min-height:1em}
+      .sec-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px}
+      .sec-head span{font-size:12.5px;color:var(--muted)}
+      .olist{display:flex;flex-direction:column}
+      .orow{display:grid;grid-template-columns:36px 1fr auto auto;gap:12px;align-items:center;padding:11px 2px;border-bottom:1px solid var(--line);font-size:14px}
+      .orow:last-child{border-bottom:0}
+      .onum{color:var(--muted);font-size:13px}
+      .oqty{color:var(--muted);font-size:13px}
+      .pill{font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:999px}
+      .s-shipped{background:#e7f6ec;color:#15803d}
+      .s-paid{background:#eef0f3;color:#334155}
+      .s-pending{background:#fdf1e3;color:#b45309}
+      .s-cancelled{background:#f3f4f6;color:#9ca3af}
+      .empty{color:var(--muted);font-size:14px;padding:16px 2px}
+      @media(max-width:620px){.cols{grid-template-columns:1fr}.links{display:none}}
     </style></head><body>
-    <header>ShopFlow 고객센터</header>
+    <header><div class="wrap nav">
+      <div class="brand">Shop<b>Flow</b></div>
+      <nav class="links"><a href="#">주문내역</a><a href="#">배송조회</a><a href="#">1:1 문의</a></nav>
+    </div></header>
     <div class="wrap">
-      <div class="box">
-        <b>로그인</b><br><br>
-        <input id="u" placeholder="사용자명" value="guest">
-        <button onclick="login()">로그인</button>
-        <span id="who" style="margin-left:10px;color:#16a34a"></span>
-      </div>
-      <div class="box">
-        <b>최근 주문</b>
-        <table><thead><tr><th>#</th><th>고객</th><th>상품</th><th>수량</th><th>상태</th></tr></thead>
-        <tbody id="orders"><tr><td colspan="5">로그인 후 조회</td></tr></tbody></table>
+      <section class="hero"><h1>고객센터</h1><p>로그인하고 주문 내역을 확인하세요.</p></section>
+      <div class="cols">
+        <div class="card">
+          <h3>로그인</h3>
+          <label for="u">아이디</label>
+          <input id="u" value="guest" autocomplete="username">
+          <button id="btn">로그인</button>
+          <p class="hint" id="hint"></p>
+        </div>
+        <div class="card">
+          <div class="sec-head"><h3 style="margin:0">최근 주문</h3><span id="ocount"></span></div>
+          <div class="olist" id="orders"><div class="empty">로그인 후 주문 내역이 표시됩니다.</div></div>
+        </div>
       </div>
     </div>
     <script>
+      const SMAP={shipped:['배송완료','s-shipped'],paid:['결제완료','s-paid'],pending:['준비중','s-pending'],cancelled:['취소','s-cancelled']};
       async function login(){
-        const u=document.getElementById('u').value;
-        const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u})});
-        const j=await r.json();
-        document.getElementById('who').textContent='토큰 발급됨';
-        loadOrders();
+        const u=document.getElementById('u').value||'guest';
+        try{
+          await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u})});
+          document.getElementById('hint').textContent=u+'님 로그인됨';
+          loadOrders();
+        }catch(e){document.getElementById('hint').textContent='로그인 실패';}
       }
       async function loadOrders(){
         try{
           const os=await (await fetch('/api/orders')).json();
-          const tb=document.getElementById('orders');tb.innerHTML='';
-          for(const o of os.slice(0,10)){
-            const tr=document.createElement('tr');
-            tr.innerHTML=`<td>${o.id}</td><td>${o.customer}</td><td>${o.product}</td><td>${o.qty}</td><td><span class="pill">${o.status}</span></td>`;
-            tb.appendChild(tr);
-          }
-        }catch(e){document.getElementById('orders').innerHTML='<tr><td colspan="5">조회 실패</td></tr>';}
+          document.getElementById('ocount').textContent=os.length+'건';
+          document.getElementById('orders').innerHTML=os.slice(0,10).map(o=>{
+            const s=SMAP[o.status]||[o.status,'s-paid'];
+            return `<div class="orow"><span class="onum">#${o.id}</span><span>${o.product}</span>
+              <span class="oqty">${o.qty}개</span><span class="pill ${s[1]}">${s[0]}</span></div>`;
+          }).join('');
+        }catch(e){document.getElementById('orders').innerHTML='<div class="empty">주문을 불러오지 못했습니다.</div>';}
       }
+      document.getElementById('btn').addEventListener('click',login);
     </script></body></html>
 ---
 apiVersion: apps/v1

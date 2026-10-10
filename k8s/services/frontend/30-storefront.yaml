@@ -1,4 +1,5 @@
 # storefront — 쇼핑몰 메인 (frontend ns, 공개). catalog-api/order-api로 프록시. NodePort 30080.
+# UI는 design-taste-frontend 스킬 원칙으로 디자인 (정적 HTML/CSS, nginx 서빙).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -15,35 +16,78 @@ data:
         location / { try_files $uri $uri/ /index.html; }
     }
   index.html: |
-    <!doctype html><html lang="ko"><head><meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1"><title>ShopFlow</title>
+    <!doctype html><html lang="ko"><head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ShopFlow</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-      body{font-family:system-ui,sans-serif;margin:0;background:#f6f7f9;color:#222}
-      header{background:#16a34a;color:#fff;padding:16px 24px;font-size:21px;font-weight:800}
-      .wrap{max-width:1000px;margin:24px auto;padding:0 16px}
-      h2{font-size:16px;color:#444}
-      .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
-      .card{background:#fff;border-radius:10px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
-      .cat{font-size:11px;color:#16a34a;font-weight:700;text-transform:uppercase}
-      .name{font-size:15px;font-weight:700;margin:5px 0}
-      .price{font-size:17px;font-weight:800}
-      .stock{font-size:12px;color:#888;margin-top:4px}
+      /* 팔레트: 쿨 오프화이트 + 니어블랙, 단일 코랄 액센트. 라이트 테마 고정. 반경 14px 통일. */
+      :root{
+        --bg:#f5f6f8; --surface:#fff; --ink:#18181b; --muted:#71717a;
+        --line:#e7e8ec; --accent:#f0502e; --radius:14px;
+        --font:"IBM Plex Sans KR",-apple-system,system-ui,sans-serif;
+      }
+      *{box-sizing:border-box}
+      body{margin:0;font-family:var(--font);background:var(--bg);color:var(--ink);line-height:1.5}
+      a{color:inherit;text-decoration:none}
+      .wrap{max-width:1180px;margin:0 auto;padding:0 20px}
+      header{position:sticky;top:0;z-index:10;background:rgba(245,246,248,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+      .nav{display:flex;align-items:center;gap:28px;height:64px}
+      .brand{font-weight:700;font-size:20px;letter-spacing:-.02em}
+      .brand b{color:var(--accent)}
+      .links{display:flex;gap:22px;font-size:14.5px;color:var(--muted);font-weight:500}
+      .links a:hover{color:var(--ink)}
+      .cart{margin-left:auto;font-size:13.5px;font-weight:600;border:1px solid var(--line);background:var(--surface);padding:8px 16px;border-radius:999px}
+      .hero{padding:44px 0 28px}
+      .hero h1{font-size:34px;font-weight:700;letter-spacing:-.03em;margin:0 0 10px;max-width:18ch}
+      .hero p{font-size:16px;color:var(--muted);margin:0;max-width:52ch}
+      .sec-head{display:flex;align-items:baseline;justify-content:space-between;margin:12px 0 16px}
+      .sec-head h2{font-size:19px;font-weight:700;margin:0}
+      .sec-head span{font-size:13px;color:var(--muted)}
+      .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:18px;padding-bottom:50px}
+      .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;transition:transform .18s ease,box-shadow .18s ease}
+      .card:hover{transform:translateY(-3px);box-shadow:0 10px 30px rgba(24,24,27,.09)}
+      .thumb{aspect-ratio:4/3;background:linear-gradient(135deg,#e9ebef,#dde0e6);background-size:cover;background-position:center}
+      .cbody{padding:13px 14px 15px}
+      .cat{font-size:11px;font-weight:600;color:var(--accent);letter-spacing:.02em}
+      .name{font-size:14.5px;font-weight:600;margin:3px 0 8px}
+      .price{font-size:17px;font-weight:700}
+      .stock{font-size:12px;color:var(--muted);margin-top:3px}
+      footer{border-top:1px solid var(--line);padding:26px 0;color:var(--muted);font-size:13px}
+      footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
+      @media(max-width:560px){.links{display:none}.hero h1{font-size:27px}}
     </style></head><body>
-    <header>ShopFlow 쇼핑몰</header>
+    <header><div class="wrap nav">
+      <div class="brand">Shop<b>Flow</b></div>
+      <nav class="links"><a href="#">전체상품</a><a href="#">베스트</a><a href="#">신상품</a><a href="#">세일</a></nav>
+      <a href="/" class="cart">장바구니 0</a>
+    </div></header>
     <div class="wrap">
-      <h2>전체 상품</h2>
-      <div class="grid" id="grid">불러오는 중…</div>
+      <section class="hero">
+        <h1>오늘 필요한 것, ShopFlow에서.</h1>
+        <p>전자기기부터 데일리 액세서리까지, 엄선한 상품을 합리적인 가격에 만나보세요.</p>
+      </section>
+      <div class="sec-head"><h2>전체 상품</h2><span id="count"></span></div>
+      <div class="grid" id="grid"></div>
     </div>
+    <footer><div class="wrap"><span>© 2026 ShopFlow</span><span>고객센터 1588-0000 · 평일 09:00-18:00</span></div></footer>
     <script>
+      const fmt=n=>'₩'+Number(n).toLocaleString('ko-KR');
       fetch('/api/products').then(r=>r.json()).then(ps=>{
-        const g=document.getElementById('grid');g.innerHTML='';
-        for(const p of ps){
-          const d=document.createElement('div');d.className='card';
-          d.innerHTML=`<div class="cat">${p.category}</div><div class="name">${p.name}</div>
-            <div class="price">₩${p.price.toLocaleString()}</div><div class="stock">재고 ${p.stock}개</div>`;
-          g.appendChild(d);
-        }
-      }).catch(()=>{document.getElementById('grid').innerHTML='상품 로드 실패';});
+        document.getElementById('count').textContent=ps.length+'개 상품';
+        document.getElementById('grid').innerHTML=ps.map(p=>`
+          <article class="card">
+            <div class="thumb" style="background-image:url('https://picsum.photos/seed/shopflow${p.id}/480/360')"></div>
+            <div class="cbody">
+              <div class="cat">${p.category}</div>
+              <div class="name">${p.name}</div>
+              <div class="price">${fmt(p.price)}</div>
+              <div class="stock">재고 ${p.stock}개</div>
+            </div>
+          </article>`).join('');
+      }).catch(()=>{document.getElementById('grid').innerHTML='<p style="color:var(--muted)">상품을 불러오지 못했습니다.</p>';});
     </script></body></html>
 ---
 apiVersion: apps/v1
