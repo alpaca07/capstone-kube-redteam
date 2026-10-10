@@ -1,0 +1,87 @@
+# nginx 설정 + 정적 UI (ConfigMap 주입)
+# nginx는 정적 페이지를 서빙하고 /api/ 는 backend(Flask)로 리버스 프록시.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-web
+  namespace: frontend
+data:
+  default.conf: |
+    server {
+        listen 80;
+        server_name _;
+        root /usr/share/nginx/html;
+        index index.html;
+
+        location /api/ {
+            proxy_pass http://backend.frontend.svc.cluster.local:8080/api/;
+            proxy_set_header Host $host;
+        }
+        location = /health {
+            proxy_pass http://backend.frontend.svc.cluster.local:8080/health;
+        }
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+    }
+  index.html: |
+    <!doctype html>
+    <html lang="ko">
+    <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>고객관리 포털</title>
+    <style>
+      body{font-family:system-ui,sans-serif;margin:0;background:#f4f5f7;color:#222}
+      header{background:#1c5a87;color:#fff;padding:16px 24px;font-size:20px;font-weight:700}
+      .wrap{max-width:900px;margin:24px auto;padding:0 16px}
+      table{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)}
+      th,td{text-align:left;padding:10px 14px;border-bottom:1px solid #eee;font-size:14px}
+      th{background:#f0f2f5;font-weight:700}
+      tr:hover{background:#f8fafc;cursor:pointer}
+      .badge{font-size:12px;padding:2px 8px;border-radius:10px;background:#e3eef6;color:#1c5a87}
+      .vip{background:#f6e9c9;color:#9a6b00}
+      #detail{margin-top:18px;background:#fff;border-radius:8px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.1);display:none}
+      #detail h3{margin:0 0 10px}
+      .r{display:flex;gap:8px;font-size:14px;padding:4px 0}
+      .k{width:90px;color:#888}
+    </style>
+    </head>
+    <body>
+    <header>사내 고객관리 포털</header>
+    <div class="wrap">
+      <table>
+        <thead><tr><th>ID</th><th>이름</th><th>이메일</th><th>등급</th></tr></thead>
+        <tbody id="rows"><tr><td colspan="4">불러오는 중…</td></tr></tbody>
+      </table>
+      <div id="detail"></div>
+    </div>
+    <script>
+    async function load(){
+      try{
+        const r = await fetch('/api/customers');
+        const data = await r.json();
+        const tb = document.getElementById('rows'); tb.innerHTML='';
+        for(const c of data){
+          const tr=document.createElement('tr');
+          const badge = c.tier==='vip' ? '<span class="badge vip">VIP</span>' : '<span class="badge">일반</span>';
+          tr.innerHTML=`<td>${c.id}</td><td>${c.name}</td><td>${c.email}</td><td>${badge}</td>`;
+          tr.onclick=()=>detail(c.id);
+          tb.appendChild(tr);
+        }
+      }catch(e){ document.getElementById('rows').innerHTML='<tr><td colspan="4">백엔드 연결 실패</td></tr>'; }
+    }
+    async function detail(id){
+      const c = await (await fetch('/api/customers/'+id)).json();
+      const d=document.getElementById('detail'); d.style.display='block';
+      d.innerHTML=`<h3>${c.name} (#${c.id})</h3>
+        <div class="r"><span class="k">이메일</span><span>${c.email}</span></div>
+        <div class="r"><span class="k">전화</span><span>${c.phone||'-'}</span></div>
+        <div class="r"><span class="k">주소</span><span>${c.address||'-'}</span></div>
+        <div class="r"><span class="k">주민번호</span><span>${c.ssn||'-'}</span></div>
+        <div class="r"><span class="k">등급</span><span>${c.tier}</span></div>`;
+    }
+    load();
+    </script>
+    </body>
+    </html>

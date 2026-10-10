@@ -1,0 +1,63 @@
+# Flask 백엔드 코드 (ConfigMap 주입 — 커스텀 이미지 없이 python 공식 이미지에 얹음)
+# 2단계: 깨끗한 코드 (파라미터 바인딩, 디버그 노출 없음). 취약점은 3단계에서 추가.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-code
+  namespace: frontend
+data:
+  app.py: |
+    import os
+    from flask import Flask, jsonify, abort
+    import psycopg2
+    import psycopg2.extras
+
+    app = Flask(__name__)
+
+    def get_conn():
+        return psycopg2.connect(
+            host=os.environ["DB_HOST"],
+            port=os.environ.get("DB_PORT", "5432"),
+            dbname=os.environ["DB_NAME"],
+            user=os.environ["DB_USER"],
+            password=os.environ["DB_PASSWORD"],
+            connect_timeout=5,
+        )
+
+    @app.get("/health")
+    def health():
+        try:
+            with get_conn() as c, c.cursor() as cur:
+                cur.execute("SELECT 1")
+            return {"status": "ok"}
+        except Exception as e:
+            return {"status": "error", "detail": str(e)}, 500
+
+    @app.get("/")
+    def index():
+        return {
+            "service": "customer-portal-api",
+            "endpoints": ["/health", "/api/customers", "/api/customers/<id>"],
+        }
+
+    @app.get("/api/customers")
+    def list_customers():
+        with get_conn() as c, c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT id, name, email, tier FROM customers ORDER BY id")
+            return jsonify(cur.fetchall())
+
+    @app.get("/api/customers/<int:cid>")
+    def get_customer(cid):
+        with get_conn() as c, c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT id, name, email, phone, address, ssn, tier, created_at "
+                "FROM customers WHERE id = %s",
+                (cid,),
+            )
+            row = cur.fetchone()
+            if not row:
+                abort(404)
+            return jsonify(row)
+
+    if __name__ == "__main__":
+        app.run(host="0.0.0.0", port=8080)

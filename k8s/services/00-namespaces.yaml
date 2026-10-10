@@ -1,0 +1,18 @@
+# 자체 서비스 스택 네임스페이스 (2단계)
+# frontend = 웹앱(nginx+Flask), database = PostgreSQL
+# 킬체인 ③ 측면이동이 이 두 네임스페이스 경계를 넘는 구조.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: frontend
+  labels:
+    app.kubernetes.io/part-of: capstone-target
+    tier: frontend
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: database
+  labels:
+    app.kubernetes.io/part-of: capstone-target
+    tier: database
