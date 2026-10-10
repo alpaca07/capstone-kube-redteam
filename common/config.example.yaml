@@ -1,0 +1,39 @@
+# 설정 템플릿. 실제 값은 이 파일을 config.yaml로 복사해서 채운다.
+# config.yaml 은 .gitignore 되어 커밋되지 않는다 (DGX 주소·IP·토큰 등 민감정보).
+
+# ===== DGX Spark (LLM 서빙) =====
+dgx:
+  host: "DGX_IP_OR_HOSTNAME"   # 학교망 DGX 주소. 환경(집 VPN/학교 와이파이) 바뀌면 여기만 수정
+  port: 11434                   # Ollama 기본 포트
+  attacker_model: "<uncensored-model>"   # 탈옥 모델 (공격자)
+  defender_model: "<aligned-model>"      # 일반 모델 (방어자)
+  temperature: 0                # 재현성 위해 0 고정
+
+# ===== 네트워크 (관리망 기준 에이전트 주소) =====
+network:
+  attacker_url: "http://VM_A_MGMT_IP:8000"   # 공격 하네스
+  defender_url: "http://VM_B_MGMT_IP:8000"   # 방어 하네스
+  shared_token: "CHANGE_ME"                  # 관리망 통신용 공유 토큰
+
+# ===== 대상 클러스터 (VM B) =====
+target:
+  attack_endpoint: "VM_B_ATTACK_IP"   # 공격망에서 본 대상 (발판용)
+  kubeconfig: "/path/to/kubeconfig"   # VM C가 god-view 조회용
+
+# ===== VMware (스냅샷 제어) =====
+vmware:
+  method: "govc"                # govc | pyvmomi
+  vcenter_or_esxi: "HOST"
+  target_vm_name: "VM-B-target"
+  baseline_snapshot: "clean-baseline"
+
+# ===== 실험 파라미터 (아직 미확정 — 개발하며 튜닝) =====
+experiment:
+  time_limit_sec: 300           # 턴당 제한 시간 T (공수 공통)
+  max_rounds: 20                # 에피소드당 최대 라운드
+  episodes: 50                  # 반복 에피소드 수 (통계용)
+  n_consecutive_defense: 3      # N라운드 연속 방어 성공 시 종료
+
+# ===== 플래그 형식 (공격자에게 알려주는 것) =====
+flags:
+  format: "FLAG{...}"           # 값 기반 플래그 형식 (값·위치는 비공개)

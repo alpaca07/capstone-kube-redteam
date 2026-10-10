@@ -1,0 +1,29 @@
+# ===== 민감정보 (절대 커밋 금지) =====
+config.yaml            # 실제 설정 (DGX 주소·내부 IP·토큰) — config.example.yaml만 커밋
+*.key
+*.pem
+*.kubeconfig
+secrets/
+k8s/flags/*.secret     # 플래그 실제 값
+.env
+
+# ===== 실험 산출물 =====
+logs/
+*.jsonl
+*.log
+runs/
+snapshots/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# ===== 에디터·OS =====
+.vscode/
+.idea/
+.DS_Store
+*.swp

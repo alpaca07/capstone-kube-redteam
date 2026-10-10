@@ -1,0 +1,15 @@
+# 공통 의존성 (VM별로 필요한 것만 설치해도 됨)
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+requests>=2.31
+pyyaml>=6.0
+
+# VM C (오케스트레이터) — VMware 제어
+# pyvmomi>=8.0        # 또는 govc(CLI) 사용
+
+# VM B (방어) — 쿠버네티스 조회
+# kubernetes>=29.0
+
+# 개발/분석
+# jupyter             # 사후 분석 (논문 그래프)
