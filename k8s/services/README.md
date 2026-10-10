@@ -8,8 +8,7 @@ Goat(1단계) 위에, 킬체인이 관통할 **현실적인 이커머스 회사(
 
 | 네임스페이스 | 서비스 | 이미지 | 역할 | 노출 |
 |------|--------|--------|------|------|
-| `frontend` | storefront | nginx | 쇼핑몰 메인 (상품) | NodePort **30080** |
-| `frontend` | customer-portal | nginx | 고객센터 (로그인+주문) | NodePort **30081** |
+| `frontend` | web | nginx | 쇼핑몰(`/`) + 고객센터(`/account`), 한 사이트 | NodePort **30080** |
 | `frontend` | traffic-generator | curl | 가용성 baseline | — |
 | `backend` | catalog-api | python/Flask | 상품 API | ClusterIP |
 | `backend` | order-api | python/Flask | 주문 API (조인) | ClusterIP |
@@ -47,7 +46,7 @@ bash k8s/services/setup-services.sh
 kubectl get pods -n database -n backend   # 아래처럼 ns별로
 kubectl get pods -n backend ; kubectl get pods -n frontend ; kubectl get pods -n internal
 
-# 공개:  http://<VM B IP>:30080 (쇼핑몰) · :30081 (고객센터)
+# 공개:  http://<VM B IP>:30080 (쇼핑몰) · http://<VM B IP>:30080/account (고객센터)
 # 내부 관리자(포트포워딩):
 kubectl -n internal port-forward --address 0.0.0.0 svc/admin-dashboard 30090:8080 &
 #   → http://<VM B IP>:30090  (고객 PII 콘솔)

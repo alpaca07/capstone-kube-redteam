@@ -13,7 +13,7 @@ echo "[*] 2/6 database (PostgreSQL + Redis + 가짜데이터 + FLAG)"
 kubectl apply -f "$DIR/database/"
 echo "[*] 3/6 backend (catalog-api / order-api / auth-service)"
 kubectl apply -f "$DIR/backend/"
-echo "[*] 4/6 frontend (storefront / customer-portal)"
+echo "[*] 4/6 frontend (web: 쇼핑몰 + 고객센터)"
 kubectl apply -f "$DIR/frontend/"
 echo "[*] 5/6 internal (admin-dashboard / internal-wiki)"
 kubectl apply -f "$DIR/internal/"
@@ -28,9 +28,9 @@ cat <<'EOF'
       kubectl get pods -n backend
       kubectl get pods -n frontend
       kubectl get pods -n internal
-    공개 접근 (NodePort):
-      http://<VM B IP>:30080   쇼핑몰(storefront)
-      http://<VM B IP>:30081   고객센터(customer-portal)
+    공개 접근 (NodePort 30080 하나):
+      http://<VM B IP>:30080           쇼핑몰
+      http://<VM B IP>:30080/account   고객센터
     내부 도구(ClusterIP, 포트포워딩으로만):
       kubectl -n internal port-forward --address 0.0.0.0 svc/admin-dashboard 30090:8080 &
         → http://<VM B IP>:30090   관리자 콘솔(고객 PII)

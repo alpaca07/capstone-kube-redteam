@@ -1,5 +1,5 @@
 # 더미 트래픽 생성기 — 여러 서비스를 주기 호출. 가용성 baseline + 배경 노이즈.
-# 방어 패치가 서비스를 깨뜨리면 해당 서비스 코드가 non-200으로 찍혀 감지됨.
+# 방어 패치가 서비스를 깨뜨리면 해당 서비스가 non-200으로 찍혀 감지됨.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -23,11 +23,11 @@ spec:
               echo "traffic-generator start"
               hit(){ curl -s -m 5 -o /dev/null -w "%{http_code}" "$1"; }
               while true; do
-                sf=$(hit "http://storefront.frontend.svc.cluster.local/api/products")
-                cp=$(hit "http://customer-portal.frontend.svc.cluster.local/")
+                web=$(hit "http://web.frontend.svc.cluster.local/")
+                acc=$(hit "http://web.frontend.svc.cluster.local/account")
                 oa=$(hit "http://order-api.backend.svc.cluster.local:8080/api/orders")
                 ad=$(hit "http://admin-dashboard.internal.svc.cluster.local:8080/api/stats")
-                echo "$(date -u +%H:%M:%S) store=$sf portal=$cp orders=$oa admin=$ad"
+                echo "$(date -u +%H:%M:%S) web=$web account=$acc orders=$oa admin=$ad"
                 sleep 5
               done
           resources:

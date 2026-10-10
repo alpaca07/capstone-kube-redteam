@@ -1,0 +1,193 @@
+# web — ShopFlow 공개 웹 (frontend ns). 한 nginx가 쇼핑몰(/)과 고객센터(/account)를 서빙.
+#   /          → 쇼핑몰 (index.html)
+#   /account   → 고객센터 (account.html)
+#   /api/*     → backend API 프록시
+# 헤더에서 쇼핑몰 ↔ 고객센터 상호 이동. NodePort 30080 하나로 통합.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web
+  namespace: frontend
+data:
+  default.conf: |
+    server {
+        listen 80;
+        root /usr/share/nginx/html;
+        index index.html;
+        location /api/products { proxy_pass http://catalog-api.backend.svc.cluster.local:8080; }
+        location /api/orders   { proxy_pass http://order-api.backend.svc.cluster.local:8080; }
+        location /api/login    { proxy_pass http://auth-service.backend.svc.cluster.local:8080/login; }
+        location /api/me       { proxy_pass http://auth-service.backend.svc.cluster.local:8080/api/me; }
+        location = /account    { try_files /account.html =404; }
+        location /             { try_files $uri $uri/ /index.html; }
+    }
+  index.html: |
+    <!doctype html><html lang="ko"><head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ShopFlow</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+      :root{--bg:#f5f6f8;--surface:#fff;--ink:#18181b;--muted:#71717a;--line:#e7e8ec;--accent:#f0502e;--radius:14px;--font:"IBM Plex Sans KR",-apple-system,system-ui,sans-serif}
+      *{box-sizing:border-box} body{margin:0;font-family:var(--font);background:var(--bg);color:var(--ink);line-height:1.5}
+      a{color:inherit;text-decoration:none}
+      .wrap{max-width:1180px;margin:0 auto;padding:0 20px}
+      header{position:sticky;top:0;z-index:10;background:rgba(245,246,248,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+      .nav{display:flex;align-items:center;gap:26px;height:64px}
+      .brand{font-weight:700;font-size:20px;letter-spacing:-.02em} .brand b{color:var(--accent)}
+      .links{display:flex;gap:20px;font-size:14.5px;color:var(--muted);font-weight:500}
+      .links a:hover{color:var(--ink)}
+      .right{margin-left:auto;display:flex;align-items:center;gap:14px}
+      .ghost{font-size:13.5px;font-weight:600;color:var(--ink)}
+      .cart{font-size:13.5px;font-weight:600;border:1px solid var(--line);background:var(--surface);padding:8px 16px;border-radius:999px}
+      .hero{padding:44px 0 28px}
+      .hero h1{font-size:34px;font-weight:700;letter-spacing:-.03em;margin:0 0 10px}
+      .hero p{font-size:16px;color:var(--muted);margin:0;max-width:52ch}
+      .sec-head{display:flex;align-items:baseline;justify-content:space-between;margin:12px 0 16px}
+      .sec-head h2{font-size:19px;font-weight:700;margin:0} .sec-head span{font-size:13px;color:var(--muted)}
+      .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:18px;padding-bottom:50px}
+      .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;transition:transform .18s ease,box-shadow .18s ease}
+      .card:hover{transform:translateY(-3px);box-shadow:0 10px 30px rgba(24,24,27,.09)}
+      .thumb{aspect-ratio:4/3;background:linear-gradient(135deg,#e9ebef,#dde0e6);background-size:cover;background-position:center}
+      .cbody{padding:13px 14px 15px}
+      .cat{font-size:11px;font-weight:600;color:var(--accent)} .name{font-size:14.5px;font-weight:600;margin:3px 0 8px}
+      .price{font-size:17px;font-weight:700} .stock{font-size:12px;color:var(--muted);margin-top:3px}
+      footer{border-top:1px solid var(--line);padding:26px 0;color:var(--muted);font-size:13px}
+      footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
+      @media(max-width:600px){.links{display:none}.hero h1{font-size:27px}}
+    </style></head><body>
+    <header><div class="wrap nav">
+      <a class="brand" href="/">Shop<b>Flow</b></a>
+      <nav class="links"><a href="/">전체상품</a><a href="/">베스트</a><a href="/">세일</a></nav>
+      <div class="right"><a class="ghost" href="/account">고객센터</a><a class="cart" href="/account">장바구니 0</a></div>
+    </div></header>
+    <div class="wrap">
+      <section class="hero"><h1>필요한 모든 것, 한 곳에서.</h1>
+        <p>전자기기부터 데일리 액세서리까지, ShopFlow가 엄선한 상품을 합리적인 가격에 만나보세요.</p></section>
+      <div class="sec-head"><h2>전체 상품</h2><span id="count"></span></div>
+      <div class="grid" id="grid"></div>
+    </div>
+    <footer><div class="wrap"><span>© 2026 ShopFlow</span><span>고객센터 1588-0000 · 평일 09:00-18:00</span></div></footer>
+    <script>
+      const fmt=n=>'₩'+Number(n).toLocaleString('ko-KR');
+      fetch('/api/products').then(r=>r.json()).then(ps=>{
+        document.getElementById('count').textContent=ps.length+'개 상품';
+        document.getElementById('grid').innerHTML=ps.map(p=>`<article class="card">
+          <div class="thumb" style="background-image:url('https://picsum.photos/seed/shopflow${p.id}/480/360')"></div>
+          <div class="cbody"><div class="cat">${p.category}</div><div class="name">${p.name}</div>
+          <div class="price">${fmt(p.price)}</div><div class="stock">재고 ${p.stock}개</div></div></article>`).join('');
+      }).catch(()=>{document.getElementById('grid').innerHTML='<p style="color:var(--muted)">상품을 불러오지 못했습니다.</p>';});
+    </script></body></html>
+  account.html: |
+    <!doctype html><html lang="ko"><head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ShopFlow 고객센터</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+      :root{--bg:#f5f6f8;--surface:#fff;--ink:#18181b;--muted:#71717a;--line:#e7e8ec;--accent:#f0502e;--radius:14px;--font:"IBM Plex Sans KR",-apple-system,system-ui,sans-serif}
+      *{box-sizing:border-box} body{margin:0;font-family:var(--font);background:var(--bg);color:var(--ink);line-height:1.5}
+      a{color:inherit;text-decoration:none}
+      .wrap{max-width:1000px;margin:0 auto;padding:0 20px}
+      header{position:sticky;top:0;z-index:10;background:rgba(245,246,248,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+      .nav{display:flex;align-items:center;gap:26px;height:64px}
+      .brand{font-weight:700;font-size:20px;letter-spacing:-.02em} .brand b{color:var(--accent)}
+      .links{display:flex;gap:20px;font-size:14.5px;color:var(--muted);font-weight:500}
+      .links a:hover{color:var(--ink)}
+      .back{margin-left:auto;font-size:13.5px;font-weight:600;border:1px solid var(--line);background:var(--surface);padding:8px 16px;border-radius:999px}
+      .hero{padding:40px 0 22px} .hero h1{font-size:28px;font-weight:700;letter-spacing:-.02em;margin:0 0 8px}
+      .hero p{font-size:15px;color:var(--muted);margin:0}
+      .cols{display:grid;grid-template-columns:300px 1fr;gap:20px;padding-bottom:50px;align-items:start}
+      .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px}
+      .card h3{font-size:15px;font-weight:700;margin:0 0 14px}
+      label{display:block;font-size:12.5px;color:var(--muted);font-weight:500;margin:0 0 6px}
+      input{width:100%;font-family:inherit;font-size:14px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fbfbfc}
+      input:focus{outline:2px solid var(--accent);outline-offset:0;border-color:transparent}
+      button{width:100%;margin-top:12px;font-family:inherit;font-size:14.5px;font-weight:600;color:#fff;background:var(--ink);border:0;padding:11px;border-radius:10px;cursor:pointer;transition:transform .12s ease}
+      button:active{transform:scale(.98)}
+      .hint{font-size:12.5px;color:#15803d;margin:10px 0 0;min-height:1em}
+      .sec-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px}
+      .sec-head span{font-size:12.5px;color:var(--muted)}
+      .orow{display:grid;grid-template-columns:36px 1fr auto auto;gap:12px;align-items:center;padding:11px 2px;border-bottom:1px solid var(--line);font-size:14px}
+      .orow:last-child{border-bottom:0} .onum{color:var(--muted);font-size:13px} .oqty{color:var(--muted);font-size:13px}
+      .pill{font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:999px}
+      .s-shipped{background:#e7f6ec;color:#15803d} .s-paid{background:#eef0f3;color:#334155}
+      .s-pending{background:#fdf1e3;color:#b45309} .s-cancelled{background:#f3f4f6;color:#9ca3af}
+      .empty{color:var(--muted);font-size:14px;padding:16px 2px}
+      @media(max-width:620px){.cols{grid-template-columns:1fr}.links{display:none}}
+    </style></head><body>
+    <header><div class="wrap nav">
+      <a class="brand" href="/">Shop<b>Flow</b></a>
+      <nav class="links"><a href="/account">주문내역</a><a href="/account">배송조회</a><a href="/account">1:1 문의</a></nav>
+      <a class="back" href="/">← 쇼핑몰</a>
+    </div></header>
+    <div class="wrap">
+      <section class="hero"><h1>고객센터</h1><p>로그인하고 주문 내역을 확인하세요.</p></section>
+      <div class="cols">
+        <div class="card"><h3>로그인</h3>
+          <label for="u">아이디</label><input id="u" value="guest" autocomplete="username">
+          <button id="btn">로그인</button><p class="hint" id="hint"></p></div>
+        <div class="card"><div class="sec-head"><h3 style="margin:0">최근 주문</h3><span id="ocount"></span></div>
+          <div id="orders"><div class="empty">로그인 후 주문 내역이 표시됩니다.</div></div></div>
+      </div>
+    </div>
+    <script>
+      const SMAP={shipped:['배송완료','s-shipped'],paid:['결제완료','s-paid'],pending:['준비중','s-pending'],cancelled:['취소','s-cancelled']};
+      async function login(){
+        const u=document.getElementById('u').value||'guest';
+        try{await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u})});
+          document.getElementById('hint').textContent=u+'님 로그인됨';loadOrders();
+        }catch(e){document.getElementById('hint').textContent='로그인 실패';}
+      }
+      async function loadOrders(){
+        try{const os=await (await fetch('/api/orders')).json();
+          document.getElementById('ocount').textContent=os.length+'건';
+          document.getElementById('orders').innerHTML=os.slice(0,10).map(o=>{const s=SMAP[o.status]||[o.status,'s-paid'];
+            return `<div class="orow"><span class="onum">#${o.id}</span><span>${o.product}</span><span class="oqty">${o.qty}개</span><span class="pill ${s[1]}">${s[0]}</span></div>`;}).join('');
+        }catch(e){document.getElementById('orders').innerHTML='<div class="empty">주문을 불러오지 못했습니다.</div>';}
+      }
+      document.getElementById('btn').addEventListener('click',login);
+    </script></body></html>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: frontend
+  labels: { app: web, tier: frontend }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: web }
+  template:
+    metadata:
+      labels: { app: web, tier: frontend }
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports: [{ containerPort: 80 }]
+          volumeMounts:
+            - { name: web, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf }
+            - { name: web, mountPath: /usr/share/nginx/html/index.html, subPath: index.html }
+            - { name: web, mountPath: /usr/share/nginx/html/account.html, subPath: account.html }
+          readinessProbe:
+            httpGet: { path: /, port: 80 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: web
+          configMap: { name: web }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: frontend
+  labels: { app: web }
+spec:
+  type: NodePort
+  selector: { app: web }
+  ports: [{ port: 80, targetPort: 80, nodePort: 30080 }]
