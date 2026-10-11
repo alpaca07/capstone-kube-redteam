@@ -10,11 +10,13 @@ target,detail}]} JSON을 뱉는다. 지저분한 출력의 JSON 추출은 common
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Optional, Protocol
 
 from common.llm_json import LLMJsonError, extract_json_object, loads_lenient
+from .filter import SituationReport
 
 ParseError = LLMJsonError
 
@@ -103,5 +105,36 @@ def parse_triage(text: str) -> TriageResult:
                         severity=severity, patch_plan=patch_plan, raw=text)
 
 
+class _LLM(Protocol):
+    def chat_text(self, system: str, user: str, **kw) -> str:
+        ...
+
+
+class Triager:
+    """상황 보고서 → LLM 진단 → TriageResult. 파싱 실패 시 재시도, 끝내 실패면 안전 기본값.
+
+    llm: chat_text(system, user)를 가진 것(OllamaClient 등). 프롬프트는 호출자가 로드해 주입.
+    """
+
+    def __init__(self, llm: _LLM, system_prompt: str, *, max_retries: int = 2) -> None:
+        self.llm = llm
+        self.system_prompt = system_prompt
+        self.max_retries = max_retries
+
+    def triage(self, report: SituationReport) -> TriageResult:
+        base = json.dumps(report.to_prompt_dict(), ensure_ascii=False)
+        user = base
+        last: Optional[Exception] = None
+        for _ in range(self.max_retries + 1):
+            text = self.llm.chat_text(self.system_prompt, user)
+            try:
+                return parse_triage(text)
+            except ParseError as e:                 # 로컬 모델 JSON 불안정 → 재시도
+                last = e
+                user = base + "\n\n(이전 응답이 유효한 JSON이 아니었습니다. 지정된 JSON 형식으로만 응답하세요.)"
+        # 끝내 못 파싱 → 안전 기본값(탐지·패치 없음). 과잉조치보다 무행동이 안전.
+        return TriageResult(assessment=f"트리아지 파싱 실패: {last}", severity=Severity.LOW)
+
+
 __all__ = ["Severity", "DetectedThreat", "PatchStep", "TriageResult",
-           "ParseError", "parse_triage"]
+           "ParseError", "parse_triage", "Triager"]
