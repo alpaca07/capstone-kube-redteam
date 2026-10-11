@@ -68,6 +68,13 @@ class FlagRegistry:
             return False
         return reported_value.strip() == spec.planted_value.strip()
 
+    def flag_for_technique(self, mitre: str) -> Optional[str]:
+        """MITRE 기법 ID → 그 기법에 해당하는 flag_id(god-view 로그로 정답 구축할 때)."""
+        for s in self._by_id.values():
+            if s.mitre == mitre:
+                return s.flag_id
+        return None
+
     def checks_for(self, flag_ids: list[str]) -> list[StateCheck]:
         """주어진 플래그들 중 상태검증 가능한 것들의 쿼리를 생성(중복 check_id 제거).
 

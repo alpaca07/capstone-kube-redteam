@@ -113,4 +113,25 @@ class FakeDefenderClient:
         return self._status
 
 
-__all__ = ["FakeSnapshotManager", "FakeAttackerClient", "FakeDefenderClient"]
+class FakeLogSource:
+    """god-view 로그 fake. 라운드 순서대로 관측 기법 집합을 돌려준다.
+
+    windows: 호출 순서별 기법 집합(한 라운드 = 한 호출). 소진되면 constant 반환.
+    """
+
+    def __init__(self, windows: Optional[list[set[str]]] = None,
+                 constant: Optional[set[str]] = None) -> None:
+        self._queue: list[set[str]] = list(windows or [])
+        self._constant = constant if constant is not None else set()
+        self.calls: list[tuple[float, float]] = []
+
+    def techniques_in_window(self, *, since_ts: float, until_ts: float) -> set[str]:
+        self.calls.append((since_ts, until_ts))
+        if self._queue:
+            return set(self._queue.pop(0))
+        return set(self._constant)
+
+
+__all__ = [
+    "FakeSnapshotManager", "FakeAttackerClient", "FakeDefenderClient", "FakeLogSource",
+]
