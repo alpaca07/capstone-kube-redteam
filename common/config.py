@@ -59,6 +59,12 @@ class FlagsConfig(BaseModel):
     format: str = "FLAG{...}"          # 값 기반 플래그 형식(값·위치는 비공개)
 
 
+class ObservabilityConfig(BaseModel):
+    # VM C가 god-view로 직접 읽는 로그 경로(관리망으로 마운트/동기 전제).
+    audit_log_path: str = "/var/lib/rancher/k3s/server/logs/audit.log"
+    falco_log_path: str = "/var/log/falco/events.txt"   # Falco file_output 설정 필요
+
+
 # ───────────────────────── 루트 ─────────────────────────
 class Config(BaseModel):
     dgx: DgxConfig
@@ -67,6 +73,7 @@ class Config(BaseModel):
     vmware: VmwareConfig = Field(default_factory=VmwareConfig)
     experiment: ExperimentConfig = Field(default_factory=ExperimentConfig)
     flags: FlagsConfig = Field(default_factory=FlagsConfig)
+    observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
 
 
 # ───────────────────────── 로더 ─────────────────────────
@@ -105,6 +112,6 @@ def load_config(path: Optional[str | os.PathLike] = None) -> Config:
 
 __all__ = [
     "DgxConfig", "NetworkConfig", "TargetConfig", "VmwareConfig",
-    "ExperimentConfig", "FlagsConfig", "Config",
+    "ExperimentConfig", "FlagsConfig", "ObservabilityConfig", "Config",
     "find_config", "load_config",
 ]

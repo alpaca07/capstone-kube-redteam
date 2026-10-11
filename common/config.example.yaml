@@ -37,3 +37,9 @@ experiment:
 # ===== 플래그 형식 (공격자에게 알려주는 것) =====
 flags:
   format: "FLAG{...}"           # 값 기반 플래그 형식 (값·위치는 비공개)
+
+# ===== 관측 (VM C가 god-view로 직접 읽는 로그) =====
+observability:
+  audit_log_path: "/var/lib/rancher/k3s/server/logs/audit.log"  # k3s 감사로그
+  falco_log_path: "/var/log/falco/events.txt"                   # Falco file_output 경로
+  # 주의: VM C가 이 경로를 읽을 수 있어야 함(관리망 마운트/동기). 공격받는 VM B 안 거침.
