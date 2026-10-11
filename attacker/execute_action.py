@@ -104,10 +104,51 @@ def extract_value(stdout: str, extract: Optional[Extract]) -> Optional[str]:
     return None
 
 
+# ───────────── 인자 치환(공격·리플레이 공유) ─────────────
+def resolve_args(args: list, inputs: dict, values: dict,
+                 foothold: Optional[dict] = None, *, target: Optional[str] = None) -> list:
+    """args의 {name} 플레이스홀더를 inputs가 가리키는 값으로 치환.
+
+    공격 모드(execute_action)와 리플레이 모드(replay_engine)가 같은 규칙을 공유한다 →
+    리플레이는 녹음된 값이 아니라 '재생 중 새로 얻은 값(values)'을 주입해 만료 토큰 문제를 푼다.
+      STATIC      → ref.value
+      FOOTHOLD    → foothold[name] → ref.value → target(단일 진입점 폴백)
+      STEP_OUTPUT → values[name] (선행 produces가 이번 실행에서 채운 값)
+    """
+    subs: dict[str, str] = {}
+    for name, ref in inputs.items():
+        if ref.source == InputSource.STATIC:
+            subs[name] = ref.value or ""
+        elif ref.source == InputSource.FOOTHOLD:
+            fh = foothold or {}
+            if name in fh:
+                subs[name] = str(fh[name])
+            elif ref.value:
+                subs[name] = ref.value
+            elif target:
+                subs[name] = target
+            else:
+                subs[name] = ""
+        else:  # STEP_OUTPUT
+            subs[name] = values.get(name, "")
+    out = []
+    for a in args:
+        for name, val in subs.items():
+            a = a.replace("{" + name + "}", val)
+        out.append(a)
+    return out
+
+
 # ───────────── 단일 통로 ─────────────
 _FLAG_RE = re.compile(r"FLAG\{[^}]*\}")
 _EXCERPT = 600          # 대본 발췌 길이
 _OBS_STDOUT = 2000      # LLM에 돌려줄 stdout 길이(컨텍스트 절약)
+
+
+def find_flag(text: str) -> Optional[str]:
+    """stdout에서 FLAG{} 하나. 공격·리플레이가 같은 탐지 규칙을 쓰도록 단일화."""
+    m = _FLAG_RE.search(text or "")
+    return m.group(0) if m else None
 
 
 class ActionExecutor:
@@ -127,31 +168,16 @@ class ActionExecutor:
         self._step = 0
         self.flags_found: list[str] = []
 
-    def _resolve_args(self, action: AttackAction, foothold: Optional[dict]) -> list:
-        """inputs를 값으로 풀어 args의 {name} 플레이스홀더 치환."""
-        subs: dict[str, str] = {}
-        for name, ref in action.inputs.items():
-            if ref.source == InputSource.STATIC:
-                subs[name] = ref.value or ""
-            elif ref.source == InputSource.FOOTHOLD:
-                subs[name] = str((foothold or {}).get(name, ref.value or ""))
-            else:  # STEP_OUTPUT — 선행 produces가 저장한 값
-                subs[name] = self._values.get(name, "")
-        out = []
-        for a in action.args:
-            for name, val in subs.items():
-                a = a.replace("{" + name + "}", val)
-            out.append(a)
-        return out
-
     def execute(self, action: AttackAction, *, foothold: Optional[dict] = None) -> Observation:
         self._step += 1
         n = self._step
-        args = self._resolve_args(action, foothold)
-        command = Command(tool=action.tool, args=args)
-        cmd_str = action.tool + " " + " ".join(args)
+        resolved = resolve_args(action.args, action.inputs, self._values, foothold)
+        # ★ 대본에는 '템플릿'(원본 {name} 포함)을 기록 — 리플레이가 만료 토큰 대신
+        #    재생 중 새 값으로 재치환할 수 있어야 하므로. 실제 실행은 resolved로.
+        command = Command(tool=action.tool, args=list(action.args))
+        cmd_str = action.tool + " " + " ".join(resolved)
 
-        # 범위검사(킬스위치 예방) — 실패면 실행 안 하고 차단 기록
+        # 범위검사(킬스위치 예방) — 치환된 실제 명령으로 검사. 실패면 실행 안 하고 차단 기록
         sc = check_scope(cmd_str, self.scope)
         if not sc.allowed:
             self.script.steps.append(Step(
@@ -162,7 +188,7 @@ class ActionExecutor:
                                blocked=True, block_reason=sc.reason, stderr=sc.reason)
 
         # 실행
-        res = self.runner.run(action.tool, args, timeout=self.step_timeout)
+        res = self.runner.run(action.tool, resolved, timeout=self.step_timeout)
 
         # produces 추출·저장(후속 스텝 의존)
         for name, pref in action.produces.items():
@@ -171,10 +197,8 @@ class ActionExecutor:
                 self._values[name] = val
 
         # 플래그 탐지
-        flag_found = None
-        m = _FLAG_RE.search(res.stdout)
-        if m:
-            flag_found = m.group(0)
+        flag_found = find_flag(res.stdout)
+        if flag_found:
             self.flags_found.append(flag_found)
 
         success = res.exit_code == 0
@@ -195,4 +219,4 @@ class ActionExecutor:
 
 
 __all__ = ["CommandResult", "CommandRunner", "Observation",
-           "extract_value", "ActionExecutor"]
+           "extract_value", "resolve_args", "find_flag", "ActionExecutor"]
