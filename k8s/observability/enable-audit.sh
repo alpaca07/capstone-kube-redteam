@@ -34,7 +34,7 @@ sleep 10
 if sudo kubectl get --raw='/readyz' >/dev/null 2>&1 || kubectl get nodes >/dev/null 2>&1; then
   echo "[✓] 감사로그 활성화 완료."
   echo "    실시간:  sudo tail -f $SRV/logs/audit.log"
-  echo "    ② 탐지 테스트:  kubectl -n internal exec deploy/admin-dashboard -- sh -c 'curl -sk -H \"Authorization: Bearer \$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" https://kubernetes.default.svc/api/v1/namespaces/database/secrets/postgres-credentials' >/dev/null; sudo grep admin-sa $SRV/logs/audit.log | tail -1"
+  echo "    ② 탐지 테스트:  kubectl --as=system:serviceaccount:internal:admin-sa -n database get secret postgres-credentials -o name ; sudo grep admin-sa $SRV/logs/audit.log | tail -2"
 else
   cat <<'RECOVER'
 [!] API 서버 확인 실패. 복구:

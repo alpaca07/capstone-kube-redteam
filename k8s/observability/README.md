@@ -36,10 +36,8 @@ bash k8s/observability/install-falco.sh
 
 ```bash
 # 감사로그: ② 탐지 — admin-sa가 DB secret 조회 → 로그에 기록
-kubectl -n internal exec deploy/admin-dashboard -- sh -c \
-  'curl -sk -H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" \
-   https://kubernetes.default.svc/api/v1/namespaces/database/secrets/postgres-credentials' >/dev/null
-sudo grep 'admin-sa' /var/lib/rancher/k3s/server/logs/audit.log | tail -1
+kubectl --as=system:serviceaccount:internal:admin-sa -n database get secret postgres-credentials -o name
+sudo grep 'admin-sa' /var/lib/rancher/k3s/server/logs/audit.log | tail -2
 
 # Falco: 파드에 셸 뜨면 경고
 kubectl -n frontend run t --rm -it --image=busybox --restart=Never -- sh   # exit로 나오기
