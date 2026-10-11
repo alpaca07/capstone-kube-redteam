@@ -26,6 +26,13 @@ spec:
           envFrom:
             - secretRef:
                 name: postgres-credentials
+          env:
+            - name: FLAG_4                    # 4단계 ④ — gitignore된 flag-values secret에서 주입
+              valueFrom:
+                secretKeyRef:
+                  name: flag-values
+                  key: FLAG_4
+                  optional: true              # secret 없어도 파드 기동(그땐 placeholder)
           volumeMounts:
             - name: initdb
               mountPath: /docker-entrypoint-initdb.d

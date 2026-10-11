@@ -1,6 +1,8 @@
-# PostgreSQL 초기화 SQL — 이커머스 스키마 (고객·상품·주문) + FLAG
-# postgres 이미지가 /docker-entrypoint-initdb.d/*.sql 을 최초 기동 시 알파벳순 실행.
-# emptyDir 데이터라 파드 재시작마다 깨끗이 재초기화 → 에피소드 리셋에 유리.
+# PostgreSQL 초기화 — 이커머스 스키마(고객·상품·주문) + 세션/주문 데이터.
+# ④ FLAG는 여기(커밋되는 파일)에 값을 두지 않는다. 03-inject-flag.sh가 env(FLAG_4)에서 주입.
+# → 레포만 읽어선 FLAG를 못 알아냄(공격자는 DB를 실제로 뚫어야 함).
+# postgres 이미지는 /docker-entrypoint-initdb.d/* 를 최초 기동 시 알파벳순 실행(.sql→.sh).
+# emptyDir라 파드 재시작마다 재초기화 + flag 재주입 → 에피소드 리셋에 유리.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -22,7 +24,7 @@ data:
       product_id INT REFERENCES products(id), qty INT DEFAULT 1,
       status TEXT DEFAULT 'pending', created_at TIMESTAMP DEFAULT now()
     );
-    -- ④ 최종 목표: 값 기반 플래그(가짜 마스터 자격증명)
+    -- ④ 최종 목표물 테이블 (값은 03-inject-flag.sh가 주입)
     CREATE TABLE IF NOT EXISTS internal_secrets (
       id SERIAL PRIMARY KEY, key TEXT UNIQUE NOT NULL, value TEXT NOT NULL, note TEXT
     );
@@ -60,5 +62,15 @@ data:
      (7,1,1,'shipped'),(7,6,1,'paid'),(8,10,1,'pending'),(9,7,2,'paid'),
      (10,3,1,'shipped'),(11,5,1,'paid'),(12,9,1,'pending');
 
-    INSERT INTO internal_secrets (key,value,note) VALUES
-     ('master_db_backup_credential','FLAG{PLACEHOLDER_STAGE4_REAL_FLAG_INJECTED_LATER}','④ 목표물 — 4단계에서 실제 값으로 교체');
+  03-inject-flag.sh: |
+    #!/bin/sh
+    # ④ FLAG 주입 — env FLAG_4(gitignore된 secret 'flag-values')에서 가져옴.
+    # secret 없으면 placeholder (generate-flags.sh 실행 전). 재기동마다 재주입(리셋 친화).
+    set -e
+    FLAG="${FLAG_4:-FLAG{PLACEHOLDER_RUN_generate-flags_sh}}"
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<EOSQL
+    INSERT INTO internal_secrets (key, value, note) VALUES
+     ('master_db_backup_credential', '${FLAG}', '④ 목표물 (값 기반 FLAG)')
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+    EOSQL
+    if [ -n "${FLAG_4:-}" ]; then echo "flag injected from secret"; else echo "flag = placeholder (no secret yet)"; fi
