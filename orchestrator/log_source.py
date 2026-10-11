@@ -13,8 +13,9 @@ Protocol(logs.py) 뒤에 끼우는 실제 층. 설계 핵심: '로그 줄 → �
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from typing import Callable, Iterable, Optional
+
+from common.k8s_logs import audit_ts as _audit_ts, falco_ts as _falco_ts, parse_rfc3339
 
 # 로그 줄(JSON)을 순서대로 내놓는 콜백. 호출마다 새로 순회 가능해야 함.
 LineReader = Callable[[], Iterable[str]]
@@ -23,35 +24,7 @@ _ADMIN_SA = "system:serviceaccount:internal:admin-sa"
 _SECRET_VERBS = {"get", "list", "watch"}
 
 
-# ───────────── 시간 파싱 ─────────────
-def parse_rfc3339(s: str) -> Optional[float]:
-    """RFC3339(…Z, 나노초 포함)를 epoch 초로. 파싱 실패 시 None."""
-    if not s:
-        return None
-    t = s.strip().replace("Z", "+00:00")
-    # 소수부가 7자리 이상(Falco 나노초)이면 6자리로 절단(fromisoformat 한계)
-    if "." in t:
-        head, _, tail = t.partition(".")
-        frac = ""
-        tzpart = ""
-        for i, ch in enumerate(tail):
-            if ch.isdigit():
-                frac += ch
-            else:
-                tzpart = tail[i:]
-                break
-        frac = frac[:6]
-        t = f"{head}.{frac}{tzpart}" if frac else head + tzpart
-    try:
-        dt = datetime.fromisoformat(t)
-    except ValueError:
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.timestamp()
-
-
-# ───────────── 순수 매핑 ─────────────
+# ───────────── 순수 매핑 (시간 파싱은 common.k8s_logs 공유) ─────────────
 def map_audit_event(ev: dict) -> Optional[str]:
     """k3s 감사 이벤트 → MITRE 기법. 현재 ②(admin-sa secret 접근)만 매핑."""
     user = (ev.get("user") or {}).get("username", "")
@@ -68,15 +41,6 @@ def map_falco_event(ev: dict) -> Optional[str]:
     if rule == "Terminal shell in container":
         return "T1059"   # 명령/스크립트 실행
     return None
-
-
-def _audit_ts(ev: dict) -> Optional[float]:
-    return parse_rfc3339(ev.get("requestReceivedTimestamp")
-                         or ev.get("stageTimestamp") or "")
-
-
-def _falco_ts(ev: dict) -> Optional[float]:
-    return parse_rfc3339(ev.get("time", ""))
 
 
 def _loads(line: str) -> Optional[dict]:
