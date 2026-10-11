@@ -13,11 +13,11 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from common.messages import (  # noqa: E402
-    DefenseEndReason, DefenseTurnStart, HealthCheck, StateCheck, StateQuery,
+    DefenseEndReason, DefenseTurnStart, HealthCheck, StateCheck, StateQuery, wrap,
 )
 from defender.observer import Observer  # noqa: E402
 from defender.patcher import OpResult, Patcher  # noqa: E402
-from defender.server import DefenseHarness  # noqa: E402
+from defender.server import DefenseHarness, handle_message  # noqa: E402
 from defender.state_query import ADMIN_SA, StateQueryHandler  # noqa: E402
 from defender.triage import Triager  # noqa: E402
 
@@ -151,6 +151,31 @@ def test_state_query_unsupported_omitted():
     sh = StateQueryHandler(_FakeCluster())
     res = sh.handle(StateQuery(checks=[StateCheck(check_id="99", query="?")]))
     assert res.results == []                                # 생략 → VM C가 INCONCLUSIVE
+
+
+# ───────────── handle_message 디스패치 (봉투 왕복) ─────────────
+def test_handle_defense_turn_envelope():
+    h = _harness()
+    raw = wrap(DefenseTurnStart(time_limit_sec=300), episode=2, round=1).model_dump(mode="json")
+    resp = handle_message(h, raw)
+    assert resp["type"] == "defense_turn_result" and resp["status"] == "ok"
+    assert resp["episode"] == 2 and resp["payload"]["patch_applied"] is True
+
+
+def test_handle_state_query_envelope():
+    h = _harness(cluster=_FakeCluster(can_i=True, netpols=0))
+    raw = wrap(StateQuery(checks=[StateCheck(check_id="2", query="q")]),
+               episode=1, round=1).model_dump(mode="json")
+    resp = handle_message(h, raw)
+    assert resp["type"] == "state_query_result"
+    assert resp["payload"]["results"][0]["vulnerable"] is True
+
+
+def test_handle_health_envelope():
+    h = _harness(cluster=_FakeCluster(healthy=True))
+    raw = wrap(HealthCheck(service="all"), episode=1, round=1).model_dump(mode="json")
+    resp = handle_message(h, raw)
+    assert resp["type"] == "health_check" and resp["payload"]["healthy"] is True
 
 
 def _run() -> int:
