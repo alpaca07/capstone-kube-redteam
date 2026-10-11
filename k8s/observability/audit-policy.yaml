@@ -1,0 +1,48 @@
+# k3s API 서버 감사 정책 — 보안 관련 이벤트만 기록(노이즈 제거해 로그량 축소).
+# 방어자가 "누가 무엇을 했나"(API 레벨)를 보는 소스. 특히 ② 과권한 SA의 Secret 조회 탐지.
+apiVersion: audit.k8s.io/v1
+kind: Policy
+omitStages:
+  - RequestReceived
+rules:
+  # ── 노이즈 제거 ──────────────────────────────────────────
+  - level: None
+    users: ["system:apiserver", "system:kube-scheduler", "system:kube-controller-manager", "system:kube-proxy"]
+  - level: None
+    userGroups: ["system:nodes"]
+  - level: None
+    nonResourceURLs: ["/healthz*", "/readyz*", "/livez*", "/version", "/metrics", "/openapi/*"]
+  - level: None
+    resources:
+      - group: ""
+        resources: ["events", "endpoints"]
+      - group: "discovery.k8s.io"
+        resources: ["endpointslices"]
+      - group: "coordination.k8s.io"
+        resources: ["leases"]
+
+  # ── ★ 민감: Secret 접근 (①②의 핵심 신호) ───────────────
+  #   Metadata만(값은 로깅 안 함) — who/verb/namespace/name 이면 탐지 충분
+  - level: Metadata
+    resources:
+      - group: ""
+        resources: ["secrets", "serviceaccounts/token"]
+
+  # ── ★ exec / attach / port-forward (실행·측면이동) ──────
+  - level: Request
+    resources:
+      - group: ""
+        resources: ["pods/exec", "pods/attach", "pods/portforward"]
+
+  # ── ★ RBAC 조회·변경 (과권한 탐색/부여) ─────────────────
+  - level: Metadata
+    resources:
+      - group: "rbac.authorization.k8s.io"
+        resources: ["*"]
+
+  # ── 쓰기 작업 전반 (생성·수정·삭제) ─────────────────────
+  - level: Metadata
+    verbs: ["create", "update", "patch", "delete", "deletecollection"]
+
+  # ── 그 외 읽기 포함 기본 ────────────────────────────────
+  - level: Metadata

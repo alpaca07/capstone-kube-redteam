@@ -1,0 +1,11 @@
+# Falco helm values — 런타임/syscall 관측 (DaemonSet).
+driver:
+  kind: modern_ebpf          # 커널모듈 빌드 없이 eBPF (Ubuntu 22.04 커널 5.15+ 지원)
+tty: true
+falco:
+  json_output: true                    # JSON 출력 → 방어자 하네스가 파싱
+  json_include_output_property: true
+  json_include_tags_property: true
+  priority: notice                     # notice 이상만 출력(노이즈 축소)
+  # 기본 룰셋(falco_rules.yaml) 사용 — 셸 생성·민감파일 접근·수상한 프로세스 등 탐지.
+  # 커스텀 룰(예: database NS로의 비정상 연결)은 필요 시 여기 rules 로 추가.
