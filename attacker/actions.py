@@ -1,8 +1,8 @@
 """공격 액션 스키마 + LLM 출력 파서.
 
-LLM은 {thought, action:{tool, args, inputs, produces}} JSON을 뱉는다. 로컬 모델은
-출력이 지저분하므로(코드펜스·앞뒤 잡설·트레일링 콤마·홑따옴표) 견고하게 뽑아낸다.
-파싱 실패는 ParseError로 올려 ReAct 루프가 재시도하게 한다(설계: 파서·검증·재시도 필수).
+LLM은 {thought, action:{tool, args, inputs, produces}} JSON을 뱉는다. 지저분한 출력의
+JSON 추출은 common.llm_json(공격·방어 공유)에 맡기고, 여기선 액션 구조로 매핑한다.
+파싱 실패는 ParseError(=LLMJsonError)로 올려 ReAct 루프가 재시도하게 한다.
 
 inputs/produces는 common.replay_schema의 InputRef/ProducesRef로 매핑 — execute_action이
 그대로 대본 기록·의존성 재실행에 쓴다. source는 키로 추론(from_step→STEP_OUTPUT,
@@ -10,17 +10,15 @@ value→STATIC, foothold→FOOTHOLD)해서 프롬프트를 간단히 유지.
 """
 from __future__ import annotations
 
-import json
-import re
 from dataclasses import dataclass, field
 
+from common.llm_json import LLMJsonError, extract_json_object, loads_lenient
 from common.replay_schema import Extract, ExtractMethod, InputRef, InputSource, ProducesRef
 
 GIVE_UP = "give_up"
 
-
-class ParseError(ValueError):
-    """LLM 출력에서 유효한 액션을 못 뽑음 → 재시도 트리거."""
+# 파싱 실패 타입 — 공유 에러를 공격 하네스 이름으로 노출(재시도 트리거).
+ParseError = LLMJsonError
 
 
 @dataclass
@@ -34,60 +32,6 @@ class AttackAction:
 
     def is_give_up(self) -> bool:
         return self.tool.strip().lower() == GIVE_UP
-
-
-# ───────────── JSON 추출 ─────────────
-_FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
-
-
-def extract_json_object(text: str) -> str:
-    """잡설·코드펜스에 섞인 첫 번째 균형 잡힌 {...} JSON 객체를 뽑아낸다."""
-    if not text or not text.strip():
-        raise ParseError("빈 출력")
-    # 코드펜스 안이 있으면 우선 사용
-    m = _FENCE.search(text)
-    candidate = m.group(1) if m else text
-    # 첫 '{' 부터 중괄호 균형으로 끝 '}' 찾기(문자열 리터럴 내 중괄호 무시)
-    start = candidate.find("{")
-    if start == -1:
-        raise ParseError("JSON 객체 없음({ 못 찾음)")
-    depth = 0
-    in_str = False
-    esc = False
-    for i in range(start, len(candidate)):
-        c = candidate[i]
-        if in_str:
-            if esc:
-                esc = False
-            elif c == "\\":
-                esc = True
-            elif c == '"':
-                in_str = False
-            continue
-        if c == '"':
-            in_str = True
-        elif c == "{":
-            depth += 1
-        elif c == "}":
-            depth -= 1
-            if depth == 0:
-                return candidate[start:i + 1]
-    raise ParseError("JSON 객체가 닫히지 않음(} 불균형)")
-
-
-_TRAILING_COMMA = re.compile(r",(\s*[}\]])")
-
-
-def _loads_lenient(blob: str) -> dict:
-    """json.loads, 실패하면 트레일링 콤마 제거 후 1회 재시도."""
-    try:
-        return json.loads(blob)
-    except json.JSONDecodeError:
-        repaired = _TRAILING_COMMA.sub(r"\1", blob)
-        try:
-            return json.loads(repaired)
-        except json.JSONDecodeError as e:
-            raise ParseError(f"JSON 디코드 실패: {e}") from e
 
 
 # ───────────── inputs/produces 매핑 ─────────────
@@ -105,7 +49,6 @@ def _parse_extract(d: object) -> Extract:
 def _parse_input(name: str, d: object) -> InputRef:
     if not isinstance(d, dict):
         raise ParseError(f"inputs[{name}] 형식 오류: {d!r}")
-    # source 키로 추론(명시돼 있으면 존중)
     src = d.get("source")
     if src is None:
         if "from_step" in d:
@@ -135,8 +78,7 @@ def _parse_produces(name: str, d: object) -> ProducesRef:
 # ───────────── 최상위 파서 ─────────────
 def parse_action(text: str) -> AttackAction:
     """LLM 출력 텍스트 → AttackAction. 실패 시 ParseError(재시도용)."""
-    blob = extract_json_object(text)
-    obj = _loads_lenient(blob)
+    obj = loads_lenient(extract_json_object(text))
     if not isinstance(obj, dict):
         raise ParseError("최상위가 객체가 아님")
 
@@ -150,7 +92,6 @@ def parse_action(text: str) -> AttackAction:
     thought = obj.get("thought", "")
     thought = thought if isinstance(thought, str) else str(thought)
 
-    # give_up이면 args/inputs/produces 불필요
     if tool.strip().lower() == GIVE_UP:
         return AttackAction(thought=thought, tool=GIVE_UP, raw=text)
 
