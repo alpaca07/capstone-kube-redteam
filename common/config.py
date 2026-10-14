@@ -19,16 +19,21 @@ from pydantic import BaseModel, Field
 
 # ───────────────────────── 섹션 모델 ─────────────────────────
 class DgxConfig(BaseModel):
-    host: str                          # 환경(집 VPN/학교 와이파이) 바뀌면 여기만 수정
-    port: int = 11434                  # Ollama 기본 포트
+    attacker_host: str                 # 공격 모델 서빙 GPU 서버 (부하 분산 위해 역할별 분리)
+    defender_host: str                 # 방어 모델 서빙 GPU 서버
+    port: int = 11434                  # Ollama 기본 포트(두 서버 공통)
     attacker_model: str                # 탈옥 모델(공격자)
     defender_model: str                # 일반 모델(방어자)
     temperature: float = 0.0           # 재현성 위해 0 고정
 
+    # OpenAI 호환 엔드포인트 베이스(OllamaClient 가 /chat/completions·/models 를 붙임).
     @property
-    def base_url(self) -> str:
-        # OpenAI 호환 엔드포인트 베이스(OllamaClient 가 /chat/completions·/models 를 붙임).
-        return f"http://{self.host}:{self.port}/v1"
+    def attacker_base_url(self) -> str:
+        return f"http://{self.attacker_host}:{self.port}/v1"
+
+    @property
+    def defender_base_url(self) -> str:
+        return f"http://{self.defender_host}:{self.port}/v1"
 
 
 class NetworkConfig(BaseModel):

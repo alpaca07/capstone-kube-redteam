@@ -1,13 +1,14 @@
 # 설정 템플릿. 실제 값은 이 파일을 config.yaml로 복사해서 채운다.
 # config.yaml 은 .gitignore 되어 커밋되지 않는다 (DGX 주소·IP·토큰 등 민감정보).
 
-# ===== DGX Spark (LLM 서빙) =====
+# ===== GPU 서버 (LLM 서빙 — 공격/방어 역할별 분리) =====
 dgx:
-  host: "DGX_IP_OR_HOSTNAME"   # 학교망 DGX 주소. 환경(집 VPN/학교 와이파이) 바뀌면 여기만 수정
-  port: 11434                   # Ollama 기본 포트
+  attacker_host: "ATTACKER_GPU_IP"   # 공격 모델 서빙 서버 (부하 분산 위해 방어와 분리)
+  defender_host: "DEFENDER_GPU_IP"   # 방어 모델 서빙 서버
+  port: 11434                        # Ollama 기본 포트 (두 서버 공통)
   attacker_model: "<uncensored-model>"   # 탈옥 모델 (공격자)
   defender_model: "<aligned-model>"      # 일반 모델 (방어자)
-  temperature: 0                # 재현성 위해 0 고정
+  temperature: 0                     # 재현성 위해 0 고정
 
 # ===== 네트워크 (관리망 기준 에이전트 주소) =====
 network:

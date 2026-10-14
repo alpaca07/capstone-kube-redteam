@@ -142,7 +142,7 @@ def create_harness(cfg, *, prompt: Optional[str] = None, cluster=None, llm=None)
     from .kubectl_cluster import KubectlCluster
     cluster = cluster or KubectlCluster(kubeconfig=(cfg.target.kubeconfig or None))
     if llm is None:
-        llm = OllamaClient(cfg.dgx.base_url, cfg.dgx.defender_model, temperature=cfg.dgx.temperature)
+        llm = OllamaClient(cfg.dgx.defender_base_url, cfg.dgx.defender_model, temperature=cfg.dgx.temperature)
     observer = Observer(_file_line_reader(cfg.observability.audit_log_path),
                         _file_line_reader(cfg.observability.falco_log_path))
     return DefenseHarness(observer=observer, triager=Triager(llm, prompt or _load_prompt()),

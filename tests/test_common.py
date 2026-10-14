@@ -203,7 +203,8 @@ def test_config_loads_example():
     assert example.is_file(), "config.example.yaml 없음"
     cfg = load_config(example)
     assert cfg.dgx.port == 11434
-    assert cfg.dgx.base_url.endswith(":11434/v1")
+    assert cfg.dgx.attacker_base_url.endswith(":11434/v1")
+    assert cfg.dgx.defender_base_url.endswith(":11434/v1")
     assert cfg.experiment.time_limit_sec == 300
     assert cfg.experiment.n_consecutive_defense == 3
     assert cfg.flags.format == "FLAG{...}"

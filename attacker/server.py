@@ -113,7 +113,7 @@ def create_harness(cfg, *, prompt: Optional[str] = None, runner=None, llm=None) 
     from common.llm_client import OllamaClient
     from .subprocess_runner import SubprocessRunner
     if llm is None:
-        llm = OllamaClient(cfg.dgx.base_url, cfg.dgx.attacker_model, temperature=cfg.dgx.temperature)
+        llm = OllamaClient(cfg.dgx.attacker_base_url, cfg.dgx.attacker_model, temperature=cfg.dgx.temperature)
     runner = runner or SubprocessRunner(default_timeout=min(cfg.experiment.time_limit_sec, 120))
     return AttackHarness(
         llm=llm, runner=runner, scope_policy=default_policy(),
