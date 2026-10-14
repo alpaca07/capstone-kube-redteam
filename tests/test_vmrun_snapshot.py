@@ -52,6 +52,16 @@ def test_argv_shape_revert():
     ]
 
 
+def test_revert_start_mode_gui_when_start_gui():
+    fr = FakeRunner()                   # start_gui=True → 로컬 에이전트용 gui 재개
+    VmrunSnapshotManager(_VMX, runner=fr, start_gui=True).revert_to("clean-baseline")
+    assert fr.calls == [
+        ["vmrun", "-T", "ws", "revertToSnapshot", _VMX, "clean-baseline"],
+        ["vmrun", "-T", "ws", "start", _VMX, "gui"],
+        ["vmrun", "-T", "ws", "unpause", _VMX],
+    ]
+
+
 def test_vmrun_path_override():
     fr = FakeRunner()
     exe = r"C:\Program Files (x86)\VMware\VMware Workstation\vmrun.exe"

@@ -49,10 +49,17 @@ def load_flag4(path: str) -> Optional[str]:
 
 
 def _build_snapshots(cfg: Config):
-    """config.vmware.method로 스냅샷 매니저 선택 — govc(ESXi/vCenter) 또는 vmrun(Workstation).
+    """config.vmware.method로 스냅샷 매니저 선택.
 
-    vmrun은 호스트에서 돌아야 하므로 ssh_target이 있으면 VM C→호스트 SSH로, 없으면 로컬 실행.
+    - agent : 호스트 데스크톱 세션의 스냅샷 에이전트에 HTTP 위임(권장 — Workstation에서
+              SSH는 revert 후 VM 재개를 못 함). HttpSnapshotManager.
+    - vmrun : VM C→호스트 SSH로 vmrun 직접(스냅샷은 되나 재개 불가 — 사실상 비권장).
+    - govc  : ESXi/vCenter.
     """
+    if cfg.vmware.method.lower() == "agent":
+        from orchestrator.http_snapshot import HttpSnapshotManager
+        return HttpSnapshotManager(cfg.vmware.snapshot_agent_url,
+                                   token=cfg.network.shared_token)
     if cfg.vmware.method.lower() == "vmrun":
         from orchestrator.vmrun_snapshot import (
             VmrunSnapshotManager, ssh_runner, local_runner)

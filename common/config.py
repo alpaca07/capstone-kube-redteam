@@ -48,7 +48,7 @@ class TargetConfig(BaseModel):
 
 
 class VmwareConfig(BaseModel):
-    method: str = "govc"               # govc | pyvmomi | vmrun(Workstation)
+    method: str = "govc"               # govc | pyvmomi | vmrun(Workstation SSH) | agent(호스트 에이전트)
     vcenter_or_esxi: str = "HOST"      # govc 전용(GOVC_URL)
     target_vm_name: str = "VM-B-target"
     baseline_snapshot: str = "clean-baseline"
@@ -57,6 +57,10 @@ class VmwareConfig(BaseModel):
     ssh_target: str = ""               # VM C→호스트 SSH 대상(user@host); 비우면 로컬 vmrun
     vmrun_path: str = "vmrun"          # 호스트 vmrun 실행 경로(PATH에 없으면 전체 경로)
     ssh_opts: str = ""                 # 추가 ssh 옵션(공백 구분, 예: "-i /home/vmc/.ssh/id_host")
+    # ── 호스트 스냅샷 에이전트 (method="agent") ──
+    # SSH로는 vmrun이 VM을 '재개(start)'하지 못함(데스크톱 세션 필요) → 호스트 데스크톱
+    # 세션에서 돌리는 에이전트에 HTTP로 스냅샷/재개를 위임. VM C는 이 URL만 호출한다.
+    snapshot_agent_url: str = ""       # 예: http://192.168.16.1:8010
 
 
 class ExperimentConfig(BaseModel):

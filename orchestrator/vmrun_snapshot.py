@@ -106,13 +106,17 @@ class VmrunSnapshotManager:
 
     def __init__(self, vmx_path: str, *, runner: Runner, vmrun: str = "vmrun",
                  lock_retries: int = 5, lock_backoff_sec: float = 3.0,
-                 sleeper: Callable[[float], None] = time.sleep) -> None:
+                 sleeper: Callable[[float], None] = time.sleep,
+                 start_gui: bool = False) -> None:
         self.vmx = vmx_path          # 호스트의 VM B .vmx 경로
         self.vmrun = vmrun           # 'vmrun' 또는 전체 경로(PATH에 없을 때)
         self.runner = runner
         self.lock_retries = lock_retries        # 파일 잠금 시 총 시도 횟수(초기 1 + 재시도)
         self.lock_backoff = lock_backoff_sec    # 재시도 사이 대기(초)
         self._sleep = sleeper                   # 테스트에서 주입 가능(실제론 time.sleep)
+        # revert 후 재개 모드. SSH 경로는 nogui(기본), 호스트 로컬 에이전트는 gui.
+        # (SSH 세션에선 어느 쪽도 VM을 못 켜지만, 호스트 데스크톱 세션에선 gui가 서스펜드를 재개.)
+        self._start_mode = "gui" if start_gui else "nogui"
 
     def _run(self, op: str, *extra: str) -> RunResult:
         argv = [self.vmrun, "-T", _VMRUN_TYPE, op, self.vmx, *extra]
@@ -139,8 +143,9 @@ class VmrunSnapshotManager:
         # 라이브 스냅샷 revert 후 VM은 'suspended'일 수도 'paused'일 수도 있다(둘 다 관측됨).
         # 두 재개 경로를 모두 때려 확실히 깨운다(해당 안 되는 쪽은 vmrun이 에러를 내지만 무시):
         #   - suspended/off → start 가 재개,   - paused → unpause 가 재개.
+        # start 모드(gui/nogui)는 실행 위치에 따라: 호스트 로컬(에이전트)=gui 여야 재개됨.
         # 재개 확인은 상위(시퀀서)의 ready 게이트가 /status 폴링으로 담당.
-        self.runner([self.vmrun, "-T", _VMRUN_TYPE, "start", self.vmx, "nogui"])
+        self.runner([self.vmrun, "-T", _VMRUN_TYPE, "start", self.vmx, self._start_mode])
         self.runner([self.vmrun, "-T", _VMRUN_TYPE, "unpause", self.vmx])
 
     def delete(self, name: str) -> None:
