@@ -27,7 +27,8 @@ class DgxConfig(BaseModel):
 
     @property
     def base_url(self) -> str:
-        return f"http://{self.host}:{self.port}"
+        # OpenAI 호환 엔드포인트 베이스(OllamaClient 가 /chat/completions·/models 를 붙임).
+        return f"http://{self.host}:{self.port}/v1"
 
 
 class NetworkConfig(BaseModel):
