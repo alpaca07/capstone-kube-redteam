@@ -83,7 +83,7 @@ class DefenseHarness:
                 patch_applied=outcome.patch_applied, end_reason=end,
                 detected=detected, patch_set=patch_set,
                 healthcheck_passed=outcome.healthcheck_passed,
-                patch_attempts=attempts,
+                patch_attempts=attempts, patch_note=outcome.note,
                 elapsed_sec=time.time() - t0)
         except Exception as e:              # noqa: BLE001 — 하네스 오류는 ERROR로 보고(루프 보호)
             import traceback

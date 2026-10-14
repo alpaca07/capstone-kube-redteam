@@ -75,6 +75,9 @@ def _poke_defense(cfg, *, episode: int, round: int) -> None:
             print(f"      - {pa}")
     elif res.end_reason.value == "noop":
         print(f"    패치 시도: (없음 — LLM이 patch_plan 을 비웠거나 제안이 전부 미지원)")
+    note = getattr(res, "patch_note", "")
+    if note:
+        print(f"    패치 메모: {note}")
 
 
 def main(argv=None) -> int:

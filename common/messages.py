@@ -148,6 +148,7 @@ class DefenseTurnResult(Payload):
     healthcheck_passed: bool = False   # 패치 후 서비스 정상?(과잉차단=서비스 죽이면 감점)
     error: str = ""                    # end_reason=ERROR면 '하네스 오류: <타입>: <메시지>' — 디버깅용(심판 기록, 방어자 자력추론과 무관)
     patch_attempts: list[str] = Field(default_factory=list)  # 디버그: 제안된 패치별 결과 "action → target [applied|skip] detail"(noop 원인 규명용)
+    patch_note: str = ""               # 디버그: 패치 세트 메모(dry-run 실패 사유·"적용할 패치 없음" 등)
     elapsed_sec: float = 0.0
 
 

@@ -102,6 +102,15 @@ def test_render_unknown_unsupported():
     assert render_op(PatchStep(action="pray", target="x")) is None
 
 
+def test_render_networkpolicy_natural_language_target_falls_back():
+    # LLM이 "all namespaces"(공백 포함) 같은 자연어 타깃을 줘도 무효 매니페스트를 만들지 않고
+    # 기본 NS(database)로 폴백 — dry-run 실패→세트 롤백 방지.
+    op = render_op(PatchStep(action="add_networkpolicies", target="all namespaces"))
+    assert op is not None and op.kind == "apply"
+    assert "namespace: database" in op.manifest
+    assert "all namespaces" not in op.manifest
+
+
 # ───────────── Patcher ─────────────
 def test_patcher_applies_set_and_healthchecks():
     cluster = _FakeCluster(healthy=True)

@@ -9,10 +9,15 @@ healthcheck_passed=False (과잉 차단 감점 신호). 적용 I/O는 ClusterCli
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Optional, Protocol, runtime_checkable
 
 from .triage import PatchStep
+
+# 유효한 쿠버네티스 네임스페이스(DNS-1123 라벨). LLM이 "all namespaces" 같은 자연어
+# 타깃을 주면 이걸로 걸러 무효 매니페스트(dry-run 실패 → 세트 통째 롤백)를 막는다.
+_DNS1123 = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 
 
 @dataclass
@@ -91,10 +96,15 @@ def _strip_kind(target: str, *kinds: str) -> str:
 def _ns_from_target(target: str) -> Optional[str]:
     t = target.strip()
     if t.lower().startswith("ns/") or t.lower().startswith("namespace/"):
-        return t.split("/", 1)[1]
-    if "/" not in t and t:
-        return t                       # 그냥 NS 이름으로 간주
-    return None
+        cand = t.split("/", 1)[1].strip()
+    elif "/" not in t and t:
+        cand = t                       # 그냥 NS 이름으로 간주
+    else:
+        return None
+    # 유효한 NS 라벨만 반환 — "all namespaces"·"cluster-wide" 등 자연어/공백 타깃은 걸러
+    # None 으로(→ render_op 가 기본 NS로 폴백). 무효 NS로 만든 매니페스트가 dry-run을
+    # 깨 세트 전체가 롤백되는 걸 막는다.
+    return cand if _DNS1123.match(cand) else None
 
 
 def _ns_pod_from_target(target: str) -> tuple[str, str]:
