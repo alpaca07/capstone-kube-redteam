@@ -44,10 +44,11 @@ class FakeRunner:
 def test_argv_shape_revert():
     fr = FakeRunner()
     VmrunSnapshotManager(_VMX, runner=fr).revert_to("clean-baseline")
-    # revert 후 일시정지 → start로 재개까지 2개 명령(무조건 start).
+    # revert → 재개(start + unpause 둘 다 시도: suspended/paused 모두 커버).
     assert fr.calls == [
         ["vmrun", "-T", "ws", "revertToSnapshot", _VMX, "clean-baseline"],
         ["vmrun", "-T", "ws", "start", _VMX, "nogui"],
+        ["vmrun", "-T", "ws", "unpause", _VMX],
     ]
 
 

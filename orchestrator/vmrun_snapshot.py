@@ -136,10 +136,12 @@ class VmrunSnapshotManager:
 
     def revert_to(self, name: str) -> None:
         self._run("revertToSnapshot", name)
-        # 라이브(메모리) 스냅샷 revert 후 VM이 멈춰 있을 수 있어 재개(best-effort).
-        # 이미 실행 중이면 vmrun이 에러를 내지만 무시(결과에 영향 없음). 실측상 이 start가
-        # 공격 턴이 돌 만큼 VM B를 정상 가동시켰다 → 무조건 호출 유지.
+        # 라이브 스냅샷 revert 후 VM은 'suspended'일 수도 'paused'일 수도 있다(둘 다 관측됨).
+        # 두 재개 경로를 모두 때려 확실히 깨운다(해당 안 되는 쪽은 vmrun이 에러를 내지만 무시):
+        #   - suspended/off → start 가 재개,   - paused → unpause 가 재개.
+        # 재개 확인은 상위(시퀀서)의 ready 게이트가 /status 폴링으로 담당.
         self.runner([self.vmrun, "-T", _VMRUN_TYPE, "start", self.vmx, "nogui"])
+        self.runner([self.vmrun, "-T", _VMRUN_TYPE, "unpause", self.vmx])
 
     def delete(self, name: str) -> None:
         if name in self.list():                # 없으면 조용히 무시(정리 best-effort)
