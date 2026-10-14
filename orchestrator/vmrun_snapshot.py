@@ -114,6 +114,9 @@ class VmrunSnapshotManager:
 
     def revert_to(self, name: str) -> None:
         self._run("revertToSnapshot", name)
+        # 라이브(메모리) 스냅샷 revert 후 Workstation은 VM을 일시정지 상태로 둔다 → 재개(best-effort).
+        # 이미 실행 중이면 vmrun이 에러를 내지만 무시(원자성·결과에 영향 없음).
+        self.runner([self.vmrun, "-T", _VMRUN_TYPE, "start", self.vmx, "nogui"])
 
     def delete(self, name: str) -> None:
         if name in self.list():                # 없으면 조용히 무시(정리 best-effort)

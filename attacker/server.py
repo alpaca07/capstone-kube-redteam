@@ -29,6 +29,14 @@ from .react_loop import ReActLoop
 from .replay_engine import ReplayEngine
 from .scope import ScopePolicy, default_policy
 
+# FastAPI가 `request: Request` 힌트를 모듈 전역에서 해석하려면 여기(함수 밖)에 있어야 한다.
+# (from __future__ import annotations로 힌트가 문자열이라, create_app 안에서만 import하면
+#  FastAPI가 "Request"를 못 풀고 쿼리 파라미터로 오해 → 422.) fastapi 미설치 테스트 땐 None.
+try:
+    from fastapi import Request
+except ImportError:                    # pragma: no cover
+    Request = None  # type: ignore
+
 
 class AttackHarness:
     """공격 턴(새 수 생성) + 리플레이 턴(결정론 재생) 로직."""
@@ -124,7 +132,7 @@ def create_harness(cfg, *, prompt: Optional[str] = None, runner=None, llm=None) 
 
 def create_app(harness: AttackHarness):
     """FastAPI 앱 — VM C가 POST하는 요청타입 경로를 harness로 디스패치. (fastapi lazy import)"""
-    from fastapi import FastAPI, Request
+    from fastapi import FastAPI
     from fastapi.responses import JSONResponse
     app = FastAPI(title="VM A 공격 하네스")
 

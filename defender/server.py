@@ -28,6 +28,14 @@ from .patcher import Patcher
 from .state_query import StateQueryHandler
 from .triage import Triager
 
+# FastAPI가 `request: Request` 힌트를 모듈 전역에서 해석하려면 여기(함수 밖)에 있어야 한다.
+# (from __future__ import annotations로 힌트가 문자열이라, create_app 안에서만 import하면
+#  FastAPI가 "Request"를 못 풀고 쿼리 파라미터로 오해 → 422.) fastapi 미설치 테스트 땐 None.
+try:
+    from fastapi import Request
+except ImportError:                    # pragma: no cover
+    Request = None  # type: ignore
+
 
 def _patch_kind(action: str) -> str:
     a = action.lower()
@@ -155,7 +163,7 @@ def create_app(harness: DefenseHarness):
 
     주의: harness 메서드는 LLM·kubectl로 블로킹하지만 VM C가 턴을 순차 호출하므로 OK.
     """
-    from fastapi import FastAPI, Request
+    from fastapi import FastAPI
     from fastapi.responses import JSONResponse
     app = FastAPI(title="VM B 방어 하네스")
 
