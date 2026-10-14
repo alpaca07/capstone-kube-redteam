@@ -1,0 +1,18 @@
+# VM A 공격 하네스 systemd 유닛 — /etc/systemd/system/attack-harness.service
+# <USER> 를 VM A 사용자로 치환.  설치:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now attack-harness
+[Unit]
+Description=Capstone attack harness (VM A)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<USER>
+WorkingDirectory=/home/<USER>/capstone
+ExecStart=/usr/bin/python3 -m attacker.server --config config.yaml --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

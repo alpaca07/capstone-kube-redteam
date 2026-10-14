@@ -1,0 +1,20 @@
+# VM B 방어 하네스 systemd 유닛 — /etc/systemd/system/defense-harness.service
+# <USER> 를 VM B 사용자로 치환.  설치:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now defense-harness
+# 하네스가 kubectl 을 못 찾으면 [Service] 에 다음 추가:
+#   Environment=PATH=/usr/local/bin:/usr/bin:/bin
+[Unit]
+Description=Capstone defense harness (VM B)
+After=network-online.target k3s.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<USER>
+WorkingDirectory=/home/<USER>/capstone
+ExecStart=/usr/bin/python3 -m defender.server --config config.yaml --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
