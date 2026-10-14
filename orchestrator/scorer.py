@@ -90,10 +90,12 @@ class RoundRecord:
     round: int
     # 공격
     attack_end_reason: str
+    attack_summary: str                # 공격 요약(ERROR면 '하네스 오류: <타입>: <메시지>') — 디버깅용
     flags_reached_cum: list[str]       # god-view 누적 플래그
     # 방어
     patch_applied: bool
     defense_end_reason: str
+    defense_error: str                 # 방어 오류(ERROR면 '하네스 오류: <타입>: <메시지>') — 디버깅용
     reported_techniques: list[str]     # 이 라운드 방어자 보고
     healthcheck_passed: bool
     # 검증
@@ -162,9 +164,11 @@ class Scorer:
         rec = RoundRecord(
             episode=self.episode, round=round,
             attack_end_reason=attack_result.end_reason.value,
+            attack_summary=attack_result.attack_summary or "",
             flags_reached_cum=sorted(self.truth.flags_up_to(self.episode, round)),
             patch_applied=defense_result.patch_applied,
             defense_end_reason=defense_result.end_reason.value,
+            defense_error=getattr(defense_result, "error", "") or "",
             reported_techniques=sorted(reported),
             healthcheck_passed=defense_result.healthcheck_passed,
             verdict=verification.verdict.value,

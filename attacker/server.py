@@ -76,6 +76,8 @@ class AttackHarness:
             self._prior_summary = result.attack_summary    # 다음 라운드로 기억 이월
             return result
         except Exception as e:               # noqa: BLE001 — 하네스 오류는 ERROR로 보고(루프 보호)
+            import traceback
+            traceback.print_exc()            # VM A 콘솔에 전체 스택트레이스(디버깅용)
             return AttackTurnResult(end_reason=AttackEndReason.ERROR,
                                     attack_summary=f"하네스 오류: {type(e).__name__}: {e}")
 
