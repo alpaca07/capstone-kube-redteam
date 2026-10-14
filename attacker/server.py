@@ -123,7 +123,11 @@ def create_harness(cfg, *, prompt: Optional[str] = None, runner=None, llm=None) 
     from common.llm_client import OllamaClient
     from .subprocess_runner import SubprocessRunner
     if llm is None:
-        llm = OllamaClient(cfg.dgx.attacker_base_url, cfg.dgx.attacker_model, temperature=cfg.dgx.temperature)
+        req_timeout = cfg.dgx.request_timeout_sec or float(cfg.experiment.time_limit_sec)
+        llm = OllamaClient(cfg.dgx.attacker_base_url, cfg.dgx.attacker_model,
+                           temperature=cfg.dgx.temperature,
+                           timeout=req_timeout,            # 콜드스타트/느린 모델이 120초 넘겨도 안 끊김
+                           max_tokens=cfg.dgx.max_tokens)
     runner = runner or SubprocessRunner(default_timeout=min(cfg.experiment.time_limit_sec, 120))
     return AttackHarness(
         llm=llm, runner=runner, scope_policy=default_policy(),

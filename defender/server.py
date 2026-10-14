@@ -153,7 +153,11 @@ def create_harness(cfg, *, prompt: Optional[str] = None, cluster=None, llm=None)
     from .kubectl_cluster import KubectlCluster
     cluster = cluster or KubectlCluster(kubeconfig=(cfg.target.kubeconfig or None))
     if llm is None:
-        llm = OllamaClient(cfg.dgx.defender_base_url, cfg.dgx.defender_model, temperature=cfg.dgx.temperature)
+        req_timeout = cfg.dgx.request_timeout_sec or float(cfg.experiment.time_limit_sec)
+        llm = OllamaClient(cfg.dgx.defender_base_url, cfg.dgx.defender_model,
+                           temperature=cfg.dgx.temperature,
+                           timeout=req_timeout,            # 콜드스타트/느린 모델이 120초 넘겨도 안 끊김
+                           max_tokens=cfg.dgx.max_tokens)
     observer = Observer(_file_line_reader(cfg.observability.audit_log_path),
                         _file_line_reader(cfg.observability.falco_log_path))
     return DefenseHarness(observer=observer, triager=Triager(llm, prompt or _load_prompt()),

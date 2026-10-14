@@ -38,11 +38,13 @@ class OllamaClient:
 
     def __init__(self, base_url: str, model: str, *, api_key: str = "",
                  temperature: float = 0.0, timeout: float = 120.0,
+                 max_tokens: Optional[int] = None,
                  transport: Optional[Transport] = None) -> None:
         self.base_url = base_url.rstrip("/")     # 예: http://211.x.x.x:11434/v1
         self.model = model
         self.temperature = temperature
         self.timeout = timeout
+        self.max_tokens = max_tokens             # 생성 상한(호출마다 override 가능, 없으면 이 기본값)
         self.transport = transport or requests_transport(api_key)
 
     def chat(self, messages: list[dict], *, temperature: Optional[float] = None,
@@ -55,8 +57,9 @@ class OllamaClient:
             "temperature": self.temperature if temperature is None else temperature,
             "stream": False,
         }
-        if max_tokens is not None:
-            body["max_tokens"] = max_tokens
+        eff_max = max_tokens if max_tokens is not None else self.max_tokens
+        if eff_max is not None:
+            body["max_tokens"] = eff_max
         if stop is not None:
             body["stop"] = stop
         if extra:

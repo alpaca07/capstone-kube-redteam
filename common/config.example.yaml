@@ -9,6 +9,12 @@ dgx:
   attacker_model: "<uncensored-model>"   # 탈옥 모델 (공격자)
   defender_model: "<aligned-model>"      # 일반 모델 (방어자)
   temperature: 0                     # 재현성 위해 0 고정
+  # 단일 LLM 호출 HTTP 타임아웃(초). 비우면 턴 예산(experiment.time_limit_sec)을 그대로 씀.
+  # 로컬 모델은 느리고 Ollama 첫 호출은 모델 로딩까지 겹쳐 기본 120초를 쉽게 넘김 → ReadTimeout.
+  # 팁: 실행 전 `ollama run <model>` 로 모델을 미리 띄워두면(웜업) 첫 호출도 빨라짐.
+  # request_timeout_sec: 300
+  # LLM 생성 토큰 상한(비우면 무제한). 응답이 장황해 느리면 1024~2048 로 제한해 호출을 단축.
+  # max_tokens: 2048
 
 # ===== 네트워크 (관리망 기준 에이전트 주소) =====
 network:

@@ -25,6 +25,11 @@ class DgxConfig(BaseModel):
     attacker_model: str                # 탈옥 모델(공격자)
     defender_model: str                # 일반 모델(방어자)
     temperature: float = 0.0           # 재현성 위해 0 고정
+    # 단일 LLM 호출 HTTP 타임아웃(초). None/0 이면 턴 예산(experiment.time_limit_sec)을 그대로 씀
+    # — 느린 로컬 모델·콜드스타트(첫 호출 모델 로딩)가 기본 120초를 넘겨 ReadTimeout 나던 걸 방지.
+    request_timeout_sec: Optional[float] = None
+    # LLM 생성 토큰 상한. None=무제한. 로컬 모델이 장황해 호출이 느리면 1024~2048로 제한해 단축.
+    max_tokens: Optional[int] = None
 
     # OpenAI 호환 엔드포인트 베이스(OllamaClient 가 /chat/completions·/models 를 붙임).
     @property
