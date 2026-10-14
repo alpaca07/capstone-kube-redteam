@@ -77,10 +77,13 @@ class DefenseHarness:
             patch_set = [PatchItem(kind=_patch_kind(a.action), target=a.target, summary=a.detail)
                          for a in outcome.applied if a.ok]
             end = DefenseEndReason.PATCHED if outcome.patch_applied else DefenseEndReason.NOOP
+            attempts = [f"{a.action} → {a.target} [{'applied' if a.ok else 'skip'}] {a.detail}".rstrip()
+                        for a in outcome.applied]   # 제안된 패치별 결과(noop 원인 규명)
             return DefenseTurnResult(
                 patch_applied=outcome.patch_applied, end_reason=end,
                 detected=detected, patch_set=patch_set,
                 healthcheck_passed=outcome.healthcheck_passed,
+                patch_attempts=attempts,
                 elapsed_sec=time.time() - t0)
         except Exception as e:              # noqa: BLE001 — 하네스 오류는 ERROR로 보고(루프 보호)
             import traceback
