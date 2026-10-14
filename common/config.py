@@ -48,10 +48,15 @@ class TargetConfig(BaseModel):
 
 
 class VmwareConfig(BaseModel):
-    method: str = "govc"               # govc | pyvmomi
-    vcenter_or_esxi: str = "HOST"
+    method: str = "govc"               # govc | pyvmomi | vmrun(Workstation)
+    vcenter_or_esxi: str = "HOST"      # govc 전용(GOVC_URL)
     target_vm_name: str = "VM-B-target"
     baseline_snapshot: str = "clean-baseline"
+    # ── vmrun(VMware Workstation) 전용 (method="vmrun") ──
+    vmx_path: str = ""                 # 호스트의 VM B .vmx 경로
+    ssh_target: str = ""               # VM C→호스트 SSH 대상(user@host); 비우면 로컬 vmrun
+    vmrun_path: str = "vmrun"          # 호스트 vmrun 실행 경로(PATH에 없으면 전체 경로)
+    ssh_opts: str = ""                 # 추가 ssh 옵션(공백 구분, 예: "-i /home/vmc/.ssh/id_host")
 
 
 class ExperimentConfig(BaseModel):

@@ -21,12 +21,17 @@ target:
   attack_endpoint: "VM_B_ATTACK_IP"   # 공격망에서 본 대상 (발판용)
   kubeconfig: "/path/to/kubeconfig"   # VM C가 god-view 조회용
 
-# ===== VMware (스냅샷 제어) =====
+# ===== VMware 스냅샷 제어 (Workstation은 vmrun) =====
 vmware:
-  method: "govc"                # govc | pyvmomi
-  vcenter_or_esxi: "HOST"
-  target_vm_name: "VM-B-target"
+  method: "vmrun"               # govc | pyvmomi | vmrun
+  target_vm_name: "VM-B-target" # govc 전용(VM 이름)
+  vcenter_or_esxi: "HOST"       # govc 전용(GOVC_URL)
   baseline_snapshot: "clean-baseline"
+  # ── vmrun(VMware Workstation) 전용 ──
+  vmx_path: 'C:\Users\you\Documents\Virtual Machines\VM-B\VM-B.vmx'  # 호스트의 VM B .vmx 경로
+  ssh_target: "you@192.168.16.1"   # VM C→Windows 호스트 SSH (호스트 VMnet8 IP). 비우면 로컬 vmrun
+  vmrun_path: "vmrun"              # PATH에 없으면 전체 경로로
+  ssh_opts: ""                     # 예: "-i /home/vmc/.ssh/id_host"
 
 # ===== 실험 파라미터 (아직 미확정 — 개발하며 튜닝) =====
 experiment:

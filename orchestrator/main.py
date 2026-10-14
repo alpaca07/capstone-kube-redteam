@@ -48,13 +48,29 @@ def load_flag4(path: str) -> Optional[str]:
     return None
 
 
+def _build_snapshots(cfg: Config):
+    """config.vmware.method로 스냅샷 매니저 선택 — govc(ESXi/vCenter) 또는 vmrun(Workstation).
+
+    vmrun은 호스트에서 돌아야 하므로 ssh_target이 있으면 VM C→호스트 SSH로, 없으면 로컬 실행.
+    """
+    if cfg.vmware.method.lower() == "vmrun":
+        from orchestrator.vmrun_snapshot import (
+            VmrunSnapshotManager, ssh_runner, local_runner)
+        opts = cfg.vmware.ssh_opts.split() if cfg.vmware.ssh_opts else []
+        runner = (ssh_runner(cfg.vmware.ssh_target, ssh_opts=opts)
+                  if cfg.vmware.ssh_target else local_runner())
+        return VmrunSnapshotManager(cfg.vmware.vmx_path, runner=runner,
+                                    vmrun=cfg.vmware.vmrun_path)
+    return GovcSnapshotManager(cfg.vmware.target_vm_name,
+                               govc_env={"GOVC_URL": cfg.vmware.vcenter_or_esxi})
+
+
 def build_sequencer(cfg: Config, *, flag4_value: Optional[str] = None,
                     sink=None, params: Optional[RunParams] = None) -> TurnSequencer:
     """config + 실 어댑터로 턴 시퀀서 조립(I/O 없음 — 실제 연결은 run_experiment에서)."""
     attacker = HttpAttackerClient(cfg.network.attacker_url, token=cfg.network.shared_token)
     defender = HttpDefenderClient(cfg.network.defender_url, token=cfg.network.shared_token)
-    snapshots = GovcSnapshotManager(cfg.vmware.target_vm_name,
-                                    govc_env={"GOVC_URL": cfg.vmware.vcenter_or_esxi})
+    snapshots = _build_snapshots(cfg)
     registry = default_registry(flag4_value)
     verifier = VerificationEngine(attacker, defender, snapshots, registry)
     logs = AuditFalcoLogSource(file_line_reader(cfg.observability.audit_log_path),
