@@ -9,11 +9,14 @@ from __future__ import annotations
 import time
 from typing import Optional, Protocol
 
+from common.llm_client import LLMTimeout
 from common.messages import AttackEndReason, AttackTurnResult, FlagObtained
 
 from .actions import AttackAction, ParseError, parse_action
 from .execute_action import ActionExecutor
 from .history import AttackHistory
+
+_TIME_FLOOR = 2.0        # 남은 예산이 이보다 적으면 새 LLM 호출 안 시작(정상 타임아웃)
 
 
 class _LLM(Protocol):
@@ -49,16 +52,21 @@ class ReActLoop:
 
     def run(self, *, foothold: Optional[dict] = None) -> AttackTurnResult:
         t0 = time.time()
+        deadline = t0 + self.time_limit_sec      # 턴 예산 마감 시각(호출을 이 안으로 묶음)
         end = AttackEndReason.DEADEND            # max_steps 소진도 막다른 길로 취급
         flags: list[FlagObtained] = []
 
         for i in range(self.max_steps):
-            if time.time() - t0 >= self.time_limit_sec:
+            if deadline - time.time() <= _TIME_FLOOR:   # 남은 예산 없음 → 정상 타임아웃
                 end = AttackEndReason.TIMEOUT
                 break
             user = build_user_prompt(goal=self.goal, flag_format=self.flag_format,
                                      history=self.history, foothold=foothold, first=(i == 0))
-            action = self._get_action(user)
+            try:
+                action = self._get_action(user, deadline=deadline)
+            except LLMTimeout:                   # 호출이 남은 예산 초과 → 대본 보존하고 정상 타임아웃
+                end = AttackEndReason.TIMEOUT
+                break
             if action is None:                   # 파싱 끝내 실패 → 하네스 오류
                 end = AttackEndReason.ERROR
                 break
@@ -78,11 +86,15 @@ class ReActLoop:
             attack_summary=self.history.summarize(),
             elapsed_sec=time.time() - t0)
 
-    def _get_action(self, user: str) -> Optional[AttackAction]:
-        """LLM 호출 + 파싱. 실패 시 재프롬프트 재시도, 끝내 실패면 None."""
+    def _get_action(self, user: str, *, deadline: float) -> Optional[AttackAction]:
+        """LLM 호출 + 파싱. 각 호출은 '남은 예산'만큼만 대기 → 초과 시 LLMTimeout 전파
+        (run이 정상 타임아웃으로 처리, 대본 보존). 파싱 실패는 재프롬프트 재시도, 끝내 실패면 None."""
         prompt = user
         for _ in range(self.parse_retries + 1):
-            text = self.llm.chat_text(self.system_prompt, prompt)
+            remaining = deadline - time.time()
+            if remaining <= _TIME_FLOOR:
+                raise LLMTimeout("남은 예산 없음(파싱 재시도 중)")
+            text = self.llm.chat_text(self.system_prompt, prompt, timeout=remaining)
             try:
                 return parse_action(text)
             except ParseError:

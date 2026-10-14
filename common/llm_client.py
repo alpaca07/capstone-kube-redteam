@@ -20,6 +20,11 @@ class LLMError(RuntimeError):
     """LLM 호출/응답 오류."""
 
 
+class LLMTimeout(LLMError):
+    """LLM 호출이 제한시간을 넘김. 공격 ReAct 루프는 이걸 '정상 타임아웃'으로 받아
+    대본을 보존한 채 턴을 끝낸다(장애 아님 — 설계 의도)."""
+
+
 def requests_transport(api_key: str = "") -> Transport:
     """기본 전송 — requests. requests는 지연 import(미설치 시 호출 때만 에러)."""
     def _t(method: str, url: str, body: Optional[dict], timeout: float) -> dict:
@@ -27,7 +32,10 @@ def requests_transport(api_key: str = "") -> Transport:
         headers = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
-        r = requests.request(method, url, json=body, headers=headers, timeout=timeout)
+        try:
+            r = requests.request(method, url, json=body, headers=headers, timeout=timeout)
+        except requests.exceptions.Timeout as e:   # 연결/읽기 타임아웃 → 전용 예외로
+            raise LLMTimeout(f"LLM 호출 타임아웃({timeout}s): {url}") from e
         r.raise_for_status()
         return r.json()
     return _t
@@ -49,8 +57,12 @@ class OllamaClient:
 
     def chat(self, messages: list[dict], *, temperature: Optional[float] = None,
              max_tokens: Optional[int] = None, stop: Optional[list[str]] = None,
-             extra: Optional[dict] = None) -> str:
-        """messages(OpenAI 형식) → assistant 응답 텍스트. stream 안 씀(결과를 한 번에)."""
+             extra: Optional[dict] = None, timeout: Optional[float] = None) -> str:
+        """messages(OpenAI 형식) → assistant 응답 텍스트. stream 안 씀(결과를 한 번에).
+
+        timeout: 이 호출만의 상한(초). 없으면 생성자 self.timeout. 공격 ReAct 루프가
+        '남은 턴 예산'을 넘겨, 단일 호출이 예산을 넘기지 않게 한다.
+        """
         body: dict = {
             "model": self.model,
             "messages": messages,
@@ -64,7 +76,8 @@ class OllamaClient:
             body["stop"] = stop
         if extra:
             body.update(extra)
-        data = self.transport("POST", f"{self.base_url}/chat/completions", body, self.timeout)
+        data = self.transport("POST", f"{self.base_url}/chat/completions", body,
+                              self.timeout if timeout is None else timeout)
         try:
             return data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as e:
@@ -84,4 +97,4 @@ class OllamaClient:
             raise LLMError(f"예상치 못한 models 응답 형식: {data!r}") from e
 
 
-__all__ = ["Transport", "LLMError", "requests_transport", "OllamaClient"]
+__all__ = ["Transport", "LLMError", "LLMTimeout", "requests_transport", "OllamaClient"]
