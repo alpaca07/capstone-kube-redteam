@@ -22,10 +22,11 @@ _VMX = r"C:\VMs\VM-B\VM-B.vmx"
 class FakeRunner:
     """vmrun argv를 받아 기록하고, listSnapshots엔 미리 심은 목록을 돌려줌."""
 
-    def __init__(self, snapshots=(), *, fail_on=None):
+    def __init__(self, snapshots=(), *, fail_on=None, running=False):
         self.snaps = list(snapshots)
         self.calls: list[list[str]] = []
         self.fail_on = fail_on          # 이 op면 실패 반환
+        self.running = running          # vmrun list에 vmx를 노출할지(실행 중 여부)
 
     def __call__(self, argv):
         self.calls.append(argv)
@@ -35,6 +36,8 @@ class FakeRunner:
         if op == "listSnapshots":
             body = f"Total snapshots: {len(self.snaps)}\n" + "\n".join(self.snaps)
             return RunResult(0, body)
+        if op == "list":                # 실행 중 VM 목록(_is_running용)
+            return RunResult(0, _VMX if self.running else "")
         return RunResult(0, "")
 
     def ops(self):
@@ -42,13 +45,20 @@ class FakeRunner:
 
 
 def test_argv_shape_revert():
-    fr = FakeRunner()
+    fr = FakeRunner()                   # 기본 running=False → 꺼져 있으니 start까지.
     VmrunSnapshotManager(_VMX, runner=fr).revert_to("clean-baseline")
-    # revert 후 일시정지 → start로 재개까지 2개 명령.
+    # revert → 실행 여부 확인(list) → 안 떠 있으면 start로 재개까지 3개 명령.
     assert fr.calls == [
         ["vmrun", "-T", "ws", "revertToSnapshot", _VMX, "clean-baseline"],
+        ["vmrun", "-T", "ws", "list"],
         ["vmrun", "-T", "ws", "start", _VMX, "nogui"],
     ]
+
+
+def test_revert_skips_start_when_already_running():
+    fr = FakeRunner(running=True)        # 이미 실행 중 → start 안 때림(이중 인스턴스 방지).
+    VmrunSnapshotManager(_VMX, runner=fr).revert_to("clean-baseline")
+    assert fr.ops() == ["revertToSnapshot", "list"]
 
 
 def test_vmrun_path_override():
@@ -105,6 +115,48 @@ def test_parse_snapshot_list_header_and_indent():
 def test_build_remote_cmd_quotes_spaces_only():
     argv = ["vmrun", "-T", "ws", "snapshot", r"C:\Virtual Machines\VM-B.vmx", "clean-baseline"]
     assert build_remote_cmd(argv) == r'vmrun -T ws snapshot "C:\Virtual Machines\VM-B.vmx" clean-baseline'
+
+
+class _LockyRunner:
+    """snapshot을 처음 `fails`번은 'file already in use'로, 그 뒤엔 성공으로 돌려줌."""
+
+    def __init__(self, fails: int):
+        self.fails_left = fails
+        self.snap_calls = 0
+
+    def __call__(self, argv):
+        op = argv[3]
+        if op == "listSnapshots":
+            return RunResult(0, "Total snapshots: 0")
+        if op == "snapshot":
+            self.snap_calls += 1
+            if self.fails_left > 0:
+                self.fails_left -= 1
+                return RunResult(255, "", "Error: The file is already in use")
+            return RunResult(0, "")
+        return RunResult(0, "")
+
+
+def test_run_retries_on_lock_then_succeeds():
+    lr = _LockyRunner(fails=2)                 # 2번 잠금 실패 후 3번째 성공
+    sleeps: list[float] = []
+    sm = VmrunSnapshotManager(_VMX, runner=lr, lock_backoff_sec=0.0,
+                              sleeper=lambda s: sleeps.append(s))
+    sm.save("clean-baseline")                  # list(0개) → snapshot(실패·실패·성공)
+    assert lr.snap_calls == 3                  # 재시도로 결국 성공
+    assert len(sleeps) == 2                    # 재시도 사이 2번 대기
+
+
+def test_run_raises_after_lock_retries_exhausted():
+    lr = _LockyRunner(fails=99)                # 계속 잠금
+    sm = VmrunSnapshotManager(_VMX, runner=lr, lock_retries=3,
+                              lock_backoff_sec=0.0, sleeper=lambda s: None)
+    try:
+        sm.save("x")
+        raise AssertionError("SnapshotError 안 남")
+    except SnapshotError as e:
+        assert "already in use" in str(e).lower()
+    assert lr.snap_calls == 3                  # 총 3번(초기 1 + 재시도 2) 시도 후 포기
 
 
 # ───────────── 자체 러너 ─────────────

@@ -14,6 +14,7 @@ govc_snapshot.py와 같은 설계: vmrun 명령 '생성·파싱'(순수) + '실�
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Callable, Optional, Sequence
 
@@ -34,6 +35,16 @@ class SnapshotError(RuntimeError):
 
 
 _VMRUN_TYPE = "ws"   # VMware Workstation (-T ws)
+
+# vmrun이 '일시적 파일 잠금'으로 실패할 때 나오는 문구들(잠깐 뒤 풀리는 경우가 많음 → 재시도).
+# 예: revert 직후·다른 vmrun/GUI 접근과 겹칠 때 "The file is already in use".
+_LOCK_HINTS = ("already in use", "failed to lock", "cannot open the disk",
+               "resource is in use", "locked")
+
+
+def _is_lock_error(res: "RunResult") -> bool:
+    blob = f"{res.stdout}\n{res.stderr}".lower()
+    return any(h in blob for h in _LOCK_HINTS)
 
 
 def _winquote(arg: str) -> str:
@@ -93,18 +104,34 @@ def parse_snapshot_list(stdout: str) -> list[str]:
 class VmrunSnapshotManager:
     """vmrun 기반 SnapshotManager. 모든 작업은 vmrun이 완료까지 블로킹(원자성 보장)."""
 
-    def __init__(self, vmx_path: str, *, runner: Runner, vmrun: str = "vmrun") -> None:
+    def __init__(self, vmx_path: str, *, runner: Runner, vmrun: str = "vmrun",
+                 lock_retries: int = 5, lock_backoff_sec: float = 3.0,
+                 sleeper: Callable[[float], None] = time.sleep) -> None:
         self.vmx = vmx_path          # 호스트의 VM B .vmx 경로
         self.vmrun = vmrun           # 'vmrun' 또는 전체 경로(PATH에 없을 때)
         self.runner = runner
+        self.lock_retries = lock_retries        # 파일 잠금 시 총 시도 횟수(초기 1 + 재시도)
+        self.lock_backoff = lock_backoff_sec    # 재시도 사이 대기(초)
+        self._sleep = sleeper                   # 테스트에서 주입 가능(실제론 time.sleep)
 
     def _run(self, op: str, *extra: str) -> RunResult:
         argv = [self.vmrun, "-T", _VMRUN_TYPE, op, self.vmx, *extra]
         res = self.runner(argv)
+        attempt = 1
+        # 'The file is already in use' 같은 일시적 잠금은 잠깐 뒤 풀리므로 몇 번 재시도.
+        while res.returncode != 0 and _is_lock_error(res) and attempt < self.lock_retries:
+            self._sleep(self.lock_backoff)
+            res = self.runner(argv)
+            attempt += 1
         if res.returncode != 0:
             raise SnapshotError(
                 f"vmrun {op} 실패(rc={res.returncode}): {(res.stderr or res.stdout).strip()}")
         return res
+
+    def _is_running(self) -> bool:
+        """`vmrun list`(실행 중 VM 목록)에 우리 vmx가 있으면 실행 중으로 판단."""
+        res = self.runner([self.vmrun, "-T", _VMRUN_TYPE, "list"])
+        return res.returncode == 0 and self.vmx in res.stdout
 
     def save(self, name: str) -> None:
         # vmrun은 동명 스냅샷을 중복 생성함 → 있으면 지우고 새로.
@@ -114,9 +141,11 @@ class VmrunSnapshotManager:
 
     def revert_to(self, name: str) -> None:
         self._run("revertToSnapshot", name)
-        # 라이브(메모리) 스냅샷 revert 후 Workstation은 VM을 일시정지 상태로 둔다 → 재개(best-effort).
-        # 이미 실행 중이면 vmrun이 에러를 내지만 무시(원자성·결과에 영향 없음).
-        self.runner([self.vmrun, "-T", _VMRUN_TYPE, "start", self.vmx, "nogui"])
+        # 라이브(메모리) 스냅샷 revert 후 VM이 멈춰 있을 수 있어 재개하되, '이미 실행 중이면' start를
+        # 다시 때리지 않는다. 안 그러면 GUI 인스턴스 옆에 별도 헤드리스 인스턴스가 하나 더 떠서
+        # 두 프로세스가 같은 파일을 붙잡고 → 이후 snapshot이 'file already in use'로 실패한다.
+        if not self._is_running():
+            self.runner([self.vmrun, "-T", _VMRUN_TYPE, "start", self.vmx, "nogui"])
 
     def delete(self, name: str) -> None:
         if name in self.list():                # 없으면 조용히 무시(정리 best-effort)
