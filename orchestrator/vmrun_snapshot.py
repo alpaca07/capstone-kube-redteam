@@ -128,11 +128,6 @@ class VmrunSnapshotManager:
                 f"vmrun {op} 실패(rc={res.returncode}): {(res.stderr or res.stdout).strip()}")
         return res
 
-    def _is_running(self) -> bool:
-        """`vmrun list`(실행 중 VM 목록)에 우리 vmx가 있으면 실행 중으로 판단."""
-        res = self.runner([self.vmrun, "-T", _VMRUN_TYPE, "list"])
-        return res.returncode == 0 and self.vmx in res.stdout
-
     def save(self, name: str) -> None:
         # vmrun은 동명 스냅샷을 중복 생성함 → 있으면 지우고 새로.
         if name in self.list():
@@ -141,11 +136,10 @@ class VmrunSnapshotManager:
 
     def revert_to(self, name: str) -> None:
         self._run("revertToSnapshot", name)
-        # 라이브(메모리) 스냅샷 revert 후 VM이 멈춰 있을 수 있어 재개하되, '이미 실행 중이면' start를
-        # 다시 때리지 않는다. 안 그러면 GUI 인스턴스 옆에 별도 헤드리스 인스턴스가 하나 더 떠서
-        # 두 프로세스가 같은 파일을 붙잡고 → 이후 snapshot이 'file already in use'로 실패한다.
-        if not self._is_running():
-            self.runner([self.vmrun, "-T", _VMRUN_TYPE, "start", self.vmx, "nogui"])
+        # 라이브(메모리) 스냅샷 revert 후 VM이 멈춰 있을 수 있어 재개(best-effort).
+        # 이미 실행 중이면 vmrun이 에러를 내지만 무시(결과에 영향 없음). 실측상 이 start가
+        # 공격 턴이 돌 만큼 VM B를 정상 가동시켰다 → 무조건 호출 유지.
+        self.runner([self.vmrun, "-T", _VMRUN_TYPE, "start", self.vmx, "nogui"])
 
     def delete(self, name: str) -> None:
         if name in self.list():                # 없으면 조용히 무시(정리 best-effort)

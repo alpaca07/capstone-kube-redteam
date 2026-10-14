@@ -22,11 +22,10 @@ _VMX = r"C:\VMs\VM-B\VM-B.vmx"
 class FakeRunner:
     """vmrun argv를 받아 기록하고, listSnapshots엔 미리 심은 목록을 돌려줌."""
 
-    def __init__(self, snapshots=(), *, fail_on=None, running=False):
+    def __init__(self, snapshots=(), *, fail_on=None):
         self.snaps = list(snapshots)
         self.calls: list[list[str]] = []
         self.fail_on = fail_on          # 이 op면 실패 반환
-        self.running = running          # vmrun list에 vmx를 노출할지(실행 중 여부)
 
     def __call__(self, argv):
         self.calls.append(argv)
@@ -36,8 +35,6 @@ class FakeRunner:
         if op == "listSnapshots":
             body = f"Total snapshots: {len(self.snaps)}\n" + "\n".join(self.snaps)
             return RunResult(0, body)
-        if op == "list":                # 실행 중 VM 목록(_is_running용)
-            return RunResult(0, _VMX if self.running else "")
         return RunResult(0, "")
 
     def ops(self):
@@ -45,20 +42,13 @@ class FakeRunner:
 
 
 def test_argv_shape_revert():
-    fr = FakeRunner()                   # 기본 running=False → 꺼져 있으니 start까지.
+    fr = FakeRunner()
     VmrunSnapshotManager(_VMX, runner=fr).revert_to("clean-baseline")
-    # revert → 실행 여부 확인(list) → 안 떠 있으면 start로 재개까지 3개 명령.
+    # revert 후 일시정지 → start로 재개까지 2개 명령(무조건 start).
     assert fr.calls == [
         ["vmrun", "-T", "ws", "revertToSnapshot", _VMX, "clean-baseline"],
-        ["vmrun", "-T", "ws", "list"],
         ["vmrun", "-T", "ws", "start", _VMX, "nogui"],
     ]
-
-
-def test_revert_skips_start_when_already_running():
-    fr = FakeRunner(running=True)        # 이미 실행 중 → start 안 때림(이중 인스턴스 방지).
-    VmrunSnapshotManager(_VMX, runner=fr).revert_to("clean-baseline")
-    assert fr.ops() == ["revertToSnapshot", "list"]
 
 
 def test_vmrun_path_override():
