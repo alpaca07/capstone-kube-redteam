@@ -100,6 +100,7 @@ class TurnSequencer:
 
     def run_episode(self, episode: int) -> EpisodeSummary:
         # 0. init — clean 베이스라인으로 리셋(이전 에피소드 오염 제거)
+        print(f"[ep{episode}] 0. 베이스라인 revert → {self.params.baseline_snapshot} …", flush=True)
         self.snapshots.revert_to(self.params.baseline_snapshot)
         scorer = Scorer(self.truth, episode, sink=self.sink)
         created_snaps: list[str] = []
@@ -109,8 +110,11 @@ class TurnSequencer:
         # 0.5 revert 후 VM B 재개/기동 대기. 라이브 스냅샷 revert는 VM을 잠깐 일시정지로
         #     두거나 재개가 늦을 수 있어, 방어 하네스가 /status로 응답할 때까지 폴링한다.
         #     상한 내 안 뜨면 이 에피소드는 못 돌리므로 크래시 대신 ABORTED로 깔끔히 종료.
+        print(f"[ep{episode}] 0.5 VM B 준비 대기(revert 후 재개)…", flush=True)
         if not self._ready():
+            print(f"[ep{episode}] ✗ VM B 준비 안 됨(상한 초과) → ABORTED", flush=True)
             return scorer.summary(end_reason=EpisodeEndReason.ABORTED.value)
+        print(f"[ep{episode}] ✓ VM B 준비됨. 라운드 시작", flush=True)
 
         try:
             for rnd in range(1, self.params.max_rounds + 1):
@@ -168,24 +172,32 @@ class TurnSequencer:
         start = AttackTurnStart(time_limit_sec=self.params.time_limit_sec,
                                 goal=self.params.goal, flag_format=self.params.flag_format,
                                 foothold=foothold)
+        print(f"[ep{episode} R{rnd}] 1. 공격 턴…", flush=True)
         attack: AttackTurnResult = self._call(
             lambda: self.attacker.attack_turn(start, episode=episode, round=rnd), "attack_turn")
+        print(f"[ep{episode} R{rnd}]    → 공격 종료={attack.end_reason.value} "
+              f"플래그={len(attack.flags_obtained)}개 대본={len(attack.replay_script.steps) if attack.replay_script else 0}스텝", flush=True)
 
         # 2. 공격후 스냅샷(검증 pre 상태)
         postattack = f"ep{episode}-r{rnd}-postattack"
+        print(f"[ep{episode} R{rnd}] 2. 공격후 스냅샷 저장({postattack})…", flush=True)
         self.snapshots.save(postattack)
         created_snaps.append(postattack)
 
         # 3. 방어 턴 (공격정보 0)
+        print(f"[ep{episode} R{rnd}] 3. 방어 턴(관측→추론→패치)…", flush=True)
         defense = self._call(
             lambda: self.defender.defense_turn(
                 DefenseTurnStart(time_limit_sec=self.params.time_limit_sec),
                 episode=episode, round=rnd), "defense_turn")
+        print(f"[ep{episode} R{rnd}]    → 방어 종료={defense.end_reason.value} "
+              f"패치={defense.patch_applied} 탐지={len(defense.detected)}개 health={defense.healthcheck_passed}", flush=True)
 
         # 4~5. 검증 (대본 있을 때만; 스냅샷 전환은 검증엔진 내부)
         postpatch = f"ep{episode}-r{rnd}-postpatch"
         script = attack.replay_script
         if script is not None and script.steps:
+            print(f"[ep{episode} R{rnd}] 4~5. 검증(리플레이 pre/post, 스냅샷 전환)…", flush=True)
             verification = self._call(
                 lambda: self.verifier.verify(
                     script, episode=episode, round=rnd,
@@ -193,8 +205,10 @@ class TurnSequencer:
                     target=self.params.attack_endpoint), "verify")
             created_snaps.append(postpatch)
         else:
+            print(f"[ep{episode} R{rnd}] 4~5. 검증 생략(공격 대본 없음)", flush=True)
             verification = VerificationResult(
                 verdict=Verdict.INCONCLUSIVE, method="none", detail="공격 대본 없음(공격 실패/포기)")
+        print(f"[ep{episode} R{rnd}]    → 판정={verification.verdict.value}", flush=True)
 
         t1 = time.time()
 
@@ -202,6 +216,7 @@ class TurnSequencer:
         self.truth.record(self._build_truth(episode, rnd, attack, t0=t0, t1=t1))
         scorer.score_round(round=rnd, attack_result=attack,
                            defense_result=defense, verification=verification)
+        print(f"[ep{episode} R{rnd}] 6. 채점 완료 (라운드 {time.time() - t0:.0f}s)", flush=True)
 
         return RoundOutcome(round=rnd, verdict=verification.verdict,
                             defense_succeeded=verification.defense_succeeded(),
