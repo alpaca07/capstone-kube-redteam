@@ -130,7 +130,8 @@ class TurnSequencer:
                     break
                 try:
                     outcome = self._run_round(episode, rnd, scorer, created_snaps)
-                except RoundAbort:
+                except RoundAbort as e:
+                    self._log(f"[ep{episode} R{rnd}] ✗ 라운드 중단: {e} → 에피소드 ABORTED")
                     end_reason = EpisodeEndReason.ABORTED
                     break
 
