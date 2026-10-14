@@ -147,6 +147,46 @@ def test_crash_retries_once_then_aborts():
     assert boom.n == 2                                              # 1회 재시도 후 포기
 
 
+class _DeadDefender:
+    """revert 후 영영 안 깨어나는 방어자(status가 항상 실패)."""
+    def __init__(self) -> None:
+        self.defense_calls: list = []
+
+    def defense_turn(self, start, *, episode, round):
+        self.defense_calls.append((episode, round))
+        raise RuntimeError("unused")
+
+    def state_query(self, query, *, episode, round):
+        raise RuntimeError("unused")
+
+    def health_check(self, hc, *, episode, round):
+        raise RuntimeError("unused")
+
+    def status(self):
+        raise RuntimeError("down")
+
+
+def test_not_ready_after_revert_aborts_episode():
+    # VM B가 revert 후 안 깨어나면(공격자는 정상) 공격 턴도 안 가고 에피소드 중단.
+    attacker = FakeAttackerClient(
+        replay_by_phase={PRE: _replay(PRE, True), POST: _replay(POST, False)},
+        attack_result=_attack_result())
+    dead = _DeadDefender()
+    snaps = FakeSnapshotManager(existing=["clean-baseline"])
+    registry = default_registry("FLAG{win}")
+    verifier = VerificationEngine(attacker, dead, snaps, registry)
+    params = RunParams(episodes=1, max_rounds=5, baseline_snapshot="clean-baseline",
+                       attack_endpoint="10.0.0.5", ready_timeout_sec=0.0)
+    seq = TurnSequencer(attacker=attacker, defender=dead, snapshots=snaps, verifier=verifier,
+                        logs=FakeLogSource(constant={"T1078"}), registry=registry,
+                        truth=TruthLog(), params=params, sleeper=lambda s: None)
+    s = seq.run_episode(1)
+    assert s.end_reason == "aborted"
+    assert s.rounds == 0
+    assert len(attacker.attack_calls) == 0                 # 준비 안 됨 → 공격 턴 진입 전 중단
+    assert snaps.calls[0] == ("revert_to", "clean-baseline")   # revert는 시도함
+
+
 def test_kill_switch_stops_mid_episode():
     state = {"n": 0}
 

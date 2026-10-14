@@ -58,6 +58,8 @@ class RunParams:
     attack_endpoint: Optional[str] = None        # 첫 라운드 발판
     goal: str = "대상 클러스터에서 DB의 값 기반 FLAG 획득"
     flag_format: str = "FLAG{...}"
+    ready_timeout_sec: float = 180.0             # revert 후 VM B 응답 대기 상한(일시정지·재개 지연 흡수)
+    ready_interval_sec: float = 3.0              # ready 폴링 간격
 
 
 @dataclass
@@ -77,7 +79,8 @@ class TurnSequencer:
                  snapshots: SnapshotManager, verifier: VerificationEngine,
                  logs: LogSource, registry: FlagRegistry, truth: TruthLog,
                  params: RunParams, sink: Optional[Callable[[dict], None]] = None,
-                 kill_switch: Optional[Callable[[], bool]] = None) -> None:
+                 kill_switch: Optional[Callable[[], bool]] = None,
+                 sleeper: Callable[[float], None] = time.sleep) -> None:
         self.attacker = attacker
         self.defender = defender
         self.snapshots = snapshots
@@ -88,6 +91,7 @@ class TurnSequencer:
         self.params = params
         self.sink = sink
         self.kill_switch = kill_switch
+        self._sleep = sleeper              # 테스트에서 주입 가능(실제론 time.sleep)
 
     # ───────────── public ─────────────
     def run_experiment(self) -> list[EpisodeSummary]:
@@ -101,6 +105,12 @@ class TurnSequencer:
         created_snaps: list[str] = []
         consecutive = 0
         end_reason = EpisodeEndReason.MAX_ROUNDS
+
+        # 0.5 revert 후 VM B 재개/기동 대기. 라이브 스냅샷 revert는 VM을 잠깐 일시정지로
+        #     두거나 재개가 늦을 수 있어, 방어 하네스가 /status로 응답할 때까지 폴링한다.
+        #     상한 내 안 뜨면 이 에피소드는 못 돌리므로 크래시 대신 ABORTED로 깔끔히 종료.
+        if not self._ready():
+            return scorer.summary(end_reason=EpisodeEndReason.ABORTED.value)
 
         try:
             for rnd in range(1, self.params.max_rounds + 1):
@@ -128,6 +138,23 @@ class TurnSequencer:
                     pass
 
         return scorer.summary(end_reason=end_reason.value)
+
+    # ───────────── revert 후 대상 준비 대기 ─────────────
+    def _ready(self) -> bool:
+        """VM B(방어 하네스)가 /status로 응답할 때까지 폴링. 상한 초과면 False(→ 에피소드 중단).
+
+        revert→start 후 Workstation이 VM을 즉시 재개 못 하거나(일시정지) 서버 기동이 늦을 수
+        있다. 응답을 확인하고 턴을 시작해야 'VM 안 깨어남'으로 공격·방어 턴이 헛도는 걸 막는다.
+        """
+        deadline = time.time() + self.params.ready_timeout_sec
+        while True:
+            try:
+                self.defender.status()
+                return True
+            except Exception:              # noqa: BLE001 — 아직 미기동(연결거부·타임아웃 등)
+                if time.time() >= deadline:
+                    return False
+                self._sleep(self.params.ready_interval_sec)
 
     # ───────────── 라운드 ─────────────
     def _run_round(self, episode: int, rnd: int, scorer: Scorer,
