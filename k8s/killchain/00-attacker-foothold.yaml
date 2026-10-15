@@ -70,9 +70,12 @@ metadata:
     kubernetes.io/service-account.name: foothold-sa
 type: kubernetes.io/service-account-token
 ---
-# 발판 파드 — 공격 도구만 든 유휴 파드(명령은 외부 하네스가 exec 로 주입).
-# serviceAccountName 미지정 = frontend default SA(무권한). 이미지는 오프라인 실험 대비
-# 로컬 import(IfNotPresent). 툴: curl·nmap·netcat·psql·kubectl·dig (foothold/Dockerfile).
+# 발판 파드 — 공격 '도구'가 든 유휴 파드(명령은 외부 하네스가 exec 로 주입).
+# 이미지 = postgres:16-alpine (ShopFlow 가 이미 쓰는 공식 이미지, 수동 walkthrough 의 dbattack
+#   이미지와 동일 → 커스텀 빌드·도커 불필요, 이미 containerd 에 캐시됨). 내장 도구:
+#   psql(④ DB) · wget(① HTTP) · nc(③ 포트) · nslookup(DNS) · sh (alpine busybox).
+# command override 로 postgres 서버는 안 뜨고 유휴 대기만(명령은 exec 로 들어온다).
+# serviceAccountName 미지정 = frontend default SA(무권한) → ② 는 공격자가 스스로 털어야.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -95,9 +98,9 @@ spec:
     spec:
       containers:
         - name: toolkit
-          image: shopflow/attacker-foothold:latest
+          image: postgres:16-alpine          # ShopFlow 기존 공식 이미지 재사용(psql·wget·nc 내장)
           imagePullPolicy: IfNotPresent
-          command: ["tail", "-f", "/dev/null"]
+          command: ["tail", "-f", "/dev/null"]   # postgres 서버 미기동, 유휴 대기
           resources:
             requests: { cpu: "50m", memory: "64Mi" }
             limits: { cpu: "500m", memory: "256Mi" }

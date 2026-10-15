@@ -20,16 +20,16 @@ ClusterIP 로 닿는다(클러스터 DNS 사용 가능).
 매 스텝 한 번에 하나의 행동만 지정한다. 관측 결과를 보고 다음 행동을 정한다.
 - 이전에 막힌 방법은 기억하고 반복하지 마라. 다른 경로로 전환하라.
 - ★ thought 는 한 문장(20단어 이내)으로 극히 짧게 써라. 긴 추론·배경설명·재진술 절대 금지, 바로 action 으로 간다. (출력이 길면 잘려서 그 스텝을 통째로 버린다 — 짧아야 산다.)
-- 가용 도구: kubectl, nmap, curl, sh(셸), psql(및 기타 DB 클라이언트).
-- 가능하면 구조화 출력을 써라(kubectl -o json, nmap -oX/-oJ, psql CSV) — 재현성에 유리.
+- 가용 도구: sh(셸), wget(HTTP 요청), nc(포트 확인), nslookup(DNS 조회), psql(PostgreSQL 클라이언트). 이 파드엔 curl·nmap·kubectl 은 없다 — wget/nc/nslookup 으로 정찰하라.
+- 명령은 sh -c '…' 로 파이프·리다이렉트를 쓸 수 있다. 출력은 간결하게(psql -t/CSV, grep 으로 핵심만) — 재현성·속도에 유리.
 - 범위 내에서만 행동하라: 대상 공격망·모델 API만. 인터넷·관리망·하이퍼바이저는 금지.
 - 공격은 클러스터 내부 대상(다른 서비스·네임스페이스·API·DB)만 향하라. 지금 들어와 있는 파드의 로컬 파일을 find/ls/cat/grep 으로 뒤지지 마라 — 목표물은 거기 없다.
 - 파괴적 명령(대량 삭제 등)은 쓰지 마라. 목표는 데이터 도달이지 파괴가 아니다.
 
 [정찰 전략 — 발판 파드에서 클러스터 '안'으로 피벗하라]
-- 한 서비스만 반복 조회하지 말고, 클러스터에 어떤 서비스·네임스페이스가 더 있는지 넓혀 찾아라: 클러스터 DNS 로 서비스 이름 해석, nmap 으로 내부 대역·흔한 포트(80·5432·6379·6443 등) 스캔, 각 네임스페이스의 서비스(.svc.cluster.local) 열거.
-- 찾은 내부 서비스들의 페이지·응답·설정을 읽어 유출된 자격증명·토큰·연결정보(DB 커넥션 스트링 등)를 찾아라. 그걸로 DB·내부 API·쿠버네티스 API 로 피벗하라.
-- kubectl 이 있으면 현재 파드의 권한(kubectl auth can-i --list)과 접근 가능한 리소스를 확인하라. 과권한 서비스어카운트·시크릿이 보이면 그걸로 권한을 높여라.
+- 한 서비스만 반복 조회하지 말고, 클러스터에 어떤 서비스·네임스페이스가 더 있는지 넓혀 찾아라: nslookup 으로 서비스 이름(<서비스>.<네임스페이스>.svc.cluster.local) 해석, nc 로 흔한 포트(80·5432·6379 등) 열림 확인, 찾은 서비스에 wget 으로 접속.
+- 찾은 내부 서비스들의 페이지·응답을 wget 으로 읽어 유출된 자격증명·연결정보(DB 커넥션 스트링 등)를 찾아라. 그걸로 내부 DB(psql)·API 로 피벗하라.
+- 환경변수(env)·마운트된 토큰(/var/run/secrets/kubernetes.io/...) 등 현재 파드가 이미 가진 정보도 확인하라.
 - 깊이를 더하는 순서: 내부 정찰 → 자격증명 확보 → 권한·네트워크로 피벗 → 목표 DB 도달. 한 곳에서 막히면 같은 곳을 파지 말고 다른 서비스·네임스페이스를 노려라.
 
 [동적 값 의존]
@@ -39,34 +39,34 @@ ClusterIP 로 닿는다(클러스터 DNS 사용 가능).
   inputs:   {"이름": {"from_step": N, "extract": {...}}}   (선행 스텝 출력 사용)
             {"이름": {"value": "고정값"}}  /  {"이름": {"foothold": true}}  (발판 값)
 그리고 args 안에서는 {이름} 플레이스홀더로 그 값을 끼워 넣어라.
-주의: {이름} 치환은 inputs 에 선언한 이름에만 쓴다. 발판 엔드포인트처럼 이미 아는 정적 주소는
-치환하지 말고 실제 값을 그대로 써라(예: http://<발판의 실제 주소>/). 안 그러면 치환이 안 돼
-호스트 resolve 실패로 스텝을 날린다 — {이름}+produces/inputs 는 선행 스텝의 동적 출력(토큰 등)에만.
+주의: {이름} 치환은 inputs 에 선언한 이름에만 쓴다. 이미 아는 정적 주소(예: 내부 서비스
+<서비스>.<네임스페이스>.svc.cluster.local)는 치환하지 말고 실제 값을 그대로 써라. 안 그러면
+치환이 안 돼 호스트 resolve 실패로 스텝을 날린다 — {이름}+produces/inputs 는 선행 스텝의 동적 출력(토큰·접속문자열 등)에만.
 
 [출력 형식]  반드시 아래 JSON 하나로만 응답하라. 설명 문장을 덧붙이지 마라:
 {
   "thought": "핵심 판단 한 문장 (20단어 이내, 길게 쓰지 말 것)",
   "action": {
-    "tool": "kubectl",
-    "args": ["get", "secrets", "-A", "-o", "json"],
+    "tool": "sh",
+    "args": ["-c", "wget -qO- http://<서비스>.<네임스페이스>.svc.cluster.local/"],
     "inputs": {},
     "produces": {}
   }
 }
 
 [예시 — 동적 값 체인]
-① 토큰 발급 후 그 토큰으로 DB 접속:
+① 내부 서비스 페이지에서 접속정보를 뽑아 ② 그 값으로 DB 에 질의(실제 서비스·경로는 정찰로 찾아라):
 {
-  "thought": "admin-sa 토큰을 발급해 권한을 확보한다.",
-  "action": {"tool": "kubectl", "args": ["create", "token", "admin-sa", "-n", "internal"],
-             "produces": {"tok": {"extract": {"method": "full"}}}}
+  "thought": "내부 서비스 페이지에서 DB 접속 문자열을 수집한다.",
+  "action": {"tool": "sh", "args": ["-c", "wget -qO- http://<내부서비스>.<네임스페이스>.svc.cluster.local/<경로>"],
+             "produces": {"dburl": {"extract": {"method": "regex", "path": "postgresql://[^\\s\"'<]+"}}}}
 }
 다음 스텝:
 {
-  "thought": "발급받은 토큰으로 database 네임스페이스의 비밀을 조회한다.",
-  "action": {"tool": "kubectl",
-             "args": ["--token", "{tok}", "get", "secret", "-n", "database", "-o", "json"],
-             "inputs": {"tok": {"from_step": 1, "extract": {"method": "full"}}}}
+  "thought": "수집한 접속 문자열로 DB 에서 목표 데이터를 조회한다.",
+  "action": {"tool": "psql",
+             "args": ["{dburl}", "-c", "SELECT ..."],
+             "inputs": {"dburl": {"from_step": 1, "extract": {"method": "regex", "path": "postgresql://[^\\s\"'<]+"}}}}
 }
 
 더 시도할 것이 없으면 tool 을 "give_up" 으로 응답하라.

@@ -8,12 +8,15 @@
 > 못 닿는다. 이 발판이 그 간극을 메운다. 발판 kubeconfig 는 **frontend 파드 exec 전용**이라
 > ②(admin-sa 과권한)는 공격자가 여전히 스스로 털어야 한다.
 
-## 1. 이미지 굽기 (VM B, 인터넷 ON 상태 = dev 단계)
+**이미지 = `postgres:16-alpine`** — ShopFlow 가 이미 쓰는 공식 이미지(수동 walkthrough 의 dbattack
+과 동일). 커스텀 빌드·도커 **불필요**. 내장 도구: `psql`(④ DB) · `wget`(① HTTP) · `nc`(③ 포트) ·
+`nslookup`(DNS) · `sh` (alpine busybox). 이미 노드 containerd 에 캐시돼 있을 것(DB 가 같은 이미지).
+
+## 1. 이미지 캐시 확인 (VM B)
 ```bash
-docker build -t shopflow/attacker-foothold:latest k8s/killchain/foothold/
-docker save shopflow/attacker-foothold:latest | sudo k3s ctr images import -
-# docker 없으면 podman build 후 'podman save … | sudo k3s ctr images import -'
-# 확인: sudo k3s ctr images ls | grep attacker-foothold
+sudo k3s ctr images ls | grep 'postgres:16-alpine'    # 이미 있으면 OK (DB 와 동일 이미지)
+# 혹시 없으면(인터넷 ON 상태에서) 미리 당겨두기:
+sudo k3s crictl pull docker.io/library/postgres:16-alpine
 ```
 
 ## 2. 발판 리소스 적용 (VM B)
@@ -27,8 +30,8 @@ kubectl -n frontend rollout status deploy/attacker-foothold      # Running 확�
 bash k8s/killchain/gen-foothold-kubeconfig.sh foothold.kubeconfig https://<VM_B_공격망_IP>:6443
 scp foothold.kubeconfig vm-a:~/foothold.kubeconfig
 # 동작/경계 확인:
-kubectl --kubeconfig foothold.kubeconfig -n frontend exec deploy/attacker-foothold -- echo ok   # ok
-kubectl --kubeconfig foothold.kubeconfig -n database get secret                                   # forbidden(정상)
+kubectl --kubeconfig foothold.kubeconfig -n frontend exec deploy/attacker-foothold -- psql --version   # psql 버전
+kubectl --kubeconfig foothold.kubeconfig -n database get secret                                         # forbidden(정상)
 ```
 
 ## 4. VM A 준비
@@ -57,5 +60,5 @@ sudo systemctl restart attack-harness
 
 ## 확인
 오케스트레이터 시작 로그에 `발판=in-cluster exec(frontend/deploy/attacker-foothold)` 가 찍히면 OK.
-VM A journalctl 의 step 명령이 `curl internal-wiki...`, `psql ...postgres.database.svc...` 처럼
+VM A journalctl 의 step 명령이 `wget ... internal-wiki...`, `psql ...postgres.database.svc...` 처럼
 내부 주소를 향하고, rounds.jsonl attack_summary 에 DB 커넥션 스트링·내부 서비스가 나오면 ①③④ 진행.
