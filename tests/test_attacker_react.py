@@ -21,6 +21,7 @@ from attacker.scope import default_policy                    # noqa: E402
 
 _ACTION = '{"thought":"정찰","action":{"tool":"kubectl","args":["get","pods"]}}'
 _FLAG_ACTION = '{"thought":"덤프","action":{"tool":"kubectl","args":["get","secret"]}}'
+_BAD = "이건 JSON이 아니다"      # 파싱 실패 유발(모든 재시도에서 깨진 출력)
 
 
 class FakeRunner:
@@ -51,6 +52,19 @@ class FakeLLM:
         if item[0] == "timeout":
             raise LLMTimeout("fake timeout")
         return item[1]
+
+
+class FailThenOkLLM:
+    """처음 `fails`번 호출은 깨진 출력(파싱 실패), 이후 정상 액션 반환."""
+
+    def __init__(self, fails: int, good: str):
+        self.fails = fails
+        self.good = good
+        self.calls = 0
+
+    def chat_text(self, system, user, *, timeout=None, **kw):
+        self.calls += 1
+        return "not json" if self.calls <= self.fails else self.good
 
 
 def _loop(llm, *, time_limit=300.0, stdout="ok", max_steps=10):
@@ -99,6 +113,22 @@ def test_flag_found_still_terminates_flag():
     res = _loop(llm, stdout="secret=FLAG{smoke}").run(foothold={"attack_endpoint": "10.0.0.1"})
     assert res.end_reason == AttackEndReason.FLAG, res.end_reason
     assert any(f.value == "FLAG{smoke}" for f in res.flags_obtained)
+
+
+def test_persistent_parse_fail_is_deadend_not_error():
+    # 모든 호출이 깨진 JSON → 스텝마다 스킵, 연속 가드로 DEADEND(ERROR 아님), 대본 0스텝.
+    llm = FakeLLM([("ok", _BAD)])
+    res = _loop(llm).run(foothold={"attack_endpoint": "10.0.0.1"})
+    assert res.end_reason == AttackEndReason.DEADEND, res.end_reason
+    assert len(res.replay_script.steps) == 0, len(res.replay_script.steps)
+
+
+def test_single_parse_fail_then_recovers():
+    # 1스텝 파싱 실패(3회 재시도 모두 실패) → 스킵 후 다음 스텝 정상 → FLAG. 한 번 실패가 턴을 안 죽임.
+    llm = FailThenOkLLM(fails=3, good=_FLAG_ACTION)
+    res = _loop(llm, stdout="secret=FLAG{recover}").run(foothold={"attack_endpoint": "10.0.0.1"})
+    assert res.end_reason == AttackEndReason.FLAG, res.end_reason
+    assert any(f.value == "FLAG{recover}" for f in res.flags_obtained)
 
 
 # ───────────── 자체 러너 ─────────────

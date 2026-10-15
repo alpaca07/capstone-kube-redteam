@@ -17,6 +17,7 @@ from .execute_action import ActionExecutor
 from .history import AttackHistory
 
 _TIME_FLOOR = 2.0        # 남은 예산이 이보다 적으면 새 LLM 호출 안 시작(정상 타임아웃)
+_MAX_PARSE_FAILS = 3     # 연속 파싱 실패가 이 횟수면 막다른 길로 종료(모델이 깨진 JSON만 뱉는 상황 방지)
 
 
 def _default_log(msg: str) -> None:
@@ -71,6 +72,7 @@ class ReActLoop:
         deadline = t0 + self.time_limit_sec      # 턴 예산 마감 시각(호출을 이 안으로 묶음)
         end = AttackEndReason.DEADEND            # max_steps 소진도 막다른 길로 취급
         flags: list[FlagObtained] = []
+        consec_fail = 0                          # 연속 파싱 실패 횟수(가드용)
 
         for i in range(self.max_steps):
             if deadline - time.time() <= _TIME_FLOOR:   # 남은 예산 없음 → 정상 타임아웃
@@ -86,10 +88,16 @@ class ReActLoop:
                 end = AttackEndReason.TIMEOUT
                 break
             llm_sec = time.time() - t_llm
-            if action is None:                   # 파싱 끝내 실패 → 하네스 오류
-                self.log(f"[공격 step {i+1}] llm={llm_sec:.1f}s(calls={n_calls}) → 파싱 실패(하네스 오류)")
-                end = AttackEndReason.ERROR
-                break
+            if action is None:                   # 이 스텝 파싱 실패 → 턴을 죽이지 않고 스킵, 연속만 가드
+                consec_fail += 1
+                self.log(f"[공격 step {i+1}] llm={llm_sec:.1f}s(calls={n_calls}) "
+                         f"→ 파싱 실패, 스킵({consec_fail}/{_MAX_PARSE_FAILS})")
+                if consec_fail >= _MAX_PARSE_FAILS:   # 계속 깨진 JSON만 → 막다른 길(예산 낭비 방지)
+                    end = AttackEndReason.DEADEND
+                    self.log(f"[공격] 연속 파싱 실패 {consec_fail}회 → 턴 종료(DEADEND)")
+                    break
+                continue
+            consec_fail = 0                      # 유효 액션 파싱 성공 → 연속 실패 카운터 리셋
             if action.is_give_up():
                 self.log(f"[공격 step {i+1}] llm={llm_sec:.1f}s(calls={n_calls}) → give_up(막다른 길)")
                 end = AttackEndReason.DEADEND
