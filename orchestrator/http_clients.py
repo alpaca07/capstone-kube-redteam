@@ -27,7 +27,8 @@ from common.messages import (
 Transport = Callable[[str, dict, float], dict]
 
 _REPLAY_TIMEOUT = 600.0   # 리플레이 재생은 길 수 있음(대본 전체 재실행)
-_SHORT_TIMEOUT = 30.0     # 상태질의·헬스·하트비트
+_SHORT_TIMEOUT = 30.0     # 하트비트(/status)
+_STATE_TIMEOUT = 120.0    # 상태질의·헬스 — verify 내부 revert 직후 VM B(k3s·방어자)가 재개 중이라 느림
 
 
 def requests_transport(token: str = "") -> Transport:
@@ -85,11 +86,11 @@ class HttpDefenderClient(_BaseHttpClient):
         return env.payload_as(DefenseTurnResult)
 
     def state_query(self, query: StateQuery, *, episode: int, round: int) -> StateQueryResult:
-        env = self._post(query, episode=episode, round=round, timeout=_SHORT_TIMEOUT)
+        env = self._post(query, episode=episode, round=round, timeout=_STATE_TIMEOUT)
         return env.payload_as(StateQueryResult)
 
     def health_check(self, hc: HealthCheck, *, episode: int, round: int) -> HealthResult:
-        env = self._post(hc, episode=episode, round=round, timeout=_SHORT_TIMEOUT)
+        env = self._post(hc, episode=episode, round=round, timeout=_STATE_TIMEOUT)
         return env.payload_as(HealthResult)
 
     def status(self) -> AgentStatus:
