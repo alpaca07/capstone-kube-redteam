@@ -208,6 +208,69 @@ def test_run_experiment_multiple_episodes():
     assert ctx["snaps"].calls.count(("revert_to", "clean-baseline")) == 2   # 에피소드마다 리셋
 
 
+# ───────────── 게이팅(플래그 획득 시에만 방어+검증) ─────────────
+def _no_flag_result(reason: AttackEndReason = AttackEndReason.DEADEND) -> AttackTurnResult:
+    """플래그 미획득 공격 결과(정찰/막다른 길) — 방어·검증이 생략돼야 한다."""
+    return AttackTurnResult(end_reason=reason, flags_obtained=[], replay_script=None,
+                            attack_summary="정찰만 하고 플래그 못 찾음", elapsed_sec=1.0)
+
+
+class _ScriptedAttacker(FakeAttackerClient):
+    """라운드별로 다른 공격 결과를 돌려주는 공격자(리스트 소진 후엔 마지막 결과 반복)."""
+    def __init__(self, results, replay_by_phase=None) -> None:
+        super().__init__(replay_by_phase=replay_by_phase)
+        self._results = list(results)
+
+    def attack_turn(self, start, *, episode, round):   # noqa: A002
+        self.attack_calls.append((episode, round, start))
+        return self._results[min(round - 1, len(self._results) - 1)]
+
+
+def _gating_seq(results, *, n_consec=2, max_rounds=10):
+    attacker = _ScriptedAttacker(
+        results, replay_by_phase={PRE: _replay(PRE, True), POST: _replay(POST, False)})
+    defender = FakeDefenderClient(defense_result=_defense_result(),
+                                  vulnerable_by_check={"1": False, "2": False, "3": False})
+    snaps = FakeSnapshotManager(existing=["clean-baseline"])
+    registry = default_registry("FLAG{win}")
+    verifier = VerificationEngine(attacker, defender, snaps, registry)
+    captured: list[dict] = []
+    params = RunParams(episodes=1, max_rounds=max_rounds, n_consecutive_defense=n_consec,
+                       baseline_snapshot="clean-baseline", attack_endpoint="10.0.0.5")
+    seq = TurnSequencer(attacker=attacker, defender=defender, snapshots=snaps, verifier=verifier,
+                        logs=FakeLogSource(constant=set()), registry=registry, truth=TruthLog(),
+                        params=params, sink=captured.append)
+    return seq, {"attacker": attacker, "defender": defender, "snaps": snaps, "captured": captured}
+
+
+def test_no_flag_round_skips_defense_verify_snapshot():
+    # 플래그 미획득 → 공격후 스냅샷·방어·검증 전부 생략, 라운드 기록만 남는다.
+    seq, ctx = _gating_seq([_no_flag_result()], n_consec=99, max_rounds=1)
+    s = seq.run_episode(1)
+    snaps, defender, attacker, captured = (ctx["snaps"], ctx["defender"],
+                                           ctx["attacker"], ctx["captured"])
+    assert ("save", "ep1-r1-postattack") not in snaps.calls     # 2 생략
+    assert len(defender.defense_calls) == 0                     # 3 생략
+    assert len(attacker.replay_calls) == 0                      # 4~5 생략
+    assert len(captured) == 1                                   # 6 기록은 남음
+    assert captured[0]["verdict"] == "inconclusive"
+    assert captured[0]["defense_end_reason"] == "skipped"
+    assert s.rounds == 1 and s.end_reason == "max_rounds"
+
+
+def test_gating_ladder_no_flag_before_and_after_breakthrough():
+    # R1·R2 미획득(탐색중)=안정화 안 됨 → R3 돌파+BLOCKED(consec=1) → R4 미획득이나
+    # 과거 돌파가 있어 방어유지로 consec=2 → CONSECUTIVE_DEFENSE 종료.
+    seq, ctx = _gating_seq(
+        [_no_flag_result(), _no_flag_result(), _attack_result(), _no_flag_result()],
+        n_consec=2, max_rounds=10)
+    s = seq.run_episode(1)
+    assert s.end_reason == "consecutive_defense"
+    assert s.rounds == 4                                        # R4에서 종료
+    assert len(ctx["defender"].defense_calls) == 1              # 방어는 돌파한 R3에서만
+    assert ("save", "ep1-r3-postattack") in ctx["snaps"].calls  # 공격후 스냅샷도 R3만
+
+
 # ───────────── 자체 러너 ─────────────
 def _run() -> int:
     tests = [v for k, v in sorted(globals().items())

@@ -6,10 +6,14 @@ fake 이음새로 에피소드 전체를 테스트할 수 있다(실제 VM/네�
 라운드 0~8:
   0 에피소드 init: VM B를 clean 베이스라인으로 revert
   1 공격 턴 (C→A): 탈옥 LLM ReAct → 결과 + 리플레이 대본
+  ★ 게이팅: 2·3·4~5는 공격이 플래그를 획득한 라운드에서만 실행. 미획득이면 전부 생략하고
+    바로 다음 라운드로 간다(공격 히스토리는 하네스가 라운드 간 자동 이월 → 이어서 더 깊이 판다).
+    근거: 검증은 '성공한 공격이 막혔는지'를 재생으로 판정하므로, 성공한 공격이 없으면 pre 재생이
+    목표에 도달 못 해 판정이 구조적으로 INCONCLUSIVE — 스냅샷·재생 비용만 들고 신호가 없다.
   2 공격후 스냅샷 저장 (검증의 pre 상태)
   3 방어 턴 (C→B): 공격정보 0 → 관측·트리아지·패치
   4~5 검증: pre/post 재생 + 상태검증 → 판정 (스냅샷 전환은 검증엔진 내부)
-  5.5 god-view 정답 기록 (로그·값대조로 '실제 무슨 공격'을 TruthLog에)
+  5.5 god-view 정답 기록 (로그·값대조로 '실제 무슨 공격'을 TruthLog에) — 생략 라운드도 기록
   6 채점: 정답 대조 → 라운드 기록(JSONL)
   7 종료조건 검사 → 다음 라운드
   8 에피소드 종료: 요약 + 라운드 임시 스냅샷 정리
@@ -28,7 +32,8 @@ from enum import Enum
 from typing import Callable, Optional
 
 from common.messages import (
-    AttackTurnResult, AttackTurnStart, DefenseTurnStart, Foothold,
+    AttackEndReason, AttackTurnResult, AttackTurnStart, DefenseEndReason,
+    DefenseTurnResult, DefenseTurnStart, Foothold,
 )
 
 from .clients import AttackerClient, DefenderClient
@@ -69,6 +74,7 @@ class RoundOutcome:
     verdict: Verdict
     defense_succeeded: bool
     flags_reached: list[str] = field(default_factory=list)
+    flag_found: bool = False          # 이 라운드에 공격자가 플래그를 획득했나(= 방어·검증이 실제로 돌았나)
 
 
 class RoundAbort(Exception):
@@ -112,6 +118,7 @@ class TurnSequencer:
         scorer = Scorer(self.truth, episode, sink=self.sink)
         created_snaps: list[str] = []
         consecutive = 0
+        attacker_broke_through = False   # 이 에피소드에서 공격자가 한 번이라도 플래그를 획득했나(게이팅 사다리 기준)
         end_reason = EpisodeEndReason.MAX_ROUNDS
 
         # 0.5 revert 후 VM B 재개/기동 대기. 라이브 스냅샷 revert는 VM을 잠깐 일시정지로
@@ -136,13 +143,17 @@ class TurnSequencer:
                     end_reason = EpisodeEndReason.ABORTED
                     break
 
-                if outcome.defense_succeeded:
+                # 게이팅 사다리: 플래그 획득(방어 개입) 라운드는 검증 판정으로 증감,
+                # 플래그 미획득 라운드는 '과거에 한 번이라도 뚫린 적 있으면' 방어가 막아낸 것으로 +1
+                # (아직 한 번도 못 뚫었으면 공격자 탐색중 → 카운터 불변).
+                if outcome.flag_found:
+                    attacker_broke_through = True
+                    consecutive = consecutive + 1 if outcome.defense_succeeded else 0
+                elif attacker_broke_through:
                     consecutive += 1
-                    if consecutive >= self.params.n_consecutive_defense:
-                        end_reason = EpisodeEndReason.CONSECUTIVE_DEFENSE
-                        break
-                else:
-                    consecutive = 0
+                if consecutive >= self.params.n_consecutive_defense:
+                    end_reason = EpisodeEndReason.CONSECUTIVE_DEFENSE
+                    break
         finally:
             for name in created_snaps:        # 8. 라운드 임시 스냅샷 정리
                 try:
@@ -190,46 +201,62 @@ class TurnSequencer:
                   f"대본={len(attack.replay_script.steps) if attack.replay_script else 0}스텝 "
                   f"({time.time() - _t:.0f}s)")
 
-        # 2. 공격후 스냅샷(검증 pre 상태)
-        postattack = f"ep{episode}-r{rnd}-postattack"
-        self._log(f"[ep{episode} R{rnd}] 2. 공격후 스냅샷 저장({postattack})…")
-        _t = time.time()
-        self.snapshots.save(postattack)
-        created_snaps.append(postattack)
-        self._log(f"[ep{episode} R{rnd}]    → 저장 완료 ({time.time() - _t:.0f}s)")
+        # ── 게이팅: 공격이 플래그를 획득했을 때만 방어+검증(값비싼 스냅샷·재생)을 돌린다.
+        #    미획득이면 2·3·4~5를 전부 생략하고 바로 다음 라운드로(히스토리는 하네스가 자동 이월).
+        flag_found = bool(attack.flags_obtained) or attack.end_reason == AttackEndReason.FLAG
 
-        # 3. 방어 턴 (공격정보 0)
-        self._log(f"[ep{episode} R{rnd}] 3. 방어 턴(관측→추론→패치)…")
-        _t = time.time()
-        defense = self._call(
-            lambda: self.defender.defense_turn(
-                DefenseTurnStart(time_limit_sec=self.params.time_limit_sec),
-                episode=episode, round=rnd), "defense_turn")
-        self._log(f"[ep{episode} R{rnd}]    → 방어 종료={defense.end_reason.value} "
-                  f"패치={defense.patch_applied} 탐지={len(defense.detected)}개 "
-                  f"health={defense.healthcheck_passed} ({time.time() - _t:.0f}s)")
-
-        # 4~5. 검증 (대본 있을 때만; 스냅샷 전환은 검증엔진 내부)
-        postpatch = f"ep{episode}-r{rnd}-postpatch"
-        script = attack.replay_script
-        if script is not None and script.steps:
-            self._log(f"[ep{episode} R{rnd}] 4~5. 검증(리플레이 pre/post, 스냅샷 전환)…")
+        if flag_found:
+            # 2. 공격후 스냅샷(검증 pre 상태)
+            postattack = f"ep{episode}-r{rnd}-postattack"
+            self._log(f"[ep{episode} R{rnd}] 2. 공격후 스냅샷 저장({postattack})…")
             _t = time.time()
-            verification = self._call(
-                lambda: self.verifier.verify(
-                    script, episode=episode, round=rnd,
-                    pre_snapshot=postattack, post_patch_snapshot=postpatch,
-                    target=self.params.attack_endpoint), "verify")
-            created_snaps.append(postpatch)
-            self._log(f"[ep{episode} R{rnd}]    → 판정={verification.verdict.value} ({time.time() - _t:.0f}s)")
+            self.snapshots.save(postattack)
+            created_snaps.append(postattack)
+            self._log(f"[ep{episode} R{rnd}]    → 저장 완료 ({time.time() - _t:.0f}s)")
+
+            # 3. 방어 턴 (공격정보 0)
+            self._log(f"[ep{episode} R{rnd}] 3. 방어 턴(관측→추론→패치)…")
+            _t = time.time()
+            defense = self._call(
+                lambda: self.defender.defense_turn(
+                    DefenseTurnStart(time_limit_sec=self.params.time_limit_sec),
+                    episode=episode, round=rnd), "defense_turn")
+            self._log(f"[ep{episode} R{rnd}]    → 방어 종료={defense.end_reason.value} "
+                      f"패치={defense.patch_applied} 탐지={len(defense.detected)}개 "
+                      f"health={defense.healthcheck_passed} ({time.time() - _t:.0f}s)")
+
+            # 4~5. 검증 (대본 있을 때만; 스냅샷 전환은 검증엔진 내부)
+            postpatch = f"ep{episode}-r{rnd}-postpatch"
+            script = attack.replay_script
+            if script is not None and script.steps:
+                self._log(f"[ep{episode} R{rnd}] 4~5. 검증(리플레이 pre/post, 스냅샷 전환)…")
+                _t = time.time()
+                verification = self._call(
+                    lambda: self.verifier.verify(
+                        script, episode=episode, round=rnd,
+                        pre_snapshot=postattack, post_patch_snapshot=postpatch,
+                        target=self.params.attack_endpoint), "verify")
+                created_snaps.append(postpatch)
+                self._log(f"[ep{episode} R{rnd}]    → 판정={verification.verdict.value} ({time.time() - _t:.0f}s)")
+            else:
+                verification = VerificationResult(
+                    verdict=Verdict.INCONCLUSIVE, method="none",
+                    detail="플래그 보고됐으나 재생 대본이 비어 검증 불가")
+                self._log(f"[ep{episode} R{rnd}] 4~5. 검증 생략(대본 없음) → 판정={verification.verdict.value}")
         else:
+            # 플래그 미획득 → 방어·검증·공격후 스냅샷 전부 생략. 합성 결과로 라운드 기록만 남긴다.
+            defense = DefenseTurnResult(
+                patch_applied=False, end_reason=DefenseEndReason.SKIPPED,
+                patch_note="공격 실패(플래그 미획득) → 방어 미개입(게이팅)")
             verification = VerificationResult(
-                verdict=Verdict.INCONCLUSIVE, method="none", detail="공격 대본 없음(공격 실패/포기)")
-            self._log(f"[ep{episode} R{rnd}] 4~5. 검증 생략(공격 대본 없음) → 판정={verification.verdict.value}")
+                verdict=Verdict.INCONCLUSIVE, method="skipped",
+                detail="공격 플래그 미획득 → 방어·검증 생략, 히스토리 이월 후 다음 라운드")
+            self._log(f"[ep{episode} R{rnd}] 2~5. 방어·검증·스냅샷 생략"
+                      f"(플래그 미획득) → 히스토리 이월, 다음 라운드")
 
         t1 = time.time()
 
-        # 5.5 god-view 정답 기록 → 6. 채점
+        # 5.5 god-view 정답 기록 → 6. 채점 (생략 라운드도 기록 — 공격 활동/타임라인 보존)
         self.truth.record(self._build_truth(episode, rnd, attack, t0=t0, t1=t1))
         scorer.score_round(round=rnd, attack_result=attack,
                            defense_result=defense, verification=verification)
@@ -237,7 +264,8 @@ class TurnSequencer:
 
         return RoundOutcome(round=rnd, verdict=verification.verdict,
                             defense_succeeded=verification.defense_succeeded(),
-                            flags_reached=verification.flags_still_reachable)
+                            flags_reached=verification.flags_still_reachable,
+                            flag_found=flag_found)
 
     # ───────────── god-view 정답 구축 ─────────────
     def _build_truth(self, episode: int, rnd: int, attack: AttackTurnResult,

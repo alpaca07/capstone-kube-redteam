@@ -61,6 +61,7 @@ class DefenseEndReason(str, Enum):
     PATCHED = "patched"    # 패치 적용 완료
     TIMEOUT = "timeout"    # 제한시간 초과
     NOOP = "noop"          # 관측상 조치 불필요로 판단(오탐/무행동)
+    SKIPPED = "skipped"    # 공격 실패(플래그 미획득) → 방어 미개입(게이팅). NOOP(관측 후 무행동)와 구분
     ERROR = "error"
 
 
