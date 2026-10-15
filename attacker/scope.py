@@ -34,6 +34,7 @@ class ScopePolicy:
     denied_hosts: list[str] = field(default_factory=list)  # 명시 금지(VM C 관리망 IP 등)
     block_public: bool = True                              # 공인 IP·외부 도메인 차단
     extra_destructive: list[str] = field(default_factory=list)  # 추가 파괴 패턴(정규식)
+    protected_paths: list[str] = field(default_factory=list)    # 자기 하네스 소스/설정 경로(접근 차단)
 
 
 @dataclass
@@ -43,9 +44,11 @@ class ScopeResult:
     hosts: list[str] = field(default_factory=list)
 
 
-def default_policy(denied_hosts: Optional[list[str]] = None) -> ScopePolicy:
-    """기본 정책 — 관리망(VM C) 등은 denied_hosts로 주입, 인터넷 차단."""
-    return ScopePolicy(denied_hosts=list(denied_hosts or []), block_public=True)
+def default_policy(denied_hosts: Optional[list[str]] = None,
+                   protected_paths: Optional[list[str]] = None) -> ScopePolicy:
+    """기본 정책 — 관리망(VM C)은 denied_hosts로, 자기 하네스 소스는 protected_paths로 차단, 인터넷 차단."""
+    return ScopePolicy(denied_hosts=list(denied_hosts or []), block_public=True,
+                       protected_paths=list(protected_paths or []))
 
 
 def _hosts_in(command: str) -> list[str]:
@@ -89,6 +92,12 @@ def check_scope(command: str, policy: ScopePolicy) -> ScopeResult:
     for extra in policy.extra_destructive:
         if re.search(extra, cmd):
             return ScopeResult(False, f"파괴적 명령 차단(추가): /{extra}/")
+
+    # 1.5) 자기 하네스 경로 보호 — 공격자가 자기 소스/설정을 읽어 가짜 FLAG 를 줍는 것 방지.
+    #      목표물은 원격 대상에 있지 로컬 하네스에 없다.
+    for p in policy.protected_paths:
+        if p and p in cmd:
+            return ScopeResult(False, f"보호 경로 접근 차단(자기 하네스): {p}")
 
     hosts = _hosts_in(cmd)
 

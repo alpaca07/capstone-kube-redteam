@@ -79,6 +79,14 @@ def test_postgres_uri_host_extracted():
     _deny("psql postgresql://u:p@db.external.com:5432/db")
 
 
+def test_protected_path_blocked():
+    # 자기 하네스 소스 접근은 차단(가짜 FLAG 줍기 방지). 보호경로 미지정이면 기존대로 허용.
+    pol = default_policy(protected_paths=["/home/vm-a/capstone"])
+    r = check_scope("sh -lc cd /home/vm-a/capstone && grep -r FLAG .", pol)
+    assert not r.allowed and "보호 경로" in r.reason, r.reason
+    _ok("sh -lc grep -r FLAG .")   # _P(보호경로 없음)에선 통과 — 규칙은 opt-in, 기존 동작 불변
+
+
 def _run() -> int:
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]
