@@ -52,6 +52,20 @@ class TargetConfig(BaseModel):
     kubeconfig: str                    # VM C god-view 조회용
 
 
+class AttackConfig(BaseModel):
+    """공격자 실행 위치 설정 — '웹 계층 침해' 발판을 클러스터 내부 파드로 구현.
+
+    exec_mode=False(기본): VM A 로컬 subprocess 실행(개발·테스트·flat 외부 공격).
+    exec_mode=True: 모든 공격 명령을 frontend ns 발판 파드 안에서 kubectl exec 로 '투명하게'
+      실행 → 공격자가 .svc.cluster.local·ClusterIP·k8s API 로 내부 서비스에 도달(킬체인 ①③④).
+      LLM 은 이 래핑을 모른 채 평범한 셸 명령을 치고, 하네스가 파드 안에서 돌린다.
+    """
+    exec_mode: bool = False
+    exec_kubeconfig: str = ""                       # frontend exec 전용 kubeconfig 경로(VM A)
+    exec_namespace: str = "frontend"                # 발판 파드 네임스페이스
+    exec_pod: str = "deploy/attacker-foothold"      # kubectl exec 대상(deploy/… 또는 파드 이름)
+
+
 class VmwareConfig(BaseModel):
     method: str = "govc"               # govc | pyvmomi | vmrun(Workstation SSH) | agent(호스트 에이전트)
     vcenter_or_esxi: str = "HOST"      # govc 전용(GOVC_URL)
@@ -94,6 +108,7 @@ class Config(BaseModel):
     experiment: ExperimentConfig = Field(default_factory=ExperimentConfig)
     flags: FlagsConfig = Field(default_factory=FlagsConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
+    attack: AttackConfig = Field(default_factory=AttackConfig)
 
 
 # ───────────────────────── 로더 ─────────────────────────
@@ -131,7 +146,7 @@ def load_config(path: Optional[str | os.PathLike] = None) -> Config:
 
 
 __all__ = [
-    "DgxConfig", "NetworkConfig", "TargetConfig", "VmwareConfig",
+    "DgxConfig", "NetworkConfig", "TargetConfig", "AttackConfig", "VmwareConfig",
     "ExperimentConfig", "FlagsConfig", "ObservabilityConfig", "Config",
     "find_config", "load_config",
 ]

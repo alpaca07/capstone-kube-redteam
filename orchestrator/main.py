@@ -90,7 +90,9 @@ def build_sequencer(cfg: Config, *, flag4_value: Optional[str] = None,
             time_limit_sec=cfg.experiment.time_limit_sec,
             max_tokens=cfg.dgx.max_tokens,
             baseline_snapshot=cfg.vmware.baseline_snapshot,
-            attack_endpoint=cfg.target.attack_endpoint, flag_format=cfg.flags.format)
+            # exec_mode면 발판은 외부 URL 이 아니라 '클러스터 내부 파드'라 endpoint 를 비운다.
+            attack_endpoint=(None if cfg.attack.exec_mode else cfg.target.attack_endpoint),
+            flag_format=cfg.flags.format)
     return TurnSequencer(attacker=attacker, defender=defender, snapshots=snapshots,
                          verifier=verifier, logs=logs, registry=registry, truth=truth,
                          params=params, sink=sink)
@@ -105,7 +107,9 @@ def _params_from_args(cfg: Config, args: argparse.Namespace) -> RunParams:
         time_limit_sec=args.time_limit if args.time_limit is not None else cfg.experiment.time_limit_sec,
         max_tokens=args.max_tokens if args.max_tokens is not None else cfg.dgx.max_tokens,
         baseline_snapshot=cfg.vmware.baseline_snapshot,
-        attack_endpoint=cfg.target.attack_endpoint, flag_format=cfg.flags.format)
+        # exec_mode면 발판은 외부 URL 이 아니라 '클러스터 내부 파드'라 endpoint 를 비운다.
+        attack_endpoint=(None if cfg.attack.exec_mode else cfg.target.attack_endpoint),
+        flag_format=cfg.flags.format)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -139,6 +143,9 @@ def main(argv: Optional[list[str]] = None) -> int:
           f"flag4={'로드됨' if flag4 else '없음(리플레이로만 ④판정)'}")
     print(f"    대상 VM={cfg.vmware.target_vm_name} baseline={params.baseline_snapshot}")
     print(f"    공격자={cfg.network.attacker_url}  방어자={cfg.network.defender_url}")
+    foothold_desc = (f"in-cluster exec({cfg.attack.exec_namespace}/{cfg.attack.exec_pod})"
+                     if cfg.attack.exec_mode else f"외부 endpoint({cfg.target.attack_endpoint})")
+    print(f"    발판={foothold_desc}")
 
     summaries = seq.run_experiment()
 

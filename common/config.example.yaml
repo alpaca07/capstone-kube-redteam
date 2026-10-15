@@ -24,8 +24,20 @@ network:
 
 # ===== 대상 클러스터 (VM B) =====
 target:
-  attack_endpoint: "VM_B_ATTACK_IP"   # 공격망에서 본 대상 (발판용)
+  attack_endpoint: "VM_B_ATTACK_IP"   # 공격망에서 본 대상 (발판용; exec_mode=true면 무시됨)
   kubeconfig: "/path/to/kubeconfig"   # VM C가 god-view 조회용
+
+# ===== 공격자 실행 위치 (발판 = '웹 계층 침해') =====
+# exec_mode=true면 공격 명령을 frontend ns 발판 파드 안에서 kubectl exec 로 '투명하게' 실행한다.
+# → 공격자가 internal-wiki·postgres 등 .svc.cluster.local 내부 서비스에 도달(킬체인 ①③④).
+# 끄면(기본 false) VM A 로컬 subprocess(외부에서 NodePort만 — 내부 킬체인엔 도달 불가).
+# 사전작업: k8s/killchain/00-attacker-foothold.yaml 적용 + gen-foothold-kubeconfig.sh 로 만든
+#          kubeconfig 를 VM A 에 두고 아래 경로 지정 → clean-baseline 재스냅샷.
+attack:
+  exec_mode: false
+  exec_kubeconfig: "/home/vm-a/foothold.kubeconfig"   # frontend exec 전용(secret-read 없음)
+  exec_namespace: "frontend"
+  exec_pod: "deploy/attacker-foothold"
 
 # ===== VMware 스냅샷 제어 =====
 # Workstation 권장: method=agent. 이유 — vmrun 스냅샷은 SSH로 되지만 revert 후 VM '재개'는

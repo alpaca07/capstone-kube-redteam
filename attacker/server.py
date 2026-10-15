@@ -129,20 +129,28 @@ def _load_prompt() -> str:
 def create_harness(cfg, *, prompt: Optional[str] = None, runner=None, llm=None) -> AttackHarness:
     """config + 실 어댑터로 AttackHarness 조립(I/O 없음 — 실제 연결은 턴 때)."""
     from common.llm_client import OllamaClient
-    from .subprocess_runner import SubprocessRunner
+    from .subprocess_runner import KubectlExecRunner, SubprocessRunner
     if llm is None:
         req_timeout = cfg.dgx.request_timeout_sec or float(cfg.experiment.time_limit_sec)
         llm = OllamaClient(cfg.dgx.attacker_base_url, cfg.dgx.attacker_model,
                            temperature=cfg.dgx.temperature,
                            timeout=req_timeout,            # 콜드스타트/느린 모델이 120초 넘겨도 안 끊김
                            max_tokens=cfg.dgx.max_tokens)
-    # ★ 공격 명령은 하네스 repo 가 아닌 '격리된 빈 작업 디렉토리'에서 실행 — cwd 가 하네스
-    #   소스면 `find .`/`ls` 가 자기 소스의 FLAG{...} 플레이스홀더를 긁어 가짜 플래그를 줍는다.
-    import os
-    work_dir = "/tmp/attack-workspace"
-    os.makedirs(work_dir, exist_ok=True)
-    runner = runner or SubprocessRunner(
-        default_timeout=min(cfg.experiment.time_limit_sec, 120), cwd=work_dir)
+    step_to = float(min(cfg.experiment.time_limit_sec, 120))
+    if runner is None:
+        if cfg.attack.exec_mode:
+            # ★ 발판 = frontend 파드 '안'(웹 계층 침해). 모든 명령을 kubectl exec 로 투명 래핑 →
+            #   공격자가 internal-wiki·postgres 등 .svc.cluster.local 내부 서비스에 도달(①③④).
+            runner = KubectlExecRunner(
+                kubeconfig=cfg.attack.exec_kubeconfig, namespace=cfg.attack.exec_namespace,
+                pod_ref=cfg.attack.exec_pod, default_timeout=step_to)
+        else:
+            # 로컬 실행(개발·테스트·외부 flat). cwd 를 빈 디렉토리로 격리 — 하네스 소스의
+            # FLAG{...} 플레이스홀더를 긁어 가짜 플래그를 줍는 reward-hacking 방지.
+            import os
+            work_dir = "/tmp/attack-workspace"
+            os.makedirs(work_dir, exist_ok=True)
+            runner = SubprocessRunner(default_timeout=step_to, cwd=work_dir)
     # ★ 자기 하네스 경로(소스·설정)를 스코프로 보호 — 절대경로로 접근해도 차단(가짜 플래그 원천 차단).
     repo_root = str(Path(__file__).resolve().parent.parent)
     return AttackHarness(
@@ -150,7 +158,7 @@ def create_harness(cfg, *, prompt: Optional[str] = None, runner=None, llm=None) 
         scope_policy=default_policy(protected_paths=[repo_root]),
         system_prompt=prompt or _load_prompt(),
         flag_value_id="4", session_id=cfg.vmware.target_vm_name or "vmA",
-        step_timeout=float(min(cfg.experiment.time_limit_sec, 120)))
+        step_timeout=step_to)
 
 
 def create_app(harness: AttackHarness):

@@ -121,6 +121,27 @@ def test_foothold_input():
     assert runner.calls[0] == ("curl", ["http://10.0.1.5/runbook.html"])
 
 
+# ───────────── 실행 위치(로컬 vs in-cluster exec 래핑) ─────────────
+def test_subprocess_runner_build_cmd_plain():
+    # exec_prefix 없으면 argv 는 [tool, *args] 그대로(기존 동작 불변).
+    from attacker.subprocess_runner import SubprocessRunner
+    r = SubprocessRunner()
+    assert r._build_cmd("curl", ["-sS", "http://x/"]) == ["curl", "-sS", "http://x/"]
+
+
+def test_kubectl_exec_runner_wraps_cmd():
+    # KubectlExecRunner 는 명령을 frontend 발판 파드 kubectl exec 로 투명 래핑(안쪽 명령 그대로 뒤에).
+    from attacker.subprocess_runner import KubectlExecRunner
+    r = KubectlExecRunner(kubeconfig="/kc", namespace="frontend", pod_ref="deploy/attacker-foothold")
+    cmd = r._build_cmd("sh", ["-c", "curl -sS http://internal-wiki.internal.svc.cluster.local/"])
+    assert cmd == ["kubectl", "--kubeconfig", "/kc", "exec", "-n", "frontend",
+                   "deploy/attacker-foothold", "-i", "--",
+                   "sh", "-c", "curl -sS http://internal-wiki.internal.svc.cluster.local/"]
+    # psql 같은 비셸 도구도 동일하게 뒤에 붙는다.
+    assert r._build_cmd("psql", ["postgresql://u:p@postgres.database.svc.cluster.local/db"])[-2:] \
+        == ["psql", "postgresql://u:p@postgres.database.svc.cluster.local/db"]
+
+
 def _run() -> int:
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

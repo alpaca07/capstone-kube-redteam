@@ -1,0 +1,103 @@
+# attacker-foothold — 자동 루프용 '웹 계층 침해' 발판 (frontend ns 상주 파드).
+#
+# 설계 근거: 메인 킬체인 ①③④ 는 전부 .svc.cluster.local(ClusterIP) 내부 주소라 클러스터
+#   '안'에서만 실행 가능하다(수동 walkthrough 도 frontend 공격자 파드에서 시작). 자동 공격
+#   하네스는 VM A(클러스터 밖)에 있으므로, 명령을 이 발판 파드 안에서 kubectl exec 로 투명
+#   실행해 "웹 계층이 침해된 내부 위치"를 구현한다(config attack.exec_mode=true + 아래 kubeconfig).
+#
+# 권한 경계(중요): 공격 하네스가 쓰는 kubeconfig 는 frontend ns 에서 '파드 exec' 만 가능
+#   (secret 조회·파드 생성·타 NS 접근 불가). 즉 "웹 파드에 셸을 얻은" 수준이지 클러스터 관리자가
+#   아니다 → ②(admin-sa 과권한)는 공격자가 여전히 스스로 찾아 털어야 한다(난이도 유지).
+# 발판 파드 자신은 frontend 의 default SA(무권한)로 돌아 — 안에서 API 를 찔러도 기본은 막힌다.
+#
+# 적용/재스냅샷 절차는 foothold/README.md 참고. clean-baseline 에 이 파드가 떠 있어야 한다.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: foothold-sa
+  namespace: frontend
+  labels:
+    app.kubernetes.io/part-of: capstone-killchain
+    role: attacker-foothold
+---
+# frontend ns 에서 '파드 exec' 전용 Role — deploy/attacker-foothold 해석(deployments get) +
+# 파드 조회(get/list) + exec(create). secret·타 NS·파드 생성 권한은 '의도적으로 없음'.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: foothold-exec
+  namespace: frontend
+  labels:
+    app.kubernetes.io/part-of: capstone-killchain
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: foothold-exec
+  namespace: frontend
+  labels:
+    app.kubernetes.io/part-of: capstone-killchain
+subjects:
+  - kind: ServiceAccount
+    name: foothold-sa
+    namespace: frontend
+roleRef:
+  kind: Role
+  name: foothold-exec
+  apiGroup: rbac.authorization.k8s.io
+---
+# 장수(비만료) SA 토큰 — gen-foothold-kubeconfig.sh 가 이 토큰으로 kubeconfig 를 만든다.
+# (bound 토큰은 만료돼 실험 중 끊길 수 있어 classic token Secret 을 쓴다.)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: foothold-sa-token
+  namespace: frontend
+  labels:
+    app.kubernetes.io/part-of: capstone-killchain
+  annotations:
+    kubernetes.io/service-account.name: foothold-sa
+type: kubernetes.io/service-account-token
+---
+# 발판 파드 — 공격 도구만 든 유휴 파드(명령은 외부 하네스가 exec 로 주입).
+# serviceAccountName 미지정 = frontend default SA(무권한). 이미지는 오프라인 실험 대비
+# 로컬 import(IfNotPresent). 툴: curl·nmap·netcat·psql·kubectl·dig (foothold/Dockerfile).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: attacker-foothold
+  namespace: frontend
+  labels:
+    app: attacker-foothold
+    app.kubernetes.io/part-of: capstone-killchain
+    tier: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: attacker-foothold }
+  template:
+    metadata:
+      labels:
+        app: attacker-foothold
+        app.kubernetes.io/part-of: capstone-killchain
+        tier: frontend
+    spec:
+      containers:
+        - name: toolkit
+          image: shopflow/attacker-foothold:latest
+          imagePullPolicy: IfNotPresent
+          command: ["tail", "-f", "/dev/null"]
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }

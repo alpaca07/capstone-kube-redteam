@@ -30,6 +30,11 @@ killchain/
 
 > 자동 루프 붙이기 전에 사람이 직접 성공해봐야 한다. 실제 루프에선 VM C가 발판을 주지만,
 > 여기선 공격자 파드를 띄워 "웹 계층 침해"를 모사한다. (netshoot pull에 인터넷 필요)
+>
+> ※ 자동 루프의 발판 구현: `00-attacker-foothold.yaml` + `foothold/README.md` 참고. frontend ns
+> 에 상주 발판 파드를 두고 공격 하네스가 `kubectl exec`(frontend exec 전용 kubeconfig)로 그 안에서
+> 명령을 돌린다(config `attack.exec_mode=true`). ①③④ 가 `.svc.cluster.local` 내부 주소라 공격자가
+> 클러스터 '안'에 있어야 하기 때문 — 이 수동 walkthrough 의 공격자 파드를 자동화한 것.
 
 **발판 — frontend 계층에 공격자 셸:**
 ```bash

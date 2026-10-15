@@ -208,6 +208,22 @@ def test_config_loads_example():
     assert cfg.experiment.time_limit_sec == 300
     assert cfg.experiment.n_consecutive_defense == 3
     assert cfg.flags.format == "FLAG{...}"
+    # attack 섹션(in-cluster exec 발판) — 예시는 exec_mode=false(기본), 필드 존재 확인.
+    assert cfg.attack.exec_mode is False
+    assert cfg.attack.exec_namespace == "frontend"
+    assert cfg.attack.exec_pod == "deploy/attacker-foothold"
+
+
+def test_attack_config_defaults_when_section_absent():
+    """attack 섹션이 없는 config 도 로드되고 exec_mode 는 기본 false(하위호환)."""
+    from common.config import Config
+    cfg = Config.model_validate({
+        "dgx": {"attacker_host": "a", "defender_host": "b",
+                "attacker_model": "m1", "defender_model": "m2"},
+        "network": {"attacker_url": "http://a:8000", "defender_url": "http://b:8000"},
+        "target": {"attack_endpoint": "1.2.3.4:30080", "kubeconfig": "/k"},
+    })
+    assert cfg.attack.exec_mode is False        # 섹션 없으면 로컬 실행(기존 동작)
 
 
 def test_config_missing_raises():
