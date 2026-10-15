@@ -14,7 +14,8 @@ if str(_ROOT) not in sys.path:
 
 from common.llm_client import LLMTimeout                     # noqa: E402
 from common.messages import AttackEndReason                  # noqa: E402
-from attacker.execute_action import ActionExecutor, CommandResult  # noqa: E402
+from attacker.actions import AttackAction                    # noqa: E402
+from attacker.execute_action import ActionExecutor, CommandResult, Observation  # noqa: E402
 from attacker.history import AttackHistory                   # noqa: E402
 from attacker.react_loop import ReActLoop                    # noqa: E402
 from attacker.scope import default_policy                    # noqa: E402
@@ -129,6 +130,20 @@ def test_single_parse_fail_then_recovers():
     res = _loop(llm, stdout="secret=FLAG{recover}").run(foothold={"attack_endpoint": "10.0.0.1"})
     assert res.end_reason == AttackEndReason.FLAG, res.end_reason
     assert any(f.value == "FLAG{recover}" for f in res.flags_obtained)
+
+
+def test_summarize_carries_successful_findings():
+    # 라운드 간 기억이 '카운트'가 아니라 성공한 행동+관측을 담아야 다음 라운드가 이어받음.
+    h = AttackHistory()
+    h.record(AttackAction(thought="정찰", tool="curl", args=["http://192.168.16.128:30080/"]),
+             Observation(step=1, tool="curl", exit_code=0, success=True,
+                         stdout="db_user=app db_pass=s3cret"))
+    h.record(AttackAction(thought="실패수", tool="sh", args=["bad-cmd"]),
+             Observation(step=2, tool="sh", exit_code=1, success=False, stderr="not found"))
+    s = h.summarize()
+    assert "curl http://192.168.16.128:30080/" in s, s   # 성공 명령 보존
+    assert "db_pass=s3cret" in s, s                       # 관측(크레덴셜) 보존
+    assert "실패 1" in s, s                                # 실패 카운트도
 
 
 # ───────────── 자체 러너 ─────────────

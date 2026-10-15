@@ -37,6 +37,8 @@ try:
 except ImportError:                    # pragma: no cover
     Request = None  # type: ignore
 
+_MAX_PRIOR_ROUNDS = 4        # 라운드 간 기억으로 넘길 최근 라운드 수(프롬프트 비대 방지)
+
 
 class AttackHarness:
     """공격 턴(새 수 생성) + 리플레이 턴(결정론 재생) 로직."""
@@ -54,12 +56,14 @@ class AttackHarness:
         self.step_timeout = step_timeout
         self._episode: Optional[int] = None
         self._prior_summary = ""             # 라운드 간 기억(에피소드 내에서만 누적)
+        self._round_digests: list[str] = []  # 라운드별 요약 누적(최근 N라운드)
 
     # ── attack_turn_start → attack_turn_result (공격 모드) ──
     def attack_turn(self, start: AttackTurnStart, *, episode: int, round: int) -> AttackTurnResult:
         if episode != self._episode:         # 새 에피소드 → 라운드 간 기억 리셋
             self._episode = episode
             self._prior_summary = ""
+            self._round_digests = []
         try:
             executor = ActionExecutor(
                 self.runner, scope_policy=self.scope, session_id=self.session_id,
@@ -74,7 +78,10 @@ class AttackHarness:
             foothold = ({"attack_endpoint": start.foothold.attack_endpoint}
                         if start.foothold is not None else None)
             result = loop.run(foothold=foothold)
-            self._prior_summary = result.attack_summary    # 다음 라운드로 기억 이월
+            # 라운드 간 기억: 이번 라운드 요약을 누적(최근 N라운드만 유지 → 프롬프트 비대 방지).
+            self._round_digests.append(f"[R{round}] {result.attack_summary}")
+            self._round_digests = self._round_digests[-_MAX_PRIOR_ROUNDS:]
+            self._prior_summary = "\n\n".join(self._round_digests)
             return result
         except Exception as e:               # noqa: BLE001 — 하네스 오류는 ERROR로 보고(루프 보호)
             import traceback

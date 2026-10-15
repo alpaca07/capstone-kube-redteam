@@ -174,10 +174,10 @@ class TurnSequencer:
                    created_snaps: list[str]) -> RoundOutcome:
         t0 = time.time()
 
-        # 1. 공격 턴 (발판은 첫 라운드만)
-        foothold = None
-        if rnd == 1 and self.params.attack_endpoint:
-            foothold = Foothold(attack_endpoint=self.params.attack_endpoint)
+        # 1. 공격 턴 (발판=고정 진입점, 매 라운드 제공 — 대상은 매 라운드 baseline으로 revert돼
+        #    엔드포인트가 불변. 라운드 간 기억만으로 공격자가 진입점을 잊는 문제를 막음)
+        foothold = (Foothold(attack_endpoint=self.params.attack_endpoint)
+                    if self.params.attack_endpoint else None)
         start = AttackTurnStart(time_limit_sec=self.params.time_limit_sec,
                                 goal=self.params.goal, flag_format=self.params.flag_format,
                                 foothold=foothold, max_tokens=self.params.max_tokens)

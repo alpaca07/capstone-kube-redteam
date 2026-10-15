@@ -49,18 +49,25 @@ class AttackHistory:
             lines.append(f"#{e.step} [{status}] {cmd}\n    → {out}")
         return "\n".join(lines) if lines else "(아직 행동 없음 — 정찰부터 시작하라)"
 
-    def summarize(self) -> str:
-        """이번 라운드에 뭘 했나 한 줄 요약(다음 라운드로 넘길 기억)."""
+    def summarize(self, *, max_steps: int = 6, excerpt: int = 140) -> str:
+        """이번 라운드 요약(다음 라운드로 넘길 기억). 단순 카운트가 아니라 '성공한 행동 + 그 관측'
+        을 담아, 다음 라운드가 발견(엔드포인트·크레덴셜 등)을 실제로 이어받게 한다."""
         if not self.entries:
             return "행동 없음"
         blocked = sum(1 for e in self.entries if e.blocked)
         failed = sum(1 for e in self.entries if not e.success and not e.blocked)
-        tools = sorted({e.tool for e in self.entries})
         flags = [e.flag_found for e in self.entries if e.flag_found]
-        s = f"{len(self.entries)}개 행동(도구: {', '.join(tools)}), 실패 {failed}·차단 {blocked}."
+        lines = [f"{len(self.entries)}개 행동(실패 {failed}·차단 {blocked})."]
+        useful = [e for e in self.entries if e.success and not e.blocked]
+        if useful:
+            lines.append("주요 관측(성공한 행동):")
+            for e in useful[-max_steps:]:
+                cmd = (e.tool + " " + " ".join(e.args)).strip()
+                out = (e.stdout_excerpt or "").replace("\n", " ").strip()[:excerpt]
+                lines.append(f"- {cmd} → {out}")
         if flags:
-            s += f" 플래그 획득: {flags}."
-        return s
+            lines.append(f"플래그 획득: {flags}")
+        return "\n".join(lines)
 
 
 __all__ = ["HistoryEntry", "AttackHistory"]
