@@ -46,10 +46,12 @@ class FakeLLM:
         self.calls = 0
         self.timeouts_seen: list = []
         self.max_tokens_seen: list = []
+        self.users_seen: list = []
 
     def chat_text_meta(self, system, user, *, timeout=None, max_tokens=None, **kw):
         self.timeouts_seen.append(timeout)
         self.max_tokens_seen.append(max_tokens)
+        self.users_seen.append(user)
         item = self.scripted[min(self.calls, len(self.scripted) - 1)]
         self.calls += 1
         if item[0] == "timeout":
@@ -142,9 +144,9 @@ def test_single_parse_fail_then_recovers():
     assert any(f.value == "FLAG{recover}" for f in res.flags_obtained)
 
 
-def test_truncation_bumps_cap_on_retry():
-    # 첫 호출: 미완(안 닫힌) JSON + finish='length'(잘림) → 파싱 실패. 재시도는 같은 프롬프트로
-    # cap 을 2배(1024→2048)로 올려 호출 → 완성된 JSON 받아 성공. (나그 아니라 창 확장이 답)
+def test_truncation_keeps_cap_and_nags_terse():
+    # 잘림(finish='length')은 토큰 부족이 아니라 '장황함'이다 → cap 을 키우면(과거 2배 bump 버그로
+    # 560s 괴물 호출) 역효과. cap 은 고정하고 '짧게' 나그로 재프롬프트한다.
     truncated = '{"thought":"x","action":{"tool":"kubectl","args":["get"'   # } 안 닫힘
     llm = FakeLLM([("ok", truncated, "length"), ("ok", _ACTION, "stop")])
     ex = ActionExecutor(FakeRunner("ok"), scope_policy=default_policy(),
@@ -152,7 +154,8 @@ def test_truncation_bumps_cap_on_retry():
     loop = ReActLoop(llm, ex, AttackHistory(), system_prompt="s", goal="g",
                      time_limit_sec=300.0, max_steps=1, max_tokens=1024)
     loop.run(foothold={"attack_endpoint": "10.0.0.1"})
-    assert llm.max_tokens_seen[:2] == [1024, 2048], llm.max_tokens_seen   # 잘림 → cap 2배 재시도
+    assert llm.max_tokens_seen[:2] == [1024, 1024], llm.max_tokens_seen   # cap 불변(2배 금지)
+    assert "잘렸다" in llm.users_seen[1] and "한 문장" in llm.users_seen[1], llm.users_seen[1]  # 짧게 나그
     assert llm.calls == 2, llm.calls                                      # 2콜째에 성공
 
 

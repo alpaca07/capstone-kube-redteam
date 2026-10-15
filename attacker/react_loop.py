@@ -130,13 +130,15 @@ class ReActLoop:
         반환: (액션|None, 실제 LLM 호출 횟수, 실패진단문).
 
         재시도 전략을 '실패 원인'으로 나눈다:
-          - 잘림(finish_reason=='length', 토큰 상한에 걸려 JSON 미완): 같은 프롬프트로 cap 을
-            2배 늘려 재시도. 나그(형식 재지시)는 토큰이 모자란 상황엔 무의미 — 더 넓은 창이 답.
-          - 형식 위반(그 외): 기존대로 '형식으로만 응답하라' 나그를 붙여 재프롬프트.
+          - 잘림(finish_reason=='length'): 토큰이 모자란 게 아니라 모델이 thought 를 장황하게
+            써서 상한에 걸린 것이다. cap 을 키우면 더 길게 생성해 역효과(과거 2배 bump 이 3072→
+            6144 로 560s 괴물 호출을 만들었다) → cap 은 고정하고 '설명 빼고 JSON 하나만, thought
+            한 문장' 나그로 장황함 자체를 친다.
+          - 형식 위반(그 외): '형식으로만 응답하라' 나그로 재프롬프트.
         실패진단문엔 finish_reason·에러·출력 길이·앞뒤 발췌를 담아(로그로) 다음 튜닝 근거를 남긴다."""
         prompt = user
         n_calls = 0
-        cap = self.max_tokens
+        cap = self.max_tokens                    # 호출마다 고정 — 잘렸다고 키우지 않는다(장황함만 조장).
         detail = ""
         for _ in range(self.parse_retries + 1):
             remaining = deadline - time.time()
@@ -148,13 +150,12 @@ class ReActLoop:
             try:
                 return parse_action(text or ""), n_calls, ""
             except ParseError as e:
-                truncated = (finish == "length")
                 t = text or ""
                 detail = (f"finish={finish} err={e} len={len(t)} "
                           f"head={t[:80]!r} tail={t[-80:]!r}")
-                if truncated:                    # 토큰 부족 → 창을 넓혀 재시도(나그 대신)
-                    cap = (cap * 2) if cap else None
-                    prompt = user
+                if finish == "length":           # 잘림 = 장황함 → 창 키우지 말고 '짧게' 요구
+                    prompt = user + ("\n\n(직전 응답이 너무 길어 잘렸다. 설명 문장을 쓰지 말고 "
+                                     "JSON 객체 하나만 출력하라. thought 는 한 문장으로.)")
                 else:                            # 형식 위반 → 형식 재지시 나그
                     prompt = user + "\n\n(이전 응답이 올바른 JSON이 아니었습니다. 지정된 형식으로만 응답하라.)"
         return None, n_calls, detail

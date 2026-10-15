@@ -111,6 +111,10 @@ def check_scope(command: str, policy: ScopePolicy) -> ScopeResult:
     # 3) 인터넷(공인) 차단
     if policy.block_public:
         for h in hosts:
+            # 셸 변수 미해석 호스트(예: in-cluster 스캔 루프의 10.43.0.$i)는 평가 불가 →
+            # 공인 차단에서 제외. 파괴적·명시 금지호스트 검사는 위에서 이미 전체 명령에 적용됨.
+            if "$" in h:
+                continue
             if not _is_internal_host(h):
                 return ScopeResult(False, f"범위 밖(외부) 호스트: {h}", hosts)
 
