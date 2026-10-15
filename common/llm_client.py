@@ -55,11 +55,14 @@ class OllamaClient:
         self.max_tokens = max_tokens             # 생성 상한(호출마다 override 가능, 없으면 이 기본값)
         self.transport = transport or requests_transport(api_key)
 
-    def chat(self, messages: list[dict], *, temperature: Optional[float] = None,
-             max_tokens: Optional[int] = None, stop: Optional[list[str]] = None,
-             extra: Optional[dict] = None, timeout: Optional[float] = None) -> str:
-        """messages(OpenAI 형식) → assistant 응답 텍스트. stream 안 씀(결과를 한 번에).
+    def chat_meta(self, messages: list[dict], *, temperature: Optional[float] = None,
+                  max_tokens: Optional[int] = None, stop: Optional[list[str]] = None,
+                  extra: Optional[dict] = None, timeout: Optional[float] = None
+                  ) -> tuple[str, Optional[str]]:
+        """messages → (assistant 응답 텍스트, finish_reason). stream 안 씀(결과를 한 번에).
 
+        finish_reason=='length' 면 max_tokens 상한에 걸려 '잘린' 응답 — 공격 ReAct 루프가
+        이걸로 파싱 실패가 '토큰 부족(잘림)'인지 '형식 위반'인지 구분해 재시도 전략을 바꾼다.
         timeout: 이 호출만의 상한(초). 없으면 생성자 self.timeout. 공격 ReAct 루프가
         '남은 턴 예산'을 넘겨, 단일 호출이 예산을 넘기지 않게 한다.
         """
@@ -79,14 +82,24 @@ class OllamaClient:
         data = self.transport("POST", f"{self.base_url}/chat/completions", body,
                               self.timeout if timeout is None else timeout)
         try:
-            return data["choices"][0]["message"]["content"]
+            choice = data["choices"][0]
+            return choice["message"]["content"], choice.get("finish_reason")
         except (KeyError, IndexError, TypeError) as e:
             raise LLMError(f"예상치 못한 chat 응답 형식: {data!r}") from e
+
+    def chat(self, messages: list[dict], **kw) -> str:
+        """messages(OpenAI 형식) → assistant 응답 텍스트(finish_reason 필요하면 chat_meta)."""
+        return self.chat_meta(messages, **kw)[0]
 
     def chat_text(self, system: str, user: str, **kw) -> str:
         """system+user 한 쌍 편의 호출."""
         return self.chat([{"role": "system", "content": system},
                           {"role": "user", "content": user}], **kw)
+
+    def chat_text_meta(self, system: str, user: str, **kw) -> tuple[str, Optional[str]]:
+        """chat_text + finish_reason. 공격 ReAct 루프의 잘림 감지·진단 로그용."""
+        return self.chat_meta([{"role": "system", "content": system},
+                               {"role": "user", "content": user}], **kw)
 
     def list_models(self) -> list[str]:
         """엔드포인트에 올라간 모델 이름 목록(/v1/models). DGX 연결·모델 확인용."""

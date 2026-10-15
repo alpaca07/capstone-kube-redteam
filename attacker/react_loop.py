@@ -34,7 +34,8 @@ def _action_hint(action: AttackAction) -> str:
 
 
 class _LLM(Protocol):
-    def chat_text(self, system: str, user: str, **kw) -> str:
+    def chat_text_meta(self, system: str, user: str, **kw) -> tuple[Optional[str], Optional[str]]:
+        """(응답텍스트, finish_reason) 반환. finish_reason=='length' 면 잘림(토큰 상한)."""
         ...
 
 
@@ -82,7 +83,7 @@ class ReActLoop:
                                      history=self.history, foothold=foothold, first=(i == 0))
             t_llm = time.time()                  # ── LLM 호출+파싱 구간 계측 시작 ──
             try:
-                action, n_calls = self._get_action(user, deadline=deadline)
+                action, n_calls, fail_detail = self._get_action(user, deadline=deadline)
             except LLMTimeout:                   # 호출이 남은 예산 초과 → 대본 보존하고 정상 타임아웃
                 self.log(f"[공격 step {i+1}] llm={time.time()-t_llm:.1f}s → 예산 소진(타임아웃)")
                 end = AttackEndReason.TIMEOUT
@@ -91,7 +92,7 @@ class ReActLoop:
             if action is None:                   # 이 스텝 파싱 실패 → 턴을 죽이지 않고 스킵, 연속만 가드
                 consec_fail += 1
                 self.log(f"[공격 step {i+1}] llm={llm_sec:.1f}s(calls={n_calls}) "
-                         f"→ 파싱 실패, 스킵({consec_fail}/{_MAX_PARSE_FAILS})")
+                         f"→ 파싱 실패, 스킵({consec_fail}/{_MAX_PARSE_FAILS}) | {fail_detail}")
                 if consec_fail >= _MAX_PARSE_FAILS:   # 계속 깨진 JSON만 → 막다른 길(예산 낭비 방지)
                     end = AttackEndReason.DEADEND
                     self.log(f"[공격] 연속 파싱 실패 {consec_fail}회 → 턴 종료(DEADEND)")
@@ -122,24 +123,41 @@ class ReActLoop:
             attack_summary=self.history.summarize(),
             elapsed_sec=time.time() - t0)
 
-    def _get_action(self, user: str, *, deadline: float) -> tuple[Optional[AttackAction], int]:
+    def _get_action(self, user: str, *, deadline: float
+                    ) -> tuple[Optional[AttackAction], int, str]:
         """LLM 호출 + 파싱. 각 호출은 '남은 예산'만큼만 대기 → 초과 시 LLMTimeout 전파
-        (run이 정상 타임아웃으로 처리, 대본 보존). 파싱 실패는 재프롬프트 재시도, 끝내 실패면 None.
-        반환: (액션|None, 실제 LLM 호출 횟수). 호출 횟수로 '파싱 재시도 뻥튀기'를 계측한다."""
+        (run이 정상 타임아웃으로 처리, 대본 보존). 파싱 실패는 재시도, 끝내 실패면 None.
+        반환: (액션|None, 실제 LLM 호출 횟수, 실패진단문).
+
+        재시도 전략을 '실패 원인'으로 나눈다:
+          - 잘림(finish_reason=='length', 토큰 상한에 걸려 JSON 미완): 같은 프롬프트로 cap 을
+            2배 늘려 재시도. 나그(형식 재지시)는 토큰이 모자란 상황엔 무의미 — 더 넓은 창이 답.
+          - 형식 위반(그 외): 기존대로 '형식으로만 응답하라' 나그를 붙여 재프롬프트.
+        실패진단문엔 finish_reason·에러·출력 길이·앞뒤 발췌를 담아(로그로) 다음 튜닝 근거를 남긴다."""
         prompt = user
         n_calls = 0
+        cap = self.max_tokens
+        detail = ""
         for _ in range(self.parse_retries + 1):
             remaining = deadline - time.time()
             if remaining <= _TIME_FLOOR:
                 raise LLMTimeout("남은 예산 없음(파싱 재시도 중)")
             n_calls += 1
-            text = self.llm.chat_text(self.system_prompt, prompt, timeout=remaining,
-                                      max_tokens=self.max_tokens)
+            text, finish = self.llm.chat_text_meta(self.system_prompt, prompt,
+                                                   timeout=remaining, max_tokens=cap)
             try:
-                return parse_action(text), n_calls
-            except ParseError:
-                prompt = user + "\n\n(이전 응답이 올바른 JSON이 아니었습니다. 지정된 형식으로만 응답하라.)"
-        return None, n_calls
+                return parse_action(text or ""), n_calls, ""
+            except ParseError as e:
+                truncated = (finish == "length")
+                t = text or ""
+                detail = (f"finish={finish} err={e} len={len(t)} "
+                          f"head={t[:80]!r} tail={t[-80:]!r}")
+                if truncated:                    # 토큰 부족 → 창을 넓혀 재시도(나그 대신)
+                    cap = (cap * 2) if cap else None
+                    prompt = user
+                else:                            # 형식 위반 → 형식 재지시 나그
+                    prompt = user + "\n\n(이전 응답이 올바른 JSON이 아니었습니다. 지정된 형식으로만 응답하라.)"
+        return None, n_calls, detail
 
 
 __all__ = ["build_user_prompt", "ReActLoop"]

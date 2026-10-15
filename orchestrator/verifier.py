@@ -17,9 +17,10 @@ pre/post 흐름 (스냅샷 전환 최대 3회):
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Callable, Optional
 
 from common.messages import (
     ReplayPhase, ReplayRequest, ReplayResult, StateQuery, StateQueryResult,
@@ -66,11 +67,35 @@ class VerificationEngine:
     """
 
     def __init__(self, attacker: AttackerClient, defender: DefenderClient,
-                 snapshots: SnapshotManager, flags: FlagRegistry) -> None:
+                 snapshots: SnapshotManager, flags: FlagRegistry, *,
+                 ready_timeout_sec: float = 180.0, ready_interval_sec: float = 3.0,
+                 sleeper: Callable[[float], None] = time.sleep) -> None:
         self.attacker = attacker
         self.defender = defender
         self.snapshots = snapshots
         self.flags = flags
+        # verify 내부 revert 직후 VM B(k3s·방어자) 재개를 기다리는 폴링 설정(세트당 1회).
+        self.ready_timeout_sec = ready_timeout_sec
+        self.ready_interval_sec = ready_interval_sec
+        self._sleep = sleeper
+
+    def _wait_ready(self) -> None:
+        """revert 직후 VM B(방어 하네스)가 /status 로 응답할 때까지 폴링.
+
+        verify 는 pre/postpatch 로 revert 한 '직후' VM B 에 재생·상태검증을 보내는데, 라이브
+        스냅샷 revert 는 VM 을 잠깐 일시정지로 두거나 재개가 늦을 수 있다. 준비를 확인하고
+        질의해야 갓 resume 된 k3s·방어자가 못 받아 성급히 타임아웃 나는 걸 막는다.
+        상한을 넘겨도 예외 없이 그냥 진행한다(이후 호출 자체의 타임아웃이 백스톱) — 검증은
+        best-effort 라 '준비 대기'가 라운드를 중단시키면 안 된다."""
+        deadline = time.time() + self.ready_timeout_sec
+        while True:
+            try:
+                self.defender.status()
+                return
+            except Exception:              # noqa: BLE001 — 아직 미기동(연결거부·타임아웃 등)
+                if time.time() >= deadline:
+                    return                 # 상한 초과 → 진행(백스톱: 뒤 호출의 자체 타임아웃)
+                self._sleep(self.ready_interval_sec)
 
     # ───────────── public 인터페이스 ─────────────
     def verify(self, script: ReplayScript, *, episode: int, round: int,
@@ -85,6 +110,7 @@ class VerificationEngine:
         # 1) 현재(패치후) 상태 보존 → 2) 패치 전으로 되돌려 pre 재생
         self.snapshots.save(post_patch_snapshot)
         self.snapshots.revert_to(pre_snapshot)
+        self._wait_ready()                         # revert 직후 VM B 재개 대기(pre 재생 전)
         pre = self.attacker.replay(
             ReplayRequest(replay_script=script, phase=ReplayPhase.PRE, target=target),
             episode=episode, round=round)
@@ -93,12 +119,14 @@ class VerificationEngine:
         if not pre_ok:
             # 관문 실패: 재현 자체 불가 → 패치후 복귀 후 상태검증 안전망으로
             self.snapshots.revert_to(post_patch_snapshot)
+            self._wait_ready()                     # revert 직후 VM B 재개 대기(상태검증 전)
             return self._state_branch(
                 episode=episode, round=round, pre=pre,
                 detail=f"pre 재현 실패({pre_reason}) → 상태검증")
 
         # 관문 통과: 패치 후 상태로 복귀해 post 재생
         self.snapshots.revert_to(post_patch_snapshot)
+        self._wait_ready()                         # revert 직후 VM B 재개 대기(post 재생 전)
         post = self.attacker.replay(
             ReplayRequest(replay_script=script, phase=ReplayPhase.POST, target=target),
             episode=episode, round=round)

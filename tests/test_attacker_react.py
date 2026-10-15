@@ -38,21 +38,27 @@ class FakeRunner:
 
 
 class FakeLLM:
-    """scripted: 호출별 동작 리스트. ('ok', json) 은 그 JSON 반환, ('timeout',) 은 LLMTimeout.
-    마지막 항목을 넘어가면 마지막 항목을 반복. 각 호출에 넘어온 timeout 값을 기록."""
+    """scripted: 호출별 동작 리스트. ('ok', json[, finish]) 은 그 JSON 반환(finish 기본 'stop'),
+    ('timeout',) 은 LLMTimeout. 마지막 항목을 넘어가면 반복. 각 호출의 timeout·max_tokens 기록."""
 
     def __init__(self, scripted):
         self.scripted = scripted
         self.calls = 0
         self.timeouts_seen: list = []
+        self.max_tokens_seen: list = []
 
-    def chat_text(self, system, user, *, timeout=None, **kw):
+    def chat_text_meta(self, system, user, *, timeout=None, max_tokens=None, **kw):
         self.timeouts_seen.append(timeout)
+        self.max_tokens_seen.append(max_tokens)
         item = self.scripted[min(self.calls, len(self.scripted) - 1)]
         self.calls += 1
         if item[0] == "timeout":
             raise LLMTimeout("fake timeout")
-        return item[1]
+        finish = item[2] if len(item) > 2 else "stop"
+        return item[1], finish
+
+    def chat_text(self, system, user, **kw):   # 하위호환
+        return self.chat_text_meta(system, user, **kw)[0]
 
 
 class FailThenOkLLM:
@@ -63,9 +69,13 @@ class FailThenOkLLM:
         self.good = good
         self.calls = 0
 
-    def chat_text(self, system, user, *, timeout=None, **kw):
+    def chat_text_meta(self, system, user, *, timeout=None, max_tokens=None, **kw):
         self.calls += 1
-        return "not json" if self.calls <= self.fails else self.good
+        text = "not json" if self.calls <= self.fails else self.good
+        return text, "stop"
+
+    def chat_text(self, system, user, **kw):
+        return self.chat_text_meta(system, user, **kw)[0]
 
 
 def _loop(llm, *, time_limit=300.0, stdout="ok", max_steps=10):
@@ -130,6 +140,31 @@ def test_single_parse_fail_then_recovers():
     res = _loop(llm, stdout="secret=FLAG{recover}").run(foothold={"attack_endpoint": "10.0.0.1"})
     assert res.end_reason == AttackEndReason.FLAG, res.end_reason
     assert any(f.value == "FLAG{recover}" for f in res.flags_obtained)
+
+
+def test_truncation_bumps_cap_on_retry():
+    # 첫 호출: 미완(안 닫힌) JSON + finish='length'(잘림) → 파싱 실패. 재시도는 같은 프롬프트로
+    # cap 을 2배(1024→2048)로 올려 호출 → 완성된 JSON 받아 성공. (나그 아니라 창 확장이 답)
+    truncated = '{"thought":"x","action":{"tool":"kubectl","args":["get"'   # } 안 닫힘
+    llm = FakeLLM([("ok", truncated, "length"), ("ok", _ACTION, "stop")])
+    ex = ActionExecutor(FakeRunner("ok"), scope_policy=default_policy(),
+                        session_id="t", episode=1, round=1)
+    loop = ReActLoop(llm, ex, AttackHistory(), system_prompt="s", goal="g",
+                     time_limit_sec=300.0, max_steps=1, max_tokens=1024)
+    loop.run(foothold={"attack_endpoint": "10.0.0.1"})
+    assert llm.max_tokens_seen[:2] == [1024, 2048], llm.max_tokens_seen   # 잘림 → cap 2배 재시도
+    assert llm.calls == 2, llm.calls                                      # 2콜째에 성공
+
+
+def test_format_violation_keeps_cap_and_nags():
+    # 잘림이 아닌 형식 위반(finish='stop')이면 cap 은 그대로 두고 나그로 재프롬프트.
+    llm = FakeLLM([("ok", "not json", "stop"), ("ok", _ACTION, "stop")])
+    ex = ActionExecutor(FakeRunner("ok"), scope_policy=default_policy(),
+                        session_id="t", episode=1, round=1)
+    loop = ReActLoop(llm, ex, AttackHistory(), system_prompt="s", goal="g",
+                     time_limit_sec=300.0, max_steps=1, max_tokens=1024)
+    loop.run(foothold={"attack_endpoint": "10.0.0.1"})
+    assert llm.max_tokens_seen[:2] == [1024, 1024], llm.max_tokens_seen   # cap 불변(나그만)
 
 
 def test_summarize_carries_successful_findings():
