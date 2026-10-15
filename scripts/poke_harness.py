@@ -27,15 +27,17 @@ from common.messages import AttackTurnStart, DefenseTurnStart, Foothold  # noqa:
 from orchestrator.http_clients import HttpAttackerClient, HttpDefenderClient  # noqa: E402
 
 
-def _poke_attack(cfg, *, episode: int, round: int, time_limit=None) -> None:
+def _poke_attack(cfg, *, episode: int, round: int, time_limit=None, max_tokens=None) -> None:
     tl = time_limit if time_limit is not None else cfg.experiment.time_limit_sec
+    mt = max_tokens if max_tokens is not None else cfg.dgx.max_tokens
     print(f"\n[공격] POST {cfg.network.attacker_url}/attack_turn_start  "
-          f"(ep={episode} r={round}, time_limit={tl}s)")
+          f"(ep={episode} r={round}, time_limit={tl}s, max_tokens={mt})")
     client = HttpAttackerClient(cfg.network.attacker_url, token=cfg.network.shared_token)
     start = AttackTurnStart(
         time_limit_sec=tl,
         flag_format=cfg.flags.format,
-        foothold=Foothold(attack_endpoint=cfg.target.attack_endpoint))
+        foothold=Foothold(attack_endpoint=cfg.target.attack_endpoint),
+        max_tokens=mt)
     t0 = time.time()
     try:
         res = client.attack_turn(start, episode=episode, round=round)
@@ -90,13 +92,16 @@ def main(argv=None) -> int:
     ap.add_argument("--round", type=int, default=1)
     ap.add_argument("--time-limit", type=int, default=None,
                     help="턴 제한시간(초) — config 덮어씀. 측정용으로 짧게(예: 180)")
+    ap.add_argument("--max-tokens", type=int, default=None,
+                    help="공격 생성 토큰 상한 — config 덮어씀. cap 유무 측정용(예: 1024)")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
     print(f"[*] 진단 대상  공격자={cfg.network.attacker_url}  방어자={cfg.network.defender_url}")
 
     if args.which in ("attack", "both"):
-        _poke_attack(cfg, episode=args.episode, round=args.round, time_limit=args.time_limit)
+        _poke_attack(cfg, episode=args.episode, round=args.round, time_limit=args.time_limit,
+                     max_tokens=args.max_tokens)
     if args.which in ("defense", "both"):
         _poke_defense(cfg, episode=args.episode, round=args.round, time_limit=args.time_limit)
 

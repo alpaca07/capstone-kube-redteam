@@ -69,7 +69,8 @@ class AttackHarness:
             loop = ReActLoop(
                 self.llm, executor, history, system_prompt=self.system_prompt,
                 goal=start.goal, flag_format=start.flag_format,
-                time_limit_sec=float(start.time_limit_sec), max_steps=self.max_steps)
+                time_limit_sec=float(start.time_limit_sec), max_steps=self.max_steps,
+                max_tokens=start.max_tokens)      # None이면 ReActLoop→client config 기본값으로 폴백
             foothold = ({"attack_endpoint": start.foothold.attack_endpoint}
                         if start.foothold is not None else None)
             result = loop.run(foothold=foothold)

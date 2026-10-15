@@ -88,6 +88,7 @@ def build_sequencer(cfg: Config, *, flag4_value: Optional[str] = None,
             episodes=cfg.experiment.episodes, max_rounds=cfg.experiment.max_rounds,
             n_consecutive_defense=cfg.experiment.n_consecutive_defense,
             time_limit_sec=cfg.experiment.time_limit_sec,
+            max_tokens=cfg.dgx.max_tokens,
             baseline_snapshot=cfg.vmware.baseline_snapshot,
             attack_endpoint=cfg.target.attack_endpoint, flag_format=cfg.flags.format)
     return TurnSequencer(attacker=attacker, defender=defender, snapshots=snapshots,
@@ -102,6 +103,7 @@ def _params_from_args(cfg: Config, args: argparse.Namespace) -> RunParams:
         max_rounds=args.max_rounds if args.max_rounds is not None else cfg.experiment.max_rounds,
         n_consecutive_defense=cfg.experiment.n_consecutive_defense,
         time_limit_sec=args.time_limit if args.time_limit is not None else cfg.experiment.time_limit_sec,
+        max_tokens=args.max_tokens if args.max_tokens is not None else cfg.dgx.max_tokens,
         baseline_snapshot=cfg.vmware.baseline_snapshot,
         attack_endpoint=cfg.target.attack_endpoint, flag_format=cfg.flags.format)
 
@@ -112,6 +114,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--episodes", type=int, default=None, help="에피소드 수(config 덮어씀)")
     ap.add_argument("--max-rounds", type=int, default=None, help="에피소드당 최대 라운드")
     ap.add_argument("--time-limit", type=int, default=None, help="턴당 제한시간(초)")
+    ap.add_argument("--max-tokens", type=int, default=None,
+                    help="공격 생성 토큰 상한(실험 파라미터; 생략 시 config.dgx.max_tokens)")
     ap.add_argument("--flag-file", default=str(_ROOT / "k8s" / "flags" / "flag-values.secret"),
                     help="④ 값 secret 파일")
     ap.add_argument("--out-dir", default=str(_ROOT / "orchestrator" / "logs"),
@@ -130,7 +134,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     seq = build_sequencer(cfg, flag4_value=flag4, sink=sink, params=params)
 
     print(f"[*] 실험 시작: episodes={params.episodes} max_rounds={params.max_rounds} "
-          f"time_limit={params.time_limit_sec}s flag4={'로드됨' if flag4 else '없음(리플레이로만 ④판정)'}")
+          f"time_limit={params.time_limit_sec}s "
+          f"max_tokens={params.max_tokens if params.max_tokens is not None else '무제한(config 기본)'} "
+          f"flag4={'로드됨' if flag4 else '없음(리플레이로만 ④판정)'}")
     print(f"    대상 VM={cfg.vmware.target_vm_name} baseline={params.baseline_snapshot}")
     print(f"    공격자={cfg.network.attacker_url}  방어자={cfg.network.defender_url}")
 

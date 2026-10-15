@@ -52,7 +52,7 @@ class ReActLoop:
     def __init__(self, llm: _LLM, executor: ActionExecutor, history: AttackHistory, *,
                  system_prompt: str, goal: str, flag_format: str = "FLAG{...}",
                  time_limit_sec: float = 300.0, max_steps: int = 40,
-                 parse_retries: int = 2,
+                 parse_retries: int = 2, max_tokens: Optional[int] = None,
                  log: Optional[Callable[[str], None]] = None) -> None:
         self.llm = llm
         self.executor = executor
@@ -63,6 +63,7 @@ class ReActLoop:
         self.time_limit_sec = time_limit_sec
         self.max_steps = max_steps
         self.parse_retries = parse_retries
+        self.max_tokens = max_tokens            # 생성 토큰 상한(턴마다 VC 지정, None이면 LLM client 기본값)
         self.log = log or _default_log          # 스텝별 타이밍 계측 출력(주입 가능 → 테스트에선 no-op)
 
     def run(self, *, foothold: Optional[dict] = None) -> AttackTurnResult:
@@ -124,7 +125,8 @@ class ReActLoop:
             if remaining <= _TIME_FLOOR:
                 raise LLMTimeout("남은 예산 없음(파싱 재시도 중)")
             n_calls += 1
-            text = self.llm.chat_text(self.system_prompt, prompt, timeout=remaining)
+            text = self.llm.chat_text(self.system_prompt, prompt, timeout=remaining,
+                                      max_tokens=self.max_tokens)
             try:
                 return parse_action(text), n_calls
             except ParseError:
