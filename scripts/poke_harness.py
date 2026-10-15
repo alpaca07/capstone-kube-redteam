@@ -27,12 +27,13 @@ from common.messages import AttackTurnStart, DefenseTurnStart, Foothold  # noqa:
 from orchestrator.http_clients import HttpAttackerClient, HttpDefenderClient  # noqa: E402
 
 
-def _poke_attack(cfg, *, episode: int, round: int) -> None:
+def _poke_attack(cfg, *, episode: int, round: int, time_limit=None) -> None:
+    tl = time_limit if time_limit is not None else cfg.experiment.time_limit_sec
     print(f"\n[공격] POST {cfg.network.attacker_url}/attack_turn_start  "
-          f"(ep={episode} r={round}, time_limit={cfg.experiment.time_limit_sec}s)")
+          f"(ep={episode} r={round}, time_limit={tl}s)")
     client = HttpAttackerClient(cfg.network.attacker_url, token=cfg.network.shared_token)
     start = AttackTurnStart(
-        time_limit_sec=cfg.experiment.time_limit_sec,
+        time_limit_sec=tl,
         flag_format=cfg.flags.format,
         foothold=Foothold(attack_endpoint=cfg.target.attack_endpoint))
     t0 = time.time()
@@ -47,12 +48,13 @@ def _poke_attack(cfg, *, episode: int, round: int) -> None:
     print(f"    attack_summary: {res.attack_summary!r}")
 
 
-def _poke_defense(cfg, *, episode: int, round: int) -> None:
+def _poke_defense(cfg, *, episode: int, round: int, time_limit=None) -> None:
+    tl = time_limit if time_limit is not None else cfg.experiment.time_limit_sec
     print(f"\n[방어] POST {cfg.network.defender_url}/defense_turn_start  "
-          f"(ep={episode} r={round}, time_limit={cfg.experiment.time_limit_sec}s)")
+          f"(ep={episode} r={round}, time_limit={tl}s)")
     print("    ※ 방어 LLM(triage) 호출이 있어 수백 초 걸릴 수 있음 — 기다리세요.")
     client = HttpDefenderClient(cfg.network.defender_url, token=cfg.network.shared_token)
-    start = DefenseTurnStart(time_limit_sec=cfg.experiment.time_limit_sec)
+    start = DefenseTurnStart(time_limit_sec=tl)
     t0 = time.time()
     try:
         res = client.defense_turn(start, episode=episode, round=round)
@@ -86,15 +88,17 @@ def main(argv=None) -> int:
     ap.add_argument("--which", choices=["attack", "defense", "both"], default="both")
     ap.add_argument("--episode", type=int, default=0)
     ap.add_argument("--round", type=int, default=1)
+    ap.add_argument("--time-limit", type=int, default=None,
+                    help="턴 제한시간(초) — config 덮어씀. 측정용으로 짧게(예: 180)")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
     print(f"[*] 진단 대상  공격자={cfg.network.attacker_url}  방어자={cfg.network.defender_url}")
 
     if args.which in ("attack", "both"):
-        _poke_attack(cfg, episode=args.episode, round=args.round)
+        _poke_attack(cfg, episode=args.episode, round=args.round, time_limit=args.time_limit)
     if args.which in ("defense", "both"):
-        _poke_defense(cfg, episode=args.episode, round=args.round)
+        _poke_defense(cfg, episode=args.episode, round=args.round, time_limit=args.time_limit)
 
     print("\n[i] end_reason=error 면 위의 attack_summary/error 와 "
           "해당 VM 서버 콘솔의 traceback 을 확인하세요.")
