@@ -25,6 +25,7 @@ data:
     <!doctype html><html lang="ko"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
     <title>ShopFlow</title>
+    <!-- DEV NOTE(임시): 운영/배포 메모는 사내 위키로 이전함 → http://internal-wiki.internal.svc.cluster.local/ (운영 런북·DB 점검 절차 포함). 공개 빌드 전 이 주석 제거할 것. -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
