@@ -60,7 +60,11 @@ class AttackHarness:
 
     # ── attack_turn_start → attack_turn_result (공격 모드) ──
     def attack_turn(self, start: AttackTurnStart, *, episode: int, round: int) -> AttackTurnResult:
-        if episode != self._episode:         # 새 에피소드 → 라운드 간 기억 리셋
+        # 라운드 간 기억 리셋: 새 에피소드이거나 '에피소드 첫 라운드(R1)'면 초기화.
+        # 하네스는 systemd로 상주 → 매 런이 episode=1 로 들어오므로 'episode 바뀜'만
+        # 보면 이전 런의 요약("이미 FLAG 획득")이 새어 즉시 give_up 됨. R1=에피소드
+        # 시작엔 이월할 과거가 없으므로 여기서 비워 매 런이 깨끗한 정찰로 출발하게 한다.
+        if episode != self._episode or round <= 1:
             self._episode = episode
             self._prior_summary = ""
             self._round_digests = []
