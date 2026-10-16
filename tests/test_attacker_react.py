@@ -253,6 +253,22 @@ def test_render_recent_full_older_truncated():
     assert lead <= 200, f"오래된 관측이 축약 안 됨(lead={lead})"
 
 
+def test_prior_summary_triggers_reattempt_framing():
+    # R2+ (carry-forward 있음): '이미 했다'로 포기 안 하게 '매 라운드 재달성' 프레이밍이 붙어야.
+    from attacker.react_loop import build_user_prompt
+    h = AttackHistory(prior_summary="[R1] psql로 internal_secrets 덤프. 플래그 획득: ['4']")
+    p = build_user_prompt(goal="FLAG 획득", flag_format="FLAG{...}", history=h)
+    assert "다시" in p and "포기 사유가 아니다" in p, p      # 재시도 지시
+    assert "정보(통했던 경로)" in p, p                        # 성과가 아니라 정보로 프레이밍
+
+
+def test_first_round_no_reattempt_framing():
+    # 첫 라운드(prior 없음)엔 재시도 프레이밍이 없어야(불필요).
+    from attacker.react_loop import build_user_prompt
+    p = build_user_prompt(goal="FLAG 획득", flag_format="FLAG{...}", history=AttackHistory())
+    assert "포기 사유가 아니다" not in p
+
+
 # ───────────── 자체 러너 ─────────────
 def _run() -> int:
     tests = [v for k, v in sorted(globals().items())

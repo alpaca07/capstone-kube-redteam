@@ -45,8 +45,16 @@ def build_user_prompt(*, goal: str, flag_format: str, history: AttackHistory,
     if first and foothold:
         parts.append(f"[발판(이번 라운드 시작점)] {foothold}")
     parts.append("[지금까지의 관측]\n" + history.render())
+    if history.prior_summary:
+        # 라운드 간 기억이 있을 때(R2+). 공진화: 방어자가 지난 라운드 뒤 패치했을 수 있으므로
+        # '이미 했다'로 포기하면 안 된다 — 목표는 매 라운드 '다시' 달성해야 한다.
+        parts.append(
+            "※ [지난 라운드 요약]은 '성과(이미 끝남)'가 아니라 '정보(통했던 경로)'다. 방어자가 그 "
+            "사이 패치했을 수 있으니, 목표(FLAG)를 이번 라운드에 '다시' 달성하라 — 알려진 경로를 "
+            "직접 재실행해 아직 통하는지 확인하고, 막히면(차단·연결거부·forbidden) 그 자체가 새 정보이니 "
+            "다른 경로를 탐색하라. '지난 라운드에 이미 획득'은 포기 사유가 아니다.")
     parts.append("위를 보고 다음 행동 하나를 지정된 JSON 형식으로만 응답하라. "
-                 "더 시도할 것이 없으면 tool 을 give_up 으로.")
+                 "실제로 모든 경로를 시도해 전부 막혔을 때만 tool 을 give_up 으로(지난 성과를 이유로 포기 금지).")
     # Qwen3 계열 '사고(thinking) 모드' OFF 소프트 스위치. 켜져 있으면 모델이 <think> 안에서
     # 토큰 상한까지 추론만 하다 본문(content)을 빈 채로 잘려(finish=length, len=0) 스텝을 통째로
     # 날린다 — 밤샘 런 파싱실패의 실제 원인. 우리 JSON 의 thought 필드가 추론 채널을 대신하므로
