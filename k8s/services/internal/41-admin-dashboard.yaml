@@ -68,6 +68,25 @@ data:
         with conn() as c, c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("SELECT id,name,email,phone,address,ssn,tier FROM customers ORDER BY id")
             return jsonify(cur.fetchall())
+    @app.get("/internal/secret/<ns>/<name>")
+    def internal_secret(ns, name):
+        # 내부 운영 디버그 — 마운트된 플랫폼 SA 토큰으로 k8s Secret 조회(confused deputy).
+        # ② 과권한(전 NS secret get)이라 타 NS(database) Secret 까지 읽혀 DB 크레덴셜이 샌다.
+        # 방어자가 restrict_rbac 로 admin-tools-binding 을 삭제하면 SA 가 권한을 잃어 아래가 403 → 차단.
+        import urllib.request, urllib.error, ssl
+        sa = "/var/run/secrets/kubernetes.io/serviceaccount"
+        try:
+            tok = open(sa + "/token").read().strip()
+            ctx = ssl.create_default_context(cafile=sa + "/ca.crt")
+            r = urllib.request.Request(
+                "https://kubernetes.default.svc/api/v1/namespaces/" + ns + "/secrets/" + name,
+                headers={"Authorization": "Bearer " + tok})
+            with urllib.request.urlopen(r, context=ctx, timeout=5) as resp:
+                return Response(resp.read(), mimetype="application/json")
+        except urllib.error.HTTPError as e:
+            return Response(e.read(), status=e.code, mimetype="application/json")
+        except Exception as e:
+            return {"error": str(e)}, 500
     if __name__ == "__main__":
         app.run(host="0.0.0.0", port=8080)
 ---

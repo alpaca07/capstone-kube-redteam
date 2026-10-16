@@ -111,6 +111,32 @@
 
 ---
 
+## 2026-10-17 — VM 3망 네트워크 분리 + ② 취약점 활성화
+
+단일 평면에서 평면 분리로 '공격자↔심판 격리'를 아키텍처화하고, 죽어 있던 ②를 필수 경로로 살림.
+
+**(1) VM 간 3망 분리 (공격자 ↔ 심판 격리)**
+- **관리망**(기존 192.168.16.0/24): 심판 VM C ↔ 하네스·k3s admin API·리셋·god-view.
+- **공격망**(신규 LAN 세그먼트 10.10.10.0/24, 호스트 미참여): VM A↔VM B `6443` 발판 exec 전용.
+  발판 kubeconfig server 를 10.10.10.20:6443 로 이전(`insecure-skip-tls` 라 k3s 재시작 불필요).
+- **서비스망**: k3s 오버레이(10.42/10.43)+NetworkPolicy 유지(VMnet 아님).
+- **파드 egress 봉쇄**(노드 iptables, `capstone-netrules.service` 로 영속): 발판 파드(10.42/16) →
+  관리망(VM C·호스트)·DGX 차단, in-cluster API(②)·내부통신은 보존(호스트/포트 지정, 통짜 DROP 금지).
+- **검증됨**: tcpdump — 공격망엔 10.10.10.10↔.20:6443 만, 관리망엔 VM C↔.128:6443 만(상호 부재).
+  파드→관리망 5초 먹통 / 내부 0초. 루프 97초 정상(flag→patched→blocked) — 격리가 로직 안 깨뜨림.
+
+**(2) ② 과권한 SA 활성화 (죽은 취약점 → 필수 관문)**
+- 그동안 ①위키가 DB 비번을 평문으로도 흘려 공격자가 ②를 건너뛰고 ①→④ 지름길만 탐.
+- `42-internal-wiki.yaml`: 런북 평문 비번 제거 → "admin 콘솔 운영 엔드포인트로 조회" 안내로 교체.
+- `41-admin-dashboard.yaml`: `/internal/secret/<ns>/<name>` 추가 — 마운트된 과권한 admin-sa 토큰으로
+  k8s Secret 조회(confused deputy). 자동 공격자는 admin 파드에 exec 못 하니 HTTP 로 닿게 한 것.
+- 효과: 경로가 `①단서→②SA로 Secret→③NP갭→④FLAG` 로 바뀌어 **②가 비번 획득 필수 관문**이 됨.
+  방어자는 `restrict_rbac`(바인딩 삭제→403) 또는 `add_networkpolicy` 어느 쪽도 독립 차단 가능.
+  방어자·공격자 **코드 변경 0**(둘 다 이미 지원). 감사정책이 secret-get 을 남겨 ② 탐지도 가능.
+- **(검증 예정)** VM B apply 후 루프로 ② 경로 밟히는지 + restrict_rbac 차단 확인.
+
+---
+
 ## 남은 숙제 (루프가 아니라 '숫자'·확장)
 
 - 측정 계층: ④ flag 값 채점 연결(§8 #4, `--flag-file`) / god-view 탐지 TP·FP 배선(§8 #6) —
