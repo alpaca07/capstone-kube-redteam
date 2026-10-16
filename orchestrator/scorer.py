@@ -107,6 +107,9 @@ class RoundRecord:
     elapsed_attack_sec: float
     elapsed_defense_sec: float
     timestamp: float
+    # 킬체인 상태판: 이 라운드 god-view 도달 단계(체인필 1..N). flag_id=단계번호.
+    # ①③는 감사 사각이라 로그엔 안 떠도 '④ 도달 ⟹ ①②③ 통과'(선형 체인)로 보강.
+    stages_reached: list[int] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -161,6 +164,13 @@ class Scorer:
             if t in truth_cum and t not in self._detection_first:
                 self._detection_first[t] = round
 
+        # 킬체인 상태판용: 이 라운드 god-view 도달 단계(flag_id=단계번호) → 최대치까지 체인필.
+        _round_stages = {int(ev.flag_id) for e in self.truth.entries(self.episode)
+                         if e.round == round for ev in e.events
+                         if ev.flag_id and str(ev.flag_id).isdigit()}
+        _reach = max(_round_stages) if _round_stages else 0
+        stages_reached = list(range(1, _reach + 1))
+
         rec = RoundRecord(
             episode=self.episode, round=round,
             attack_end_reason=attack_result.end_reason.value,
@@ -177,6 +187,7 @@ class Scorer:
             elapsed_attack_sec=attack_result.elapsed_sec,
             elapsed_defense_sec=defense_result.elapsed_sec,
             timestamp=time.time(),
+            stages_reached=stages_reached,
         )
         self._records.append(rec)
         if self.sink is not None:

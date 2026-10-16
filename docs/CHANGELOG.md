@@ -157,6 +157,15 @@
   green 펄스·차트 자동갱신). 차트(ui-ux-pro-max): 공진화=스트리밍 area, precision/recall=추세 area.
   인라인 SVG(CDN 0, 폐쇄망 OK). 관리망 전용(god-view).
 
+**(6) 대시보드 리디자인 — 킬체인 상태판 + 교전 패널** (`static/dashboard.html`·`scorer.py`)
+- 식상한 슬레이트-글래스+그린·'짜치는' 터미널 로그 폐기 → **공격빨강↔방어파랑** 정체성으로
+  재설계(Space Grotesk+IBM Plex+JetBrains Mono, ui-ux-pro-max). **킬체인 상태판**(①②③④를
+  공격도달=빨강/방어차단=파랑/미도달=회색 실시간 색칠) + **교전 패널**(공격↔판정↔방어 versus,
+  로그 대체) + 교전 스트림(색코드 pill) 신설.
+- 정확도: `RoundRecord.stages_reached`(라운드별 god-view 도달, 체인필) 추가 → 킬체인이 추정이
+  아닌 실데이터로 칠해짐(①③ 감사 사각은 선형 체인 보강). 패치 단계는 보고기법→단계 유도.
+  테스트 scorer 11/11·sequencer 11/11 통과.
+
 **그날 끝(검증됨):** 위 전부를 깐 위에서 **다중 에피소드 공진화 3×3 완주 — ABORT 0, rc=0.**
 지난번 `nc 5432` 매달림이 죽이던 E2·E3 중단 재발 없음(15s 캡 효과). 대시보드 실시간 관제로 전
 과정 관측 — 에피소드마다 `R1 flag(깊이4)→patched→blocked, R2·R3 공격실패(timeout/deadend)→
