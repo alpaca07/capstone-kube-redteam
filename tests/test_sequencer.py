@@ -58,7 +58,7 @@ def _defense_result() -> DefenseTurnResult:
 
 
 def _make(*, post_success: bool, n_consec: int = 2, max_rounds: int = 10,
-          episodes: int = 1, kill=None, attacker_override=None):
+          episodes: int = 1, kill=None, attacker_override=None, skip_revert: bool = False):
     attacker = attacker_override or FakeAttackerClient(
         replay_by_phase={PRE: _replay(PRE, True), POST: _replay(POST, post_success)},
         attack_result=_attack_result())
@@ -71,7 +71,8 @@ def _make(*, post_success: bool, n_consec: int = 2, max_rounds: int = 10,
     truth = TruthLog()
     captured: list[dict] = []
     params = RunParams(episodes=episodes, max_rounds=max_rounds, n_consecutive_defense=n_consec,
-                       baseline_snapshot="clean-baseline", attack_endpoint="10.0.0.5")
+                       baseline_snapshot="clean-baseline", attack_endpoint="10.0.0.5",
+                       skip_revert=skip_revert)
     seq = TurnSequencer(attacker=attacker, defender=defender, snapshots=snaps, verifier=verifier,
                         logs=logs, registry=registry, truth=truth, params=params,
                         sink=captured.append, kill_switch=kill)
@@ -96,6 +97,13 @@ def test_max_rounds_ends_episode():
 
 
 # ───────────── 라운드 흐름 ─────────────
+def test_skip_revert_omits_baseline_revert():
+    # --no-revert: 에피소드 init 의 baseline revert 를 생략한다(라이브 클러스터 그대로).
+    seq, ctx = _make(post_success=False, n_consec=99, max_rounds=1, skip_revert=True)
+    seq.run_episode(1)
+    assert ("revert_to", "clean-baseline") not in ctx["snaps"].calls, ctx["snaps"].calls
+
+
 def test_round_flow_and_cleanup():
     seq, ctx = _make(post_success=False, n_consec=99, max_rounds=1)
     seq.run_episode(1)

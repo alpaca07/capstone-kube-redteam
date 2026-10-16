@@ -109,7 +109,8 @@ def _params_from_args(cfg: Config, args: argparse.Namespace) -> RunParams:
         baseline_snapshot=cfg.vmware.baseline_snapshot,
         # exec_mode면 발판은 외부 URL 이 아니라 '클러스터 내부 파드'라 endpoint 를 비운다.
         attack_endpoint=(None if cfg.attack.exec_mode else cfg.target.attack_endpoint),
-        flag_format=cfg.flags.format)
+        flag_format=cfg.flags.format,
+        skip_revert=args.no_revert)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -124,6 +125,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                     help="④ 값 secret 파일")
     ap.add_argument("--out-dir", default=str(_ROOT / "orchestrator" / "logs"),
                     help="로그 출력 디렉토리")
+    ap.add_argument("--no-revert", action="store_true",
+                    help="에피소드 init 의 baseline revert 생략 — 라이브(이미 취약 상태) 클러스터를 "
+                         "그대로 공격. vmrun revert 가 k3s exec 을 느리게 만드는 인프라 이슈 회피용 "
+                         "단발 포획·디버그. 다중 에피소드 리셋 불가.")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)

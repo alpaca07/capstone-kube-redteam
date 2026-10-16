@@ -66,6 +66,9 @@ class RunParams:
     flag_format: str = "FLAG{...}"
     ready_timeout_sec: float = 180.0             # revert 후 VM B 응답 대기 상한(일시정지·재개 지연 흡수)
     ready_interval_sec: float = 3.0              # ready 폴링 간격
+    skip_revert: bool = False                    # True면 에피소드 init revert 생략(라이브 클러스터 그대로).
+    #   vmrun 라이브 스냅샷 revert 가 k3s exec 경로를 느리게(재시도 백오프) 만드는 인프라 이슈 회피용 —
+    #   라이브 클러스터가 이미 베이스라인(취약) 상태일 때 단발 포획·디버그에 쓴다. 다중 에피소드 리셋은 불가.
 
 
 @dataclass
@@ -111,10 +114,15 @@ class TurnSequencer:
 
     def run_episode(self, episode: int) -> EpisodeSummary:
         # 0. init — clean 베이스라인으로 리셋(이전 에피소드 오염 제거)
-        self._log(f"[ep{episode}] 0. 베이스라인 revert → {self.params.baseline_snapshot} …")
-        _t = time.time()
-        self.snapshots.revert_to(self.params.baseline_snapshot)
-        self._log(f"[ep{episode}]    → revert 완료 ({time.time() - _t:.0f}s)")
+        if self.params.skip_revert:
+            # vmrun revert 가 k3s exec 경로를 느리게 만드는 인프라 이슈 회피 — 라이브(이미 베이스라인
+            # 상태인) 클러스터를 그대로 공격한다. 단발 포획·디버그용(다중 에피소드 리셋 안 됨).
+            self._log(f"[ep{episode}] 0. revert 생략(--no-revert) — 라이브 클러스터 그대로 사용")
+        else:
+            self._log(f"[ep{episode}] 0. 베이스라인 revert → {self.params.baseline_snapshot} …")
+            _t = time.time()
+            self.snapshots.revert_to(self.params.baseline_snapshot)
+            self._log(f"[ep{episode}]    → revert 완료 ({time.time() - _t:.0f}s)")
         scorer = Scorer(self.truth, episode, sink=self.sink)
         created_snaps: list[str] = []
         consecutive = 0
