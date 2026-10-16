@@ -19,7 +19,7 @@ if str(_ROOT) not in sys.path:
 from common.messages import ReplayPhase, ReplayResult, StepReplayRec  # noqa: E402
 from common.replay_schema import Command, FlagCheck, ReplayScript, Step  # noqa: E402
 from orchestrator.fakes import (  # noqa: E402
-    FakeAttackerClient, FakeDefenderClient, FakeSnapshotManager,
+    FakeAttackerClient, FakeDefenderClient, FakeBaseline,
 )
 from orchestrator.flags import (  # noqa: E402
     FlagKind, FlagRegistry, FlagSpec, default_registry,
@@ -53,23 +53,22 @@ def _engine(*, pre, post=None, vuln=None, flags=None, missing=None):
         rp[POST] = post
     attacker = FakeAttackerClient(replay_by_phase=rp)
     defender = FakeDefenderClient(vulnerable_by_check=vuln or {}, missing_checks=missing)
-    snaps = FakeSnapshotManager(existing=["clean-baseline", "pre-snap"])
-    eng = VerificationEngine(attacker, defender, snaps, flags or default_registry("FLAG{x}"))
-    return eng, attacker, defender, snaps
+    baseline = FakeBaseline()
+    eng = VerificationEngine(attacker, defender, baseline, flags or default_registry("FLAG{x}"))
+    return eng, attacker, defender, baseline
 
 
 def _run_verify(eng):
-    return eng.verify(_script(), episode=1, round=1,
-                      pre_snapshot="pre-snap", post_patch_snapshot="post-tmp")
+    return eng.verify(_script(), episode=1, round=1)
 
 
-# ───────────── 판정표 ─────────────
+# ───────────── 판정표 (A2: POST=패치 라이브 먼저 → 클린 리셋 → PRE 대조군) ─────────────
 def test_pre_success_post_success_is_fake_patch():
     eng, a, _, _ = _engine(pre=_replay(PRE, success=True), post=_replay(POST, success=True))
     r = _run_verify(eng)
     assert r.verdict == Verdict.FAKE_PATCH
     assert r.method == "replay"
-    assert [p for p, _, _ in a.replay_calls] == [PRE, POST]   # 둘 다 재생
+    assert [p for p, _, _ in a.replay_calls] == [POST, PRE]   # A2: POST 먼저, 리셋, PRE
     assert r.flags_still_reachable == ["4"]
 
 
@@ -78,7 +77,7 @@ def test_pre_success_post_fail_is_blocked():
     r = _run_verify(eng)
     assert r.verdict == Verdict.BLOCKED
     assert r.method == "replay"
-    assert [p for p, _, _ in a.replay_calls] == [PRE, POST]
+    assert [p for p, _, _ in a.replay_calls] == [POST, PRE]
 
 
 def test_pre_fail_state_not_vulnerable_is_blocked():
@@ -87,12 +86,12 @@ def test_pre_fail_state_not_vulnerable_is_blocked():
     r = _run_verify(eng)
     assert r.verdict == Verdict.BLOCKED
     assert r.method == "state"
-    assert [p for p, _, _ in a.replay_calls] == [PRE]          # post 재생 안 함(관문 실패)
-    assert d.state_calls == [["1", "2", "3"]]                   # 답안지 전체 상태검증
+    assert [p for p, _, _ in a.replay_calls] == [POST, PRE]     # A2: POST 도 재생됨(먼저)
+    assert d.state_calls == [["1", "2", "3"]]                   # god-view 캡처(리셋 전 1회)
 
 
 def test_pre_fail_state_vulnerable_is_not_blocked():
-    eng, _, _, _ = _engine(pre=_replay(PRE, success=False),
+    eng, _, _, _ = _engine(pre=_replay(PRE, success=False), post=_replay(POST, success=True),
                            vuln={"1": False, "2": True, "3": False})
     r = _run_verify(eng)
     assert r.verdict == Verdict.NOT_BLOCKED
@@ -101,31 +100,33 @@ def test_pre_fail_state_vulnerable_is_not_blocked():
 
 
 def test_pre_fail_no_state_checks_is_inconclusive():
-    eng, _, _, _ = _engine(pre=_replay(PRE, success=False), flags=FlagRegistry([]))
+    eng, _, _, _ = _engine(pre=_replay(PRE, success=False), post=_replay(POST, success=True),
+                           flags=FlagRegistry([]))
     r = _run_verify(eng)
     assert r.verdict == Verdict.INCONCLUSIVE
 
 
 def test_pre_fail_missing_state_response_is_inconclusive():
-    eng, _, _, _ = _engine(pre=_replay(PRE, success=False),
+    eng, _, _, _ = _engine(pre=_replay(PRE, success=False), post=_replay(POST, success=True),
                            vuln={"1": False, "2": False, "3": False}, missing=["2"])
     r = _run_verify(eng)
     assert r.verdict == Verdict.INCONCLUSIVE
 
 
-# ───────────── 스냅샷 춤사위 ─────────────
-def test_snapshot_choreography_replay_path():
-    eng, _, _, s = _engine(pre=_replay(PRE, success=True), post=_replay(POST, success=False))
+# ───────────── 리셋 춤사위 (A2: POST 와 PRE 사이 클린 리셋 정확히 1회) ─────────────
+def test_reset_choreography_replay_path():
+    eng, a, _, b = _engine(pre=_replay(PRE, success=True), post=_replay(POST, success=False))
     _run_verify(eng)
-    assert s.calls == [("save", "post-tmp"), ("revert_to", "pre-snap"), ("revert_to", "post-tmp")]
-    assert s.current == "post-tmp"        # 끝나면 반드시 패치후 상태(다음 라운드 연속성)
+    assert [p for p, _, _ in a.replay_calls] == [POST, PRE]
+    assert b.reset_calls == 1              # 패치 라이브 재생 후 1회 리셋 → 클린에서 pre 재생
 
 
-def test_snapshot_choreography_state_path_also_returns_to_post():
-    eng, _, _, s = _engine(pre=_replay(PRE, success=False), vuln={"1": False, "2": False, "3": False})
+def test_reset_choreography_state_path():
+    eng, a, _, b = _engine(pre=_replay(PRE, success=False), post=_replay(POST, success=True),
+                           vuln={"1": False, "2": False, "3": False})
     _run_verify(eng)
-    assert s.ops == ["save", "revert_to", "revert_to"]
-    assert s.current == "post-tmp"
+    assert [p for p, _, _ in a.replay_calls] == [POST, PRE]     # pre 실패여도 POST 먼저 재생됨
+    assert b.reset_calls == 1
 
 
 # ───────────── 재현 판정(success-first → hash) ─────────────

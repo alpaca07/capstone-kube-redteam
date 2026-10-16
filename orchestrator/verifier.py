@@ -1,35 +1,35 @@
-"""③ 검증 엔진 — pre/post 리플레이 + 상태검증 + 판정 (VM C의 심장).
+"""③ 검증 엔진 — 차등 리플레이 + 상태검증 + 판정 (VM C의 심장).
 
 작은 인터페이스(verify 하나) 뒤에 '방어가 진짜 먹혔나'를 가리는 전 과정을 숨긴다.
 판정은 순수 코드(LLM 아님)라 fake 이음새로 완전히 테스트된다.
 
-판정 우선순위 (해시 노이즈 대응):
-  ① success 지표(스텝 성공 불린) → ② 정규화 해시(matched_baseline) 보조 → ③ 상태검증 안전망.
-
-pre/post 흐름 (스냅샷 전환 최대 3회):
-  현재(패치후) 저장 → 패치전 revert → pre 재생 → 패치후 복귀 → post 재생.
-  pre 재현 실패면 post 생략하고 상태검증으로(재현 불가한 공격은 재생으로 판정 못 하므로).
+A2(k8s 네이티브) 흐름 — VM 스냅샷 전환 없이 '같은 출발점 ± 패치'의 차등 실험:
+  ① 안전망용 god-view 캡처(패치된 라이브 상태 — 리셋하면 못 보므로 먼저).
+  ② POST 재생: 패치된 라이브 클러스터에 대본 재생(상태 전환 0).
+  ③ 베이스라인 리셋(패치 제거 → 클린 취약) → PRE 재생(재현 관문 + 다음 에피소드 클린 보장).
+  스냅샷 stun 이 없어 느려지거나 VM 이 멈추지 않는다(§8 #1 해소).
 
 판정표:
   pre 성공 + post 성공 = FAKE_PATCH (막은 척, 방어 실패)
   pre 성공 + post 실패 = BLOCKED    (진짜 차단, 방어 성공)
-  pre 실패 → 상태검증:  취약 True → NOT_BLOCKED / 전부 False → BLOCKED / 불가 → INCONCLUSIVE
+  pre 실패 → 상태검증(패치 상태 god-view): 취약 True → NOT_BLOCKED / 전부 False → BLOCKED / 불가 → INCONCLUSIVE
+
+판정 우선순위(해시 노이즈 대응): ① success 지표 → ② 정규화 해시(matched_baseline) → ③ 상태검증 안전망.
 """
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, Optional
+from typing import Optional
 
 from common.messages import (
     ReplayPhase, ReplayRequest, ReplayResult, StateQuery, StateQueryResult,
 )
 from common.replay_schema import ReplayScript
 
+from .baseline import ClusterReset
 from .clients import AttackerClient, DefenderClient
 from .flags import FlagRegistry
-from .snapshot import SnapshotManager
 
 
 class Verdict(str, Enum):
@@ -58,80 +58,50 @@ class VerificationResult:
 
 
 class VerificationEngine:
-    """의존성을 주입받아(이음새) pre/post + 상태검증을 돌리고 Verdict를 낸다.
+    """의존성을 주입받아(이음새) 차등 리플레이 + 상태검증을 돌리고 Verdict를 낸다.
 
-    attacker : 리플레이 재생 위임(VM A가 execute_action 엔진 보유)
-    defender : 상태검증 질의(클러스터 내부 관점)
-    snapshots: pre↔post 상태 전환(원자적)
+    attacker : 리플레이 재생 위임(VM A가 결정론 재생 엔진 보유)
+    defender : 상태검증 질의(클러스터 내부 관점 god-view)
+    baseline : 아레나를 클린 취약 베이스라인으로 되돌림(k8s 네이티브 — reset_to_clean)
     flags    : god-view 답안지(상태검증 쿼리 생성·값 대조)
     """
 
     def __init__(self, attacker: AttackerClient, defender: DefenderClient,
-                 snapshots: SnapshotManager, flags: FlagRegistry, *,
-                 ready_timeout_sec: float = 180.0, ready_interval_sec: float = 3.0,
-                 sleeper: Callable[[float], None] = time.sleep) -> None:
+                 baseline: ClusterReset, flags: FlagRegistry) -> None:
         self.attacker = attacker
         self.defender = defender
-        self.snapshots = snapshots
+        self.baseline = baseline
         self.flags = flags
-        # verify 내부 revert 직후 VM B(k3s·방어자) 재개를 기다리는 폴링 설정(세트당 1회).
-        self.ready_timeout_sec = ready_timeout_sec
-        self.ready_interval_sec = ready_interval_sec
-        self._sleep = sleeper
-
-    def _wait_ready(self) -> None:
-        """revert 직후 VM B(방어 하네스)가 /status 로 응답할 때까지 폴링.
-
-        verify 는 pre/postpatch 로 revert 한 '직후' VM B 에 재생·상태검증을 보내는데, 라이브
-        스냅샷 revert 는 VM 을 잠깐 일시정지로 두거나 재개가 늦을 수 있다. 준비를 확인하고
-        질의해야 갓 resume 된 k3s·방어자가 못 받아 성급히 타임아웃 나는 걸 막는다.
-        상한을 넘겨도 예외 없이 그냥 진행한다(이후 호출 자체의 타임아웃이 백스톱) — 검증은
-        best-effort 라 '준비 대기'가 라운드를 중단시키면 안 된다."""
-        deadline = time.time() + self.ready_timeout_sec
-        while True:
-            try:
-                self.defender.status()
-                return
-            except Exception:              # noqa: BLE001 — 아직 미기동(연결거부·타임아웃 등)
-                if time.time() >= deadline:
-                    return                 # 상한 초과 → 진행(백스톱: 뒤 호출의 자체 타임아웃)
-                self._sleep(self.ready_interval_sec)
 
     # ───────────── public 인터페이스 ─────────────
     def verify(self, script: ReplayScript, *, episode: int, round: int,
-               pre_snapshot: str, post_patch_snapshot: str,
                target: Optional[str] = None) -> VerificationResult:
-        """공격 대본을 패치 전/후 상태에 재생해 방어 효과를 판정.
+        """공격 대본을 '패치된 라이브(post)'와 '클린 리셋 후(pre)'에 재생해 방어 효과를 판정.
 
-        pre_snapshot        : 패치 전(공격이 원래 통하던) 상태 스냅샷 — 재현 관문.
-        post_patch_snapshot : 현재(패치 후) 상태를 임시 저장할 이름 — 재생 뒤 복귀용.
-        끝나면 VM B는 항상 패치 후 상태로 복귀(다음 라운드 연속성).
+        끝나면 클러스터는 클린 베이스라인 상태로 남는다(다음 에피소드 바로 시작 가능).
         """
-        # 1) 현재(패치후) 상태 보존 → 2) 패치 전으로 되돌려 pre 재생
-        self.snapshots.save(post_patch_snapshot)
-        self.snapshots.revert_to(pre_snapshot)
-        self._wait_ready()                         # revert 직후 VM B 재개 대기(pre 재생 전)
-        pre = self.attacker.replay(
-            ReplayRequest(replay_script=script, phase=ReplayPhase.PRE, target=target),
-            episode=episode, round=round)
-        pre_ok, pre_reason, _ = self._reproduced(pre, script)
+        # ① 안전망용 god-view 는 '패치된 라이브'에서 먼저 캡처(리셋하면 클린이라 패치 상태를 못 봄).
+        state_patched = self._capture_state(episode=episode, round=round)
 
-        if not pre_ok:
-            # 관문 실패: 재현 자체 불가 → 패치후 복귀 후 상태검증 안전망으로
-            self.snapshots.revert_to(post_patch_snapshot)
-            self._wait_ready()                     # revert 직후 VM B 재개 대기(상태검증 전)
-            return self._state_branch(
-                episode=episode, round=round, pre=pre,
-                detail=f"pre 재현 실패({pre_reason}) → 상태검증")
-
-        # 관문 통과: 패치 후 상태로 복귀해 post 재생
-        self.snapshots.revert_to(post_patch_snapshot)
-        self._wait_ready()                         # revert 직후 VM B 재개 대기(post 재생 전)
+        # ② POST: 패치된 라이브 클러스터에 그대로 재생(상태 전환 없음).
         post = self.attacker.replay(
             ReplayRequest(replay_script=script, phase=ReplayPhase.POST, target=target),
             episode=episode, round=round)
         post_ok, post_reason, post_reached = self._reproduced(post, script)
 
+        # ③ PRE 대조군: 클린 베이스라인으로 리셋(패치 제거) 후 재생 — 재현 관문.
+        self.baseline.reset_to_clean()
+        pre = self.attacker.replay(
+            ReplayRequest(replay_script=script, phase=ReplayPhase.PRE, target=target),
+            episode=episode, round=round)
+        pre_ok, pre_reason, _ = self._reproduced(pre, script)
+
+        # ④ 판정
+        if not pre_ok:
+            # 클린에서도 재현 실패 → 재생으로 판정 불가 → 패치 상태 god-view 안전망.
+            return self._state_branch(
+                state=state_patched, pre=pre,
+                detail=f"pre(클린) 재현 실패({pre_reason}) → 상태검증")
         if post_ok:
             return VerificationResult(
                 verdict=Verdict.FAKE_PATCH, method="replay", pre=pre, post=post,
@@ -180,37 +150,44 @@ class VerificationEngine:
         return False, "no-reproduce", []
 
     # ───────────── 상태검증 안전망 ─────────────
-    def _state_branch(self, *, episode: int, round: int,
-                      pre: ReplayResult, detail: str) -> VerificationResult:
-        """재생으로 판정 못 할 때. 킬체인 상태(①②③)가 아직 열렸나 god-view로 확인.
-
-        공격자 자기보고가 아니라 답안지 전체의 상태검증을 질의한다 — 경로가 열렸는지는
-        공격자가 뭘 찍었는지와 무관한 god-view 사실이므로.
-        """
+    def _capture_state(self, *, episode: int, round: int) -> Optional[StateQueryResult]:
+        """안전망용 god-view 상태를 '현재(패치된 라이브)'에서 캡처. best-effort —
+        상태검증 가능한 조건이 없거나(값-flag만 있는 경우) 질의가 실패하면 None."""
         checks = self.flags.checks_for(self.flags.all_ids())
         if not checks:
+            return None
+        try:
+            return self.defender.state_query(
+                StateQuery(checks=checks), episode=episode, round=round)
+        except Exception:                 # noqa: BLE001 — best-effort, 실패 시 None
+            return None
+
+    def _state_branch(self, *, state: Optional[StateQueryResult],
+                      pre: ReplayResult, detail: str) -> VerificationResult:
+        """재생으로 판정 못 할 때. 미리 캡처한 '패치 상태' god-view 로 킬체인(①②③)이 아직
+        열렸나 확인. 공격자 자기보고가 아니라 god-view 사실로 판정한다."""
+        if state is None:
             return VerificationResult(
                 verdict=Verdict.INCONCLUSIVE, method="state", pre=pre,
-                detail=detail + " / 상태검증 가능한 조건 없음")
+                detail=detail + " / 상태검증 불가(체크 없음·응답 실패)")
 
-        sqr = self.defender.state_query(StateQuery(checks=checks),
-                                        episode=episode, round=round)
-        by_id = {r.check_id: r for r in sqr.results}
+        checks = self.flags.checks_for(self.flags.all_ids())
+        by_id = {r.check_id: r for r in state.results}
         resolved = [by_id.get(c.check_id) for c in checks]
 
         if any(r is None for r in resolved):          # 응답 누락 → 못 믿음
             return VerificationResult(
-                verdict=Verdict.INCONCLUSIVE, method="state", pre=pre, state=sqr,
+                verdict=Verdict.INCONCLUSIVE, method="state", pre=pre, state=state,
                 detail=detail + " / 일부 상태검증 응답 누락")
 
         still_open = [r.check_id for r in resolved if r and r.vulnerable]
         if still_open:
             return VerificationResult(
-                verdict=Verdict.NOT_BLOCKED, method="state", pre=pre, state=sqr,
+                verdict=Verdict.NOT_BLOCKED, method="state", pre=pre, state=state,
                 flags_still_reachable=still_open,
                 detail=detail + f" / 상태상 여전히 취약: {still_open}")
         return VerificationResult(
-            verdict=Verdict.BLOCKED, method="state", pre=pre, state=sqr,
+            verdict=Verdict.BLOCKED, method="state", pre=pre, state=state,
             detail=detail + " / 상태상 전부 차단 확인")
 
 

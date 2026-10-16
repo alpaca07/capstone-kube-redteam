@@ -19,7 +19,7 @@ from common.messages import (  # noqa: E402
 )
 from common.replay_schema import Command, FlagCheck, ReplayScript, Step  # noqa: E402
 from orchestrator.fakes import (  # noqa: E402
-    FakeAttackerClient, FakeDefenderClient, FakeLogSource, FakeSnapshotManager,
+    FakeAttackerClient, FakeDefenderClient, FakeLogSource, FakeBaseline,
 )
 from orchestrator.flags import default_registry  # noqa: E402
 from orchestrator.sequencer import RunParams, TurnSequencer  # noqa: E402
@@ -64,7 +64,7 @@ def _make(*, post_success: bool, n_consec: int = 2, max_rounds: int = 10,
         attack_result=_attack_result())
     defender = FakeDefenderClient(defense_result=_defense_result(),
                                   vulnerable_by_check={"1": False, "2": False, "3": False})
-    snaps = FakeSnapshotManager(existing=["clean-baseline"])
+    snaps = FakeBaseline(existing=["clean-baseline"])
     registry = default_registry("FLAG{win}")
     verifier = VerificationEngine(attacker, defender, snaps, registry)
     logs = FakeLogSource(constant={"T1078"})
@@ -108,15 +108,13 @@ def test_round_flow_and_cleanup():
     seq, ctx = _make(post_success=False, n_consec=99, max_rounds=1)
     seq.run_episode(1)
     snaps = ctx["snaps"]
-    assert snaps.calls[0] == ("revert_to", "clean-baseline")        # 0. init
-    assert ("save", "ep1-r1-postattack") in snaps.calls            # 2. 공격후 스냅샷
-    assert len(ctx["defender"].defense_calls) == 1                  # 3. 방어 턴
-    assert [p for p, _, _ in ctx["attacker"].replay_calls] == [PRE, POST]  # 4~5. 검증
-    assert len(ctx["truth"].entries(1)) == 1                        # 5.5 정답 기록
-    assert len(ctx["captured"]) == 1                                # 6. 채점(JSONL)
-    # 8. 라운드 임시 스냅샷 정리
-    assert ("delete", "ep1-r1-postattack") in snaps.calls
-    assert ("delete", "ep1-r1-postpatch") in snaps.calls
+    assert snaps.calls[0] == ("revert_to", "clean-baseline")        # 0. 에피소드 init 리셋
+    assert not any(op == "save" for op, _ in snaps.calls)           # A2: 공격후 VM 스냅샷 없음
+    assert len(ctx["defender"].defense_calls) == 1                  # 2. 방어 턴
+    assert [p for p, _, _ in ctx["attacker"].replay_calls] == [POST, PRE]  # 3. 검증(POST→리셋→PRE)
+    assert snaps.reset_calls >= 2                                   # init 1 + verify 차등 리셋 1
+    assert len(ctx["truth"].entries(1)) == 1                        # 정답 기록
+    assert len(ctx["captured"]) == 1                                # 채점(JSONL)
 
 
 def test_godview_truth_and_detection():
@@ -180,7 +178,7 @@ def test_not_ready_after_revert_aborts_episode():
         replay_by_phase={PRE: _replay(PRE, True), POST: _replay(POST, False)},
         attack_result=_attack_result())
     dead = _DeadDefender()
-    snaps = FakeSnapshotManager(existing=["clean-baseline"])
+    snaps = FakeBaseline(existing=["clean-baseline"])
     registry = default_registry("FLAG{win}")
     verifier = VerificationEngine(attacker, dead, snaps, registry)
     params = RunParams(episodes=1, max_rounds=5, baseline_snapshot="clean-baseline",
@@ -239,7 +237,7 @@ def _gating_seq(results, *, n_consec=2, max_rounds=10):
         results, replay_by_phase={PRE: _replay(PRE, True), POST: _replay(POST, False)})
     defender = FakeDefenderClient(defense_result=_defense_result(),
                                   vulnerable_by_check={"1": False, "2": False, "3": False})
-    snaps = FakeSnapshotManager(existing=["clean-baseline"])
+    snaps = FakeBaseline(existing=["clean-baseline"])
     registry = default_registry("FLAG{win}")
     verifier = VerificationEngine(attacker, defender, snaps, registry)
     captured: list[dict] = []
@@ -276,7 +274,7 @@ def test_gating_ladder_no_flag_before_and_after_breakthrough():
     assert s.end_reason == "consecutive_defense"
     assert s.rounds == 4                                        # R4에서 종료
     assert len(ctx["defender"].defense_calls) == 1              # 방어는 돌파한 R3에서만
-    assert ("save", "ep1-r3-postattack") in ctx["snaps"].calls  # 공격후 스냅샷도 R3만
+    assert ctx["snaps"].reset_calls == 2                        # 에피소드 init 1 + 돌파 R3 verify 1
 
 
 # ───────────── 자체 러너 ─────────────

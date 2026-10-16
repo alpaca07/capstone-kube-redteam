@@ -12,8 +12,9 @@
 **방어자도 실제 패치 확인 (2026-10-16 21:02):** 공격정보 0으로 audit.log만 보고 T1552.001·T1210
 탐지 → `add_networkpolicy database`(networkpolicy/restrict-database-ingress) 라이브 적용
 (end_reason=patched, health=True). **공격·방어 양쪽이 처음으로 자력 성공.**
-**남은 최대 블로커: vmrun 라이브 스냅샷 revert가 k3s의 `kubectl exec` 경로를 느리게(10~120초)
-만드는 인프라 문제** → 다중 에피소드 반복 실험이 막힘. 단발 포획은 `--no-revert`로 우회해 성공.
+**최대 블로커였던 vmrun 스냅샷 stun(k3s·SSH 끊김, 느린 exec)은 A2(k8s 네이티브 리셋)로 해결** —
+상태 리셋·verify 를 VM 스냅샷이 아니라 kubectl 로 수행해 stun 자체를 제거. 다중 에피소드 반복 실험
+가능(전제: §9 VM C 셋업). 코드·테스트 완료, 실클러스터 검증은 다음.
 
 ---
 
@@ -130,6 +131,7 @@ dry-run 실패 → `write-kubeconfig-mode: "0644"` 로 영구화(§9). **남은 
 
 | 커밋 | 내용 |
 |------|------|
+| (A2) | **k8s 네이티브 베이스라인 리셋 — VM 스냅샷 stun 제거(§8 #1 해결).** `orchestrator/baseline.py`(BaselineManager + 클린 지문) + verify 차등 재생 재작성(POST=패치 라이브 → 클린 리셋 → PRE) + 시퀀서/main 배선 + 유닛테스트(test_baseline 6, verifier/sequencer A2) |
 | `20ca61c` | **`scripts/probe_defender`** — 방어자 단독 probe(사이클 없이 noop 원인 규명). kubeconfig 권한 문제 발견 |
 | `3b984cc` | **[공격] 관측 절단 완화** — 최근 관측 full(1500자)+크레덴셜 `[핵심 발견]` 고정. 본문 하단 creds 읽힘 |
 | `6080f5e` | **[공격] carry-forward 리셋을 R1에도** — 상주 하네스 기억 누수→즉시 give_up 차단 |
@@ -168,13 +170,12 @@ dry-run 실패 → `write-kubeconfig-mode: "0644"` 로 영구화(§9). **남은 
 
 ## 8. 미해결 이슈 (우선순위)
 
-1. **[최우선] vmrun revert → k3s `kubectl exec` 느려짐.** 다중 에피소드 반복 실험의 블로커.
-   라이브=0.3초, revert 후=10~120초(지속). 후보 해결:
-   - revert 후 VM B에서 `k3s`(또는 kubelet) 재시작해 exec 스트리밍 경로 재수립 (오케스트레이터가
-     방어 하네스 경유로 트리거하거나, revert 후 훅)
-   - 오프라인(파워오프) 스냅샷 사용 검토
-   - VM B 자원 증설 / k3s 튜닝
-   - 임시 우회: `--no-revert`(단발 포획엔 충분, 리셋은 안 됨)
+1. ~~**vmrun revert → k3s exec 느려짐.**~~ **✅ 해결 — A2(k8s 네이티브 리셋)로 VM 스냅샷 제거.**
+   원인은 vmrun 이 라이브 VM 을 stun(freeze)해 k3s·SSH 연결을 끊는 것(§7 #3). 베이스라인 리셋·
+   verify 를 VM 스냅샷이 아니라 kubectl(심판 VM C 가 cfg.target.kubeconfig 로 직접)로 수행 →
+   stun 자체가 사라짐. `orchestrator/baseline.py` BaselineManager + 차등 재생 verify.
+   (옛 vmrun/govc/agent 스냅샷 코드는 남겨둠 — 호스트 레벨 공격을 넣는 별개 시나리오용.)
+   **전제: §9 의 VM C 셋업(admin kubeconfig + k8s/ 체크아웃).** 다중 에피소드 반복이 이제 가능.
 2. ~~**방어자가 noop(패치 안 함).**~~ **✅ 해결(2026-10-16 21:02).** 4개 근본원인(§5 ⭐): 방어자
    프롬프트 어휘(`7583260`)·공격자 측 2건(`6080f5e`,`3b984cc`)·**kubeconfig 권한**(비root 하네스가
    k3s.yaml 600 못 읽어 dry-run 실패 → `write-kubeconfig-mode: 0644`, §9). 격리 검증 도구
@@ -193,10 +194,21 @@ dry-run 실패 → `write-kubeconfig-mode: "0644"` 로 영구화(§9). **남은 
 ## 9. 실행법 (운영)
 
 ```bash
-# ── 정상 실험 (VM C) ──
+# ── ★ A2 VM C 1회 셋업 (k8s 네이티브 리셋 전제 — 처음 한 번) ──
+#   심판(VM C)이 아레나를 kubectl 로 직접 리셋하므로 admin kubeconfig + 매니페스트가 필요.
+#   1) VM C 에 admin kubeconfig (VM B k3s.yaml 복사, server 를 VM B IP:6443 으로):
+#      (VM B) sudo sed "s/127.0.0.1/<VM_B_IP>/" /etc/rancher/k3s/k3s.yaml > /tmp/admin.kubeconfig
+#      scp /tmp/admin.kubeconfig vm-c:~/.kube/vmb-admin.kubeconfig
+#      → config.yaml 의 target.kubeconfig 를 이 경로로.  (VM C→VM B:6443 도달 가능해야)
+#   2) VM C sparse-checkout 에 k8s/ 추가(BaselineManager 가 k8s/killchain 재적용):
+#      (VM C) git sparse-checkout add k8s
+#   확인: kubectl --kubeconfig ~/.kube/vmb-admin.kubeconfig get ns   # 0.x초로 떠야
+#   (주의: cfg.target.kubeconfig 는 admin 이어야 apply/delete 가능. 느린-exec·stun 없음.)
+
+# ── 정상 실험 (VM C) ── 이제 매 에피소드 k8s 리셋(빠름·stun 없음) → 다중 에피소드 OK
 cd ~/capstone
 python3 -m orchestrator.main --episodes N --max-rounds M --time-limit 900 --max-tokens 1024
-#   권장: --max-tokens 1024 (사고 OFF라 출력 짧음)
+#   권장: --max-tokens 1024 (사고 OFF라 출력 짧음). --no-revert 는 이제 불필요(리셋이 싸고 안전).
 
 # ── 단발 FLAG 포획 (revert 인프라 이슈 우회, VM C) ──
 python3 -m orchestrator.main --episodes 1 --max-rounds 1 --time-limit 1800 --max-tokens 1024 --no-revert

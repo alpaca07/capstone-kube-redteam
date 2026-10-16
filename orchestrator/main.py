@@ -23,6 +23,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from common.config import Config, load_config  # noqa: E402
+from orchestrator.baseline import BaselineManager, kubectl_runner  # noqa: E402
 from orchestrator.flags import default_registry  # noqa: E402
 from orchestrator.govc_snapshot import GovcSnapshotManager  # noqa: E402
 from orchestrator.http_clients import HttpAttackerClient, HttpDefenderClient  # noqa: E402
@@ -77,9 +78,15 @@ def build_sequencer(cfg: Config, *, flag4_value: Optional[str] = None,
     """config + 실 어댑터로 턴 시퀀서 조립(I/O 없음 — 실제 연결은 run_experiment에서)."""
     attacker = HttpAttackerClient(cfg.network.attacker_url, token=cfg.network.shared_token)
     defender = HttpDefenderClient(cfg.network.defender_url, token=cfg.network.shared_token)
-    snapshots = _build_snapshots(cfg)
+    # A2: VM 스냅샷 대신 k8s 네이티브 베이스라인 리셋(심판이 cfg.target.kubeconfig 로 kubectl 직접).
+    #   stun 유발 vmrun 스냅샷 제거(§8 #1). 매니페스트는 리포 루트 기준 절대경로(cwd 무관).
+    #   전제: VM C 에 admin kubeconfig(cfg.target.kubeconfig) + k8s/killchain 체크아웃.
+    baseline = BaselineManager(
+        runner=kubectl_runner(cfg.target.kubeconfig or None),
+        manifest_paths=(str(_ROOT / "k8s" / "killchain"),),
+        baseline_name=cfg.vmware.baseline_snapshot)
     registry = default_registry(flag4_value)
-    verifier = VerificationEngine(attacker, defender, snapshots, registry)
+    verifier = VerificationEngine(attacker, defender, baseline, registry)
     logs = AuditFalcoLogSource(file_line_reader(cfg.observability.audit_log_path),
                                file_line_reader(cfg.observability.falco_log_path))
     truth = TruthLog()
@@ -93,7 +100,7 @@ def build_sequencer(cfg: Config, *, flag4_value: Optional[str] = None,
             # exec_mode면 발판은 외부 URL 이 아니라 '클러스터 내부 파드'라 endpoint 를 비운다.
             attack_endpoint=(None if cfg.attack.exec_mode else cfg.target.attack_endpoint),
             flag_format=cfg.flags.format)
-    return TurnSequencer(attacker=attacker, defender=defender, snapshots=snapshots,
+    return TurnSequencer(attacker=attacker, defender=defender, snapshots=baseline,
                          verifier=verifier, logs=logs, registry=registry, truth=truth,
                          params=params, sink=sink)
 

@@ -214,16 +214,9 @@ class TurnSequencer:
         flag_found = bool(attack.flags_obtained) or attack.end_reason == AttackEndReason.FLAG
 
         if flag_found:
-            # 2. 공격후 스냅샷(검증 pre 상태)
-            postattack = f"ep{episode}-r{rnd}-postattack"
-            self._log(f"[ep{episode} R{rnd}] 2. 공격후 스냅샷 저장({postattack})…")
-            _t = time.time()
-            self.snapshots.save(postattack)
-            created_snaps.append(postattack)
-            self._log(f"[ep{episode} R{rnd}]    → 저장 완료 ({time.time() - _t:.0f}s)")
-
-            # 3. 방어 턴 (공격정보 0)
-            self._log(f"[ep{episode} R{rnd}] 3. 방어 턴(관측→추론→패치)…")
+            # 2. 방어 턴 (공격정보 0). A2: 공격후 VM 스냅샷 불필요 — verify 가 '패치된 라이브'에
+            #    대본을 재생(post)한 뒤 k8s 네이티브로 클린 리셋(pre)하므로 stun 유발 스냅샷이 없다.
+            self._log(f"[ep{episode} R{rnd}] 2. 방어 턴(관측→추론→패치)…")
             _t = time.time()
             defense = self._call(
                 lambda: self.defender.defense_turn(
@@ -233,24 +226,22 @@ class TurnSequencer:
                       f"패치={defense.patch_applied} 탐지={len(defense.detected)}개 "
                       f"health={defense.healthcheck_passed} ({time.time() - _t:.0f}s)")
 
-            # 4~5. 검증 (대본 있을 때만; 스냅샷 전환은 검증엔진 내부)
-            postpatch = f"ep{episode}-r{rnd}-postpatch"
+            # 3. 검증 (대본 있을 때만). 차등 재생은 검증엔진 내부: post=패치된 라이브 재생 →
+            #    k8s 네이티브 클린 리셋 → pre=대조군 재생. 끝나면 클러스터는 클린 베이스라인.
             script = attack.replay_script
             if script is not None and script.steps:
-                self._log(f"[ep{episode} R{rnd}] 4~5. 검증(리플레이 pre/post, 스냅샷 전환)…")
+                self._log(f"[ep{episode} R{rnd}] 3. 검증(차등 재생: post=패치 라이브 / pre=클린 리셋)…")
                 _t = time.time()
                 verification = self._call(
                     lambda: self.verifier.verify(
                         script, episode=episode, round=rnd,
-                        pre_snapshot=postattack, post_patch_snapshot=postpatch,
                         target=self.params.attack_endpoint), "verify")
-                created_snaps.append(postpatch)
                 self._log(f"[ep{episode} R{rnd}]    → 판정={verification.verdict.value} ({time.time() - _t:.0f}s)")
             else:
                 verification = VerificationResult(
                     verdict=Verdict.INCONCLUSIVE, method="none",
                     detail="플래그 보고됐으나 재생 대본이 비어 검증 불가")
-                self._log(f"[ep{episode} R{rnd}] 4~5. 검증 생략(대본 없음) → 판정={verification.verdict.value}")
+                self._log(f"[ep{episode} R{rnd}] 3. 검증 생략(대본 없음) → 판정={verification.verdict.value}")
         else:
             # 플래그 미획득 → 방어·검증·공격후 스냅샷 전부 생략. 합성 결과로 라운드 기록만 남긴다.
             defense = DefenseTurnResult(
@@ -259,7 +250,7 @@ class TurnSequencer:
             verification = VerificationResult(
                 verdict=Verdict.INCONCLUSIVE, method="skipped",
                 detail="공격 플래그 미획득 → 방어·검증 생략, 히스토리 이월 후 다음 라운드")
-            self._log(f"[ep{episode} R{rnd}] 2~5. 방어·검증·스냅샷 생략"
+            self._log(f"[ep{episode} R{rnd}] 2~3. 방어·검증 생략"
                       f"(플래그 미획득) → 히스토리 이월, 다음 라운드")
 
         t1 = time.time()
