@@ -212,6 +212,47 @@ def test_summarize_carries_successful_findings():
     assert "실패 1" in s, s                                # 실패 카운트도
 
 
+def test_render_shows_full_recent_observation_with_creds():
+    # 방금 가져온 페이지 '본문 하단'의 DB 커넥션 스트링을 모델이 실제로 봐야 한다.
+    # (과거 record 300자·render 200자 컷이 하단 크레덴셜을 잘라 공격자가 추측으로 떨어진 병목.)
+    h = AttackHistory()
+    creds = "postgresql://appuser:devpassword123@postgres.database.svc.cluster.local:5432/customerdb"
+    body = "<html><head><title>런북</title></head><body><h1>운영 런북</h1>" + ("설명 " * 90) + creds + "</body>"
+    h.record(AttackAction(thought="런북 확인", tool="sh",
+                          args=["wget", "-qO-", "http://internal-wiki.internal.svc.cluster.local/runbook.html"]),
+             Observation(step=1, tool="sh", exit_code=0, success=True, stdout=body))
+    r = h.render()
+    assert "devpassword123" in r, "최근 관측 본문 하단의 크레덴셜이 렌더에서 사라짐(절단 회귀)"
+
+
+def test_render_pins_credentials_across_window():
+    # 크레덴셜을 한 번 관측한 뒤, 창 크기(max_entries=12)를 넘겨 스텝을 많이 더 쌓아도
+    # 상단 '핵심 발견' 고정 덕분에 크레덴셜이 계속 보여야 한다(여러 스텝 뒤 활용 가능).
+    h = AttackHistory()
+    creds = "postgresql://appuser:devpassword123@postgres.database.svc.cluster.local:5432/customerdb"
+    h.record(AttackAction(thought="런북", tool="sh", args=["wget", "runbook"]),
+             Observation(step=1, tool="sh", exit_code=0, success=True, stdout="DB 접속 " + creds))
+    for i in range(2, 20):   # 18스텝 더 → 크레덴셜 엔트리를 창(12) 밖으로 밀어냄
+        h.record(AttackAction(thought="탐색", tool="sh", args=["echo", str(i)]),
+                 Observation(step=i, tool="sh", exit_code=0, success=True, stdout="noise"))
+    r = h.render()
+    assert "핵심 발견" in r, "고정 섹션이 없음"
+    assert "devpassword123" in r, "창 밖으로 밀린 크레덴셜이 고정되지 않음"
+
+
+def test_render_recent_full_older_truncated():
+    # 최근 2개는 넉넉히(full), 오래된 관측은 old_chars(200)로 축약 → 프롬프트 비대 방지.
+    h = AttackHistory()
+    for i in range(1, 6):
+        h.record(AttackAction(thought="t", tool="sh", args=["echo"]),
+                 Observation(step=i, tool="sh", exit_code=0, success=True, stdout=f"S{i}_" + ("z" * 800)))
+    r = h.render()
+    assert "z" * 300 in r, "최근 관측이 넉넉히 안 보임"          # step4·5 는 full
+    seg = r.split("S1_", 1)[1] if "S1_" in r else ""           # 가장 오래된 step1
+    lead = len(seg) - len(seg.lstrip("z"))
+    assert lead <= 200, f"오래된 관측이 축약 안 됨(lead={lead})"
+
+
 # ───────────── 자체 러너 ─────────────
 def _run() -> int:
     tests = [v for k, v in sorted(globals().items())
