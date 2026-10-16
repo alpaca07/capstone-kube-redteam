@@ -4,8 +4,8 @@
     python3 -m pytest tests/            # pytest 있으면 수집됨
 
 기댓값은 설계 판정표(독립 출처)에서 가져온다 — 구현을 다시 계산하지 않음.
-  pre성공+post성공=FAKE_PATCH / pre성공+post실패=BLOCKED
-  pre실패→상태검증: 취약True=NOT_BLOCKED / 전부False=BLOCKED / 불가=INCONCLUSIVE
+  POST 성공 = FAKE_PATCH / POST 실패 = BLOCKED / POST 재생 불능(빈 결과) = INCONCLUSIVE
+  (POST-only: 리셋·PRE 없음 → 방어 누적 유지. 공격 검증은 값-flag 대조로 공격 턴에서 끝남.)
 """
 from __future__ import annotations
 
@@ -47,12 +47,9 @@ def _replay(phase: ReplayPhase, *, flag_step: int = 2, success: bool = True,
                         flags_reached=(["4"] if success else []))
 
 
-def _engine(*, pre, post=None, vuln=None, flags=None, missing=None):
-    rp = {PRE: pre}
-    if post is not None:
-        rp[POST] = post
-    attacker = FakeAttackerClient(replay_by_phase=rp)
-    defender = FakeDefenderClient(vulnerable_by_check=vuln or {}, missing_checks=missing)
+def _engine(*, post=None, flags=None):
+    attacker = FakeAttackerClient(replay_by_phase=({POST: post} if post is not None else {}))
+    defender = FakeDefenderClient()
     baseline = FakeBaseline()
     eng = VerificationEngine(attacker, defender, baseline, flags or default_registry("FLAG{x}"))
     return eng, attacker, defender, baseline
@@ -62,82 +59,48 @@ def _run_verify(eng):
     return eng.verify(_script(), episode=1, round=1)
 
 
-# ───────────── 판정표 (A2: POST=패치 라이브 먼저 → 클린 리셋 → PRE 대조군) ─────────────
-def test_pre_success_post_success_is_fake_patch():
-    eng, a, _, _ = _engine(pre=_replay(PRE, success=True), post=_replay(POST, success=True))
+# ───────────── 판정표 (POST-only) ─────────────
+def test_post_success_is_fake_patch():
+    eng, a, _, _ = _engine(post=_replay(POST, success=True))
     r = _run_verify(eng)
     assert r.verdict == Verdict.FAKE_PATCH
     assert r.method == "replay"
-    assert [p for p, _, _ in a.replay_calls] == [POST, PRE]   # A2: POST 먼저, 리셋, PRE
+    assert [p for p, _, _ in a.replay_calls] == [POST]       # POST 만 재생(리셋·PRE 없음)
     assert r.flags_still_reachable == ["4"]
 
 
-def test_pre_success_post_fail_is_blocked():
-    eng, a, _, _ = _engine(pre=_replay(PRE, success=True), post=_replay(POST, success=False))
+def test_post_fail_is_blocked():
+    eng, a, _, _ = _engine(post=_replay(POST, success=False))
     r = _run_verify(eng)
     assert r.verdict == Verdict.BLOCKED
     assert r.method == "replay"
-    assert [p for p, _, _ in a.replay_calls] == [POST, PRE]
+    assert [p for p, _, _ in a.replay_calls] == [POST]
 
 
-def test_pre_fail_state_not_vulnerable_is_blocked():
-    eng, a, d, _ = _engine(pre=_replay(PRE, success=False), post=_replay(POST, success=True),
-                           vuln={"1": False, "2": False, "3": False})
-    r = _run_verify(eng)
-    assert r.verdict == Verdict.BLOCKED
-    assert r.method == "state"
-    assert [p for p, _, _ in a.replay_calls] == [POST, PRE]     # A2: POST 도 재생됨(먼저)
-    assert d.state_calls == [["1", "2", "3"]]                   # god-view 캡처(리셋 전 1회)
-
-
-def test_pre_fail_state_vulnerable_is_not_blocked():
-    eng, _, _, _ = _engine(pre=_replay(PRE, success=False), post=_replay(POST, success=True),
-                           vuln={"1": False, "2": True, "3": False})
-    r = _run_verify(eng)
-    assert r.verdict == Verdict.NOT_BLOCKED
-    assert r.method == "state"
-    assert "2" in r.flags_still_reachable
-
-
-def test_pre_fail_no_state_checks_is_inconclusive():
-    eng, _, _, _ = _engine(pre=_replay(PRE, success=False), post=_replay(POST, success=True),
-                           flags=FlagRegistry([]))
+def test_empty_post_is_inconclusive():
+    # 재생이 한 스텝도 안 돌아감 → 차단으로 오인하지 않고 판정 보류.
+    empty = ReplayResult(phase=POST, steps_result=[], overall_success=False)
+    eng, _, _, _ = _engine(post=empty)
     r = _run_verify(eng)
     assert r.verdict == Verdict.INCONCLUSIVE
 
 
-def test_pre_fail_missing_state_response_is_inconclusive():
-    eng, _, _, _ = _engine(pre=_replay(PRE, success=False), post=_replay(POST, success=True),
-                           vuln={"1": False, "2": False, "3": False}, missing=["2"])
-    r = _run_verify(eng)
-    assert r.verdict == Verdict.INCONCLUSIVE
-
-
-# ───────────── 리셋 춤사위 (A2: POST 와 PRE 사이 클린 리셋 정확히 1회) ─────────────
-def test_reset_choreography_replay_path():
-    eng, a, _, b = _engine(pre=_replay(PRE, success=True), post=_replay(POST, success=False))
+def test_verify_does_not_reset_cluster():
+    # 누적 유지 핵심: verify 는 리셋하지 않는다(패치가 라이브에 남아 다음 라운드가 상대).
+    eng, _, _, b = _engine(post=_replay(POST, success=False))
     _run_verify(eng)
-    assert [p for p, _, _ in a.replay_calls] == [POST, PRE]
-    assert b.reset_calls == 1              # 패치 라이브 재생 후 1회 리셋 → 클린에서 pre 재생
-
-
-def test_reset_choreography_state_path():
-    eng, a, _, b = _engine(pre=_replay(PRE, success=False), post=_replay(POST, success=True),
-                           vuln={"1": False, "2": False, "3": False})
-    _run_verify(eng)
-    assert [p for p, _, _ in a.replay_calls] == [POST, PRE]     # pre 실패여도 POST 먼저 재생됨
-    assert b.reset_calls == 1
+    assert b.reset_calls == 0
 
 
 # ───────────── 재현 판정(success-first → hash) ─────────────
 def test_reproduced_success_first():
-    eng, *_ = _engine(pre=_replay(PRE))
+    eng, *_ = _engine(post=_replay(POST))
     ok, reason, reached = eng._reproduced(_replay(POST, success=True, matched=False), _script())
     assert ok and reason == "success" and reached == ["4"]
 
 
 def test_reproduced_hash_fallback():
-    eng, *_ = _engine(pre=_replay(PRE))
+    eng, *_ = _engine(post=_replay(POST))
     res = ReplayResult(phase=POST, overall_success=False, steps_result=[
         StepReplayRec(step=1, success=True),
         StepReplayRec(step=2, success=False, matched_baseline=True)])
@@ -146,7 +109,7 @@ def test_reproduced_hash_fallback():
 
 
 def test_reproduced_no_flag_step_uses_overall_then_hash():
-    eng, *_ = _engine(pre=_replay(PRE))
+    eng, *_ = _engine(post=_replay(POST))
     bare = ReplayScript(session_id="s", episode=1, round=1,
                         steps=[Step(step=1, command=Command(tool="kubectl", args=["get", "po"]))])
     ok, reason, _ = eng._reproduced(

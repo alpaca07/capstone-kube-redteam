@@ -111,8 +111,8 @@ def test_round_flow_and_cleanup():
     assert snaps.calls[0] == ("revert_to", "clean-baseline")        # 0. 에피소드 init 리셋
     assert not any(op == "save" for op, _ in snaps.calls)           # A2: 공격후 VM 스냅샷 없음
     assert len(ctx["defender"].defense_calls) == 1                  # 2. 방어 턴
-    assert [p for p, _, _ in ctx["attacker"].replay_calls] == [POST, PRE]  # 3. 검증(POST→리셋→PRE)
-    assert snaps.reset_calls >= 2                                   # init 1 + verify 차등 리셋 1
+    assert [p for p, _, _ in ctx["attacker"].replay_calls] == [POST]  # 3. 검증(POST-only)
+    assert snaps.reset_calls == 1                                   # 에피소드 init 만(verify 는 리셋 안 함)
     assert len(ctx["truth"].entries(1)) == 1                        # 정답 기록
     assert len(ctx["captured"]) == 1                                # 채점(JSONL)
 
@@ -274,7 +274,7 @@ def test_gating_ladder_no_flag_before_and_after_breakthrough():
     assert s.end_reason == "consecutive_defense"
     assert s.rounds == 4                                        # R4에서 종료
     assert len(ctx["defender"].defense_calls) == 1              # 방어는 돌파한 R3에서만
-    assert ctx["snaps"].reset_calls == 2                        # 에피소드 init 1 + 돌파 R3 verify 1
+    assert ctx["snaps"].reset_calls == 1                        # 에피소드 init 만(verify 는 리셋 안 함)
 
 
 # ───────────── 자체 러너 ─────────────
