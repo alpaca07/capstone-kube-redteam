@@ -1,0 +1,41 @@
+# god-view 측정 배관 (#6) — VM C(심판)가 admin kubeconfig 만으로 k3s 감사로그를 수집하게,
+# 감사로그(호스트 파일, root 600)를 tail 해 stdout 으로 흘리는 파드. VM C 가 `kubectl logs -f` 로 당긴다.
+# SSH·sudo 불필요. 공격자(foothold-sa, frontend exec 전용)는 이 파드/네임스페이스를 못 읽음 → god-view 비공개.
+# 네트워크 서비스가 아니라 stdout 전용이라 공격망에서 접근 불가. 베이스라인 리셋(k8s/killchain)엔 안 걸려 상주.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: godview
+  labels: { app.kubernetes.io/part-of: capstone-godview }
+---
+apiVersion: apps/v1
+kind: DaemonSet                      # 단일 노드라 1개. 감사로그가 있는 그 노드에 반드시 뜨게.
+metadata:
+  name: audit-tail
+  namespace: godview
+  labels: { app: audit-tail, app.kubernetes.io/part-of: capstone-godview }
+spec:
+  selector:
+    matchLabels: { app: audit-tail }
+  template:
+    metadata:
+      labels: { app: audit-tail }
+    spec:
+      tolerations:
+        - operator: Exists           # 컨트롤플레인 taint 등 전부 허용(단일 노드에 반드시 스케줄)
+      containers:
+        - name: tail
+          image: busybox:1.36
+          command: ["sh", "-c", "tail -n +1 -F /logs/audit.log"]   # 전체 history + 신규 추적
+          securityContext:
+            runAsUser: 0             # 감사로그 root 600 읽기
+          resources:
+            requests: { cpu: 5m, memory: 16Mi }
+            limits: { memory: 64Mi }
+          volumeMounts:
+            - { name: k3slogs, mountPath: /logs, readOnly: true }
+      volumes:
+        - name: k3slogs
+          hostPath:
+            path: /var/lib/rancher/k3s/server/logs    # enable-audit.sh 의 audit-log-path 디렉터리
+            type: Directory
