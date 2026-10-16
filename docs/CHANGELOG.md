@@ -111,7 +111,7 @@
 
 ---
 
-## 2026-10-17 — VM 3망 네트워크 분리 + ② 취약점 활성화
+## 2026-10-17 — VM 3망 분리 + ② 활성화 + 측정 배관(#4·#6)
 
 단일 평면에서 평면 분리로 '공격자↔심판 격리'를 아키텍처화하고, 죽어 있던 ②를 필수 경로로 살림.
 
@@ -135,7 +135,16 @@
   방어자·공격자 **코드 변경 0**(둘 다 이미 지원). 감사정책이 secret-get 을 남겨 ② 탐지도 가능.
 - **검증됨(2026-10-17)**: 공격자가 자율로 `①위키→②admin-dashboard /internal/secret→base64 -d→
   ③④psql` 를 밟아 11스텝 108초 FLAG 포획(전엔 wiki→psql 직행 7스텝). 루프 정상 종료
-  (flag→patched 탐지2개→blocked). ※ restrict_rbac 단독 차단 효과는 추가 확인 대상.
+  (flag→patched 탐지2개→blocked). restrict_rbac 단독 차단도 검증됨(바인딩 삭제→엔드포인트 403).
+
+**(3) 측정 배관 #4·#6 (숫자 정상화)**
+- #4 ④ 값 채점: VM C 가 클러스터 secret(`database/flag-values`)에서 ④ 값을 읽어 `--flag-file` 채움
+  → value_match → **플래그깊이 0→4**.
+- #6 god-view 감사로그: `k8s/observability/audit-tail.yaml`(hostPath tail DaemonSet) +
+  `scripts/vmc-sync-audit.sh` 로 VM C 가 admin kubeconfig 만으로 수집(SSH 불필요),
+  config `observability.audit_log_path` 를 로컬 수집본으로 → truth 에 T1078(②) 유입.
+- **검증됨**: 탐지 `0/3/0 → 1/1/1`, **MTTD=0**(② 같은 라운드 탐지), 깊이 4. TP=T1078(②),
+  FN=T1213(④ 미탐), FP=①③(HTTP·pod-to-pod 감사 사각 — Falco 네트워크 룰이 다음 선행조건).
 
 ---
 

@@ -198,12 +198,15 @@ truth 미배선)은 측정 배관 이슈지 루프 동작 문제가 아니다.
    `scripts/probe_defender`. **남은 것: 전체 사이클로 `판정=blocked`(패치가 리플레이를 실제 차단하는지) 실효 검증.**
 3. ~~**carry-forward 히스토리 상한.**~~ **✅ 해결(`6080f5e`,`3b984cc`).** R1(에피소드 시작) 리셋으로
    상주 하네스 기억 누수(즉시 give_up) 차단 + 관측은 최근 full·오래된 건 축약·크레덴셜 고정으로 비대 방지.
-4. **④ FLAG 값 채점 연결**: 현재 `flag4=없음`(리플레이로만 ④ 판정) → 플래그깊이 0으로 뜸. `--flag-file`
-   에 실제 값 주면 VC가 대조 채점. (`k8s/flags/flag-values.secret`)
+4. ~~**④ FLAG 값 채점 연결**~~ **✅ 해결(2026-10-17).** VM C가 클러스터 secret(`database/flag-values`)
+   에서 ④ 값을 읽어 `--flag-file`(`k8s/flags/flag-values.secret`) 채움 → value_match → **플래그깊이=4** 확정.
 5. **방어 검증이 revert 의존** → #1 해결 전엔 플래그 라운드의 verify도 느릴 수 있음(간헐적; 2026-10-16엔
    완주).
-6. **god-view 로그 동기화**: 탐지 채점이 0/3/0(보고 전부 FP)으로 나옴 = 공격 그라운드-트루스가
-   VC에 안 들어옴. 관리망 로그 mount/수집 필요. 그 외 백로그: 3망 네트워크 분리, 대시보드, JSON 모드 검토.
+6. ~~**god-view 로그 동기화**~~ **✅ 해결(2026-10-17).** `k8s/observability/audit-tail.yaml`(hostPath tail
+   DaemonSet) + `scripts/vmc-sync-audit.sh` 로 VM C가 admin kubeconfig 만으로 감사로그 수집(SSH 불필요),
+   config `observability.audit_log_path` 를 로컬 수집본으로 → truth에 T1078(②) 유입 → **탐지 1/1/1·MTTD=0**.
+   단 ①③(HTTP·pod-to-pod)은 감사 사각이라 FP로 남음 — Falco 네트워크 룰이 다음 선행조건(§11.5).
+   그 외 백로그: ~~3망 네트워크 분리(✅2026-10-17)~~, VM C 대시보드, JSON 모드 검토.
 
 ---
 
