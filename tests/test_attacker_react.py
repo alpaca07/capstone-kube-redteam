@@ -253,6 +253,27 @@ def test_render_recent_full_older_truncated():
     assert lead <= 200, f"오래된 관측이 축약 안 됨(lead={lead})"
 
 
+class _FailRunner:
+    """항상 실패(exit≠0) 반환 — 막힌 경로를 반복 시도하는 상황 시뮬."""
+
+    def run(self, tool, args, *, stdin=None, timeout=None):
+        return CommandResult(exit_code=1, stdout="", stderr="connection refused")
+
+
+def test_consecutive_exec_failures_deadend():
+    # perseveration 가드: 막힌 명령을 계속 실행하면 연속 실패 한계에서 조기 DEADEND
+    # (40스텝 다 안 갈아먹고 블록된 라운드를 빠르게 종료).
+    from attacker.react_loop import _MAX_EXEC_FAILS
+    llm = FakeLLM([("ok", _ACTION)])        # 매번 같은 유효 액션(실행은 계속 실패)
+    ex = ActionExecutor(_FailRunner(), scope_policy=default_policy(),
+                        session_id="t", episode=1, round=1)
+    loop = ReActLoop(llm, ex, AttackHistory(), system_prompt="s", goal="g",
+                     time_limit_sec=300.0, max_steps=40)
+    res = loop.run(foothold={"attack_endpoint": "10.0.0.1"})
+    assert res.end_reason == AttackEndReason.DEADEND, res.end_reason
+    assert len(res.replay_script.steps) == _MAX_EXEC_FAILS, len(res.replay_script.steps)  # 한계서 종료
+
+
 def test_prior_summary_triggers_reattempt_framing():
     # R2+ (carry-forward 있음): '이미 했다'로 포기 안 하게 '매 라운드 재달성' 프레이밍이 붙어야.
     from attacker.react_loop import build_user_prompt

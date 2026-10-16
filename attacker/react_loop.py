@@ -18,6 +18,8 @@ from .history import AttackHistory
 
 _TIME_FLOOR = 2.0        # 남은 예산이 이보다 적으면 새 LLM 호출 안 시작(정상 타임아웃)
 _MAX_PARSE_FAILS = 3     # 연속 파싱 실패가 이 횟수면 막다른 길로 종료(모델이 깨진 JSON만 뱉는 상황 방지)
+_MAX_EXEC_FAILS = 8      # 연속 실행 실패(차단·거부·오류)가 이 횟수면 '방어된 경로에 갇힘'으로 종료
+                         # (perseveration 방지: 막힌 명령을 끝없이 재시도하며 블록된 라운드를 안 갈아먹게)
 
 
 def _default_log(msg: str) -> None:
@@ -51,8 +53,9 @@ def build_user_prompt(*, goal: str, flag_format: str, history: AttackHistory,
         parts.append(
             "※ [지난 라운드 요약]은 '성과(이미 끝남)'가 아니라 '정보(통했던 경로)'다. 방어자가 그 "
             "사이 패치했을 수 있으니, 목표(FLAG)를 이번 라운드에 '다시' 달성하라 — 알려진 경로를 "
-            "직접 재실행해 아직 통하는지 확인하고, 막히면(차단·연결거부·forbidden) 그 자체가 새 정보이니 "
-            "다른 경로를 탐색하라. '지난 라운드에 이미 획득'은 포기 사유가 아니다.")
+            "직접 재실행해 아직 통하는지 확인하되, 같은 명령이 반복 실패(차단·연결거부·forbidden)하면 "
+            "그 경로는 방어된 것이다: 똑같은 명령을 반복하지 말고 다른 서비스·경로를 탐색하라. "
+            "'지난 라운드에 이미 획득'은 포기 사유가 아니다.")
     parts.append("위를 보고 다음 행동 하나를 지정된 JSON 형식으로만 응답하라. "
                  "실제로 모든 경로를 시도해 전부 막혔을 때만 tool 을 give_up 으로(지난 성과를 이유로 포기 금지).")
     # Qwen3 계열 '사고(thinking) 모드' OFF 소프트 스위치. 켜져 있으면 모델이 <think> 안에서
@@ -87,6 +90,7 @@ class ReActLoop:
         end = AttackEndReason.DEADEND            # max_steps 소진도 막다른 길로 취급
         flags: list[FlagObtained] = []
         consec_fail = 0                          # 연속 파싱 실패 횟수(가드용)
+        consec_exec_fail = 0                      # 연속 실행 실패 횟수(perseveration 가드용)
 
         for i in range(self.max_steps):
             if deadline - time.time() <= _TIME_FLOOR:   # 남은 예산 없음 → 정상 타임아웃
@@ -129,6 +133,16 @@ class ReActLoop:
                 flags.append(FlagObtained(flag_id="4", value=obs.flag_found, step=obs.step))
                 end = AttackEndReason.FLAG
                 break
+            # perseveration 가드: 성공(exit0)하면 리셋, 실패(차단·거부·오류) 누적. 연속 실패가
+            # 한계면 '방어된 경로에 갇힘'으로 조기 종료(막힌 명령 반복으로 라운드를 갈아먹지 않게).
+            if obs.success:
+                consec_exec_fail = 0
+            else:
+                consec_exec_fail += 1
+                if consec_exec_fail >= _MAX_EXEC_FAILS:
+                    self.log(f"[공격] 연속 실행 실패 {consec_exec_fail}회(경로 차단 추정) → 턴 종료(DEADEND)")
+                    end = AttackEndReason.DEADEND
+                    break
 
         return AttackTurnResult(
             end_reason=end, flags_obtained=flags,
