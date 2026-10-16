@@ -134,12 +134,17 @@ class ReActLoop:
         (run이 정상 타임아웃으로 처리, 대본 보존). 파싱 실패는 재시도, 끝내 실패면 None.
         반환: (액션|None, 실제 LLM 호출 횟수, 실패진단문).
 
+        사고 모드 제어: Ollama 의 OpenAI 호환(/v1) 엔드포인트는 native `think:false` 를 조용히
+        무시하고(사고는 message.reasoning 으로, content 는 빈 채) 와서 len=0 파싱실패가 난다.
+        그래서 매 호출에 표준 필드 `reasoning_effort="none"` 을 실어 사고를 끈다(이게 /v1 에서
+        먹히는 하드 스위치). 프롬프트의 /no_think 는 구버전 Ollama 대비 소프트 폴백.
+
         재시도 전략을 '실패 원인'으로 나눈다:
-          - 잘림(finish_reason=='length'): 토큰이 모자란 게 아니라 모델이 thought 를 장황하게
-            써서 상한에 걸린 것이다. cap 을 키우면 더 길게 생성해 역효과(과거 2배 bump 이 3072→
-            6144 로 560s 괴물 호출을 만들었다) → cap 은 고정하고 '설명 빼고 JSON 하나만, thought
-            한 문장' 나그로 장황함 자체를 친다.
-          - 형식 위반(그 외): '형식으로만 응답하라' 나그로 재프롬프트.
+          - 빈 출력+잘림(len==0 & finish=='length'): 사고 overflow(reasoning_effort 가 안 먹힌
+            구버전). 창을 키우면 더 길게 생각할 뿐 → cap 을 확 줄여(512) 빨리 잘리게 해 재시도
+            낭비(261s→~50s)를 막고 /no_think 를 덧붙인다.
+          - 잘림(그 외, content 는 있음): 장황함 → cap 고정 + '짧게' 나그.
+          - 형식 위반: '형식으로만 응답하라' 나그.
         실패진단문엔 finish_reason·에러·출력 길이·앞뒤 발췌를 담아(로그로) 다음 튜닝 근거를 남긴다."""
         prompt = user
         n_calls = 0
@@ -151,17 +156,21 @@ class ReActLoop:
                 raise LLMTimeout("남은 예산 없음(파싱 재시도 중)")
             n_calls += 1
             text, finish = self.llm.chat_text_meta(self.system_prompt, prompt,
-                                                   timeout=remaining, max_tokens=cap)
+                                                   timeout=remaining, max_tokens=cap,
+                                                   extra={"reasoning_effort": "none"})
             try:
                 return parse_action(text or ""), n_calls, ""
             except ParseError as e:
                 t = text or ""
                 detail = (f"finish={finish} err={e} len={len(t)} "
                           f"head={t[:80]!r} tail={t[-80:]!r}")
-                if finish == "length":           # 잘림 = 장황함 → 창 키우지 말고 '짧게' 요구
+                if finish == "length" and not t:   # 사고 overflow(빈 content) → cap 축소+폴백 스위치
+                    cap = 512
+                    prompt = user + "\n\n/no_think"
+                elif finish == "length":           # 내용 있는 잘림(장황함) → cap 고정 + '짧게' 나그
                     prompt = user + ("\n\n(직전 응답이 너무 길어 잘렸다. 설명 문장을 쓰지 말고 "
                                      "JSON 객체 하나만 출력하라. thought 는 한 문장으로.)")
-                else:                            # 형식 위반 → 형식 재지시 나그
+                else:                              # 형식 위반 → 형식 재지시 나그
                     prompt = user + "\n\n(이전 응답이 올바른 JSON이 아니었습니다. 지정된 형식으로만 응답하라.)"
         return None, n_calls, detail
 

@@ -159,6 +159,34 @@ def test_truncation_keeps_cap_and_nags_terse():
     assert llm.calls == 2, llm.calls                                      # 2콜째에 성공
 
 
+def test_empty_thinking_output_fastfails_and_lowers_cap():
+    # content 빈 채 finish='length' = 사고 모드 overflow(reasoning_effort 미적용 구버전 Ollama).
+    # 재시도는 cap 을 512 로 낮춰 빨리 잘리게 해 낭비를 막는다(261s→~50s).
+    llm = FakeLLM([("ok", "", "length"), ("ok", _ACTION, "stop")])
+    ex = ActionExecutor(FakeRunner("ok"), scope_policy=default_policy(),
+                        session_id="t", episode=1, round=1)
+    loop = ReActLoop(llm, ex, AttackHistory(), system_prompt="s", goal="g",
+                     time_limit_sec=300.0, max_steps=1, max_tokens=1024)
+    loop.run(foothold={"attack_endpoint": "10.0.0.1"})
+    assert llm.max_tokens_seen[:2] == [1024, 512], llm.max_tokens_seen    # 빈 출력 → cap 축소
+    assert llm.calls == 2, llm.calls
+
+
+def test_reasoning_effort_none_sent_every_call():
+    # 사고 끄기: 매 LLM 호출에 reasoning_effort='none'(Ollama /v1 하드 스위치)이 실려야.
+    seen = []
+    class _CapLLM:
+        def chat_text_meta(self, system, user, *, timeout=None, max_tokens=None, extra=None, **kw):
+            seen.append(extra)
+            return _ACTION, "stop"
+    ex = ActionExecutor(FakeRunner("ok"), scope_policy=default_policy(),
+                        session_id="t", episode=1, round=1)
+    loop = ReActLoop(_CapLLM(), ex, AttackHistory(), system_prompt="s", goal="g",
+                     time_limit_sec=300.0, max_steps=1, max_tokens=1024)
+    loop.run(foothold={"attack_endpoint": "10.0.0.1"})
+    assert seen and seen[0] == {"reasoning_effort": "none"}, seen
+
+
 def test_format_violation_keeps_cap_and_nags():
     # 잘림이 아닌 형식 위반(finish='stop')이면 cap 은 그대로 두고 나그로 재프롬프트.
     llm = FakeLLM([("ok", "not json", "stop"), ("ok", _ACTION, "stop")])
