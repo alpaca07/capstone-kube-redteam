@@ -133,7 +133,9 @@
 - 효과: 경로가 `①단서→②SA로 Secret→③NP갭→④FLAG` 로 바뀌어 **②가 비번 획득 필수 관문**이 됨.
   방어자는 `restrict_rbac`(바인딩 삭제→403) 또는 `add_networkpolicy` 어느 쪽도 독립 차단 가능.
   방어자·공격자 **코드 변경 0**(둘 다 이미 지원). 감사정책이 secret-get 을 남겨 ② 탐지도 가능.
-- **(검증 예정)** VM B apply 후 루프로 ② 경로 밟히는지 + restrict_rbac 차단 확인.
+- **검증됨(2026-10-17)**: 공격자가 자율로 `①위키→②admin-dashboard /internal/secret→base64 -d→
+  ③④psql` 를 밟아 11스텝 108초 FLAG 포획(전엔 wiki→psql 직행 7스텝). 루프 정상 종료
+  (flag→patched 탐지2개→blocked). ※ restrict_rbac 단독 차단 효과는 추가 확인 대상.
 
 ---
 
