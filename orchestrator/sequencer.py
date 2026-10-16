@@ -215,7 +215,7 @@ class TurnSequencer:
 
         if flag_found:
             # 2. 방어 턴 (공격정보 0). A2: 공격후 VM 스냅샷 불필요 — verify 가 '패치된 라이브'에
-            #    대본을 재생(post)한 뒤 k8s 네이티브로 클린 리셋(pre)하므로 stun 유발 스냅샷이 없다.
+            #    공격 대본을 재생(POST-only)할 뿐 리셋하지 않으므로 stun 유발 스냅샷이 없다.
             self._log(f"[ep{episode} R{rnd}] 2. 방어 턴(관측→추론→패치)…")
             _t = time.time()
             defense = self._call(
@@ -226,11 +226,12 @@ class TurnSequencer:
                       f"패치={defense.patch_applied} 탐지={len(defense.detected)}개 "
                       f"health={defense.healthcheck_passed} ({time.time() - _t:.0f}s)")
 
-            # 3. 검증 (대본 있을 때만). 차등 재생은 검증엔진 내부: post=패치된 라이브 재생 →
-            #    k8s 네이티브 클린 리셋 → pre=대조군 재생. 끝나면 클러스터는 클린 베이스라인.
+            # 3. 검증 (대본 있을 때만). POST-only: 검증엔진이 '패치된 라이브'에 공격 대본을 재생 →
+            #    도달 성공=FAKE_PATCH / 실패=BLOCKED. 리셋 안 함 → 패치가 라이브에 남아 다음 라운드가
+            #    누적된 방어를 상대한다(공진화). 에피소드 경계 리셋만 시퀀서 init 이 담당.
             script = attack.replay_script
             if script is not None and script.steps:
-                self._log(f"[ep{episode} R{rnd}] 3. 검증(차등 재생: post=패치 라이브 / pre=클린 리셋)…")
+                self._log(f"[ep{episode} R{rnd}] 3. 검증(POST 재생: 패치된 라이브에 공격 재생)…")
                 _t = time.time()
                 verification = self._call(
                     lambda: self.verifier.verify(
