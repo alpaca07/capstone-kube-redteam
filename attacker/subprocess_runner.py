@@ -26,7 +26,7 @@ from .execute_action import CommandResult
 class SubprocessRunner:
     """argv를 shell=False로 실행. 타임아웃·실행불가·크래시를 CommandResult로 흡수."""
 
-    def __init__(self, *, default_timeout: float = 60.0,
+    def __init__(self, *, default_timeout: float = 15.0,
                  cwd: Optional[str] = None, env: Optional[dict] = None,
                  exec_prefix: Optional[list] = None) -> None:
         self.default_timeout = default_timeout
@@ -69,7 +69,7 @@ class KubectlExecRunner(SubprocessRunner):
     """
 
     def __init__(self, *, kubeconfig: str, namespace: str = "frontend",
-                 pod_ref: str = "deploy/attacker-foothold", default_timeout: float = 120.0,
+                 pod_ref: str = "deploy/attacker-foothold", default_timeout: float = 15.0,
                  env: Optional[dict] = None) -> None:
         prefix = ["kubectl", "--kubeconfig", kubeconfig, "exec",
                   "-n", namespace, pod_ref, "-i", "--"]

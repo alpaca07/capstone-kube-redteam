@@ -140,7 +140,10 @@ def create_harness(cfg, *, prompt: Optional[str] = None, runner=None, llm=None) 
                            temperature=cfg.dgx.temperature,
                            timeout=req_timeout,            # 콜드스타트/느린 모델이 120초 넘겨도 안 끊김
                            max_tokens=cfg.dgx.max_tokens)
-    step_to = float(min(cfg.experiment.time_limit_sec, 120))
+    # 개별 exec 타임아웃: 정상 명령은 <1s. 방어로 차단된 뒤 nc/psql/wget 가 매달리는데(NetworkPolicy
+    # 가 SYN 을 DROP → 커넥트 대기) 이게 크면 한 스텝이 턴 예산·오케스트레이터 read timeout(=예산+30)을
+    # 넘겨 에피소드를 ABORT 시킨다(2026-10-17 다중에피소드: nc 5432 가 120s 매달려 E2·E3 중단). → 15s 캡.
+    step_to = float(min(cfg.experiment.time_limit_sec, 15))
     if runner is None:
         if cfg.attack.exec_mode:
             # ★ 발판 = frontend 파드 '안'(웹 계층 침해). 모든 명령을 kubectl exec 로 투명 래핑 →

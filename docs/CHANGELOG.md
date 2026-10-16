@@ -146,6 +146,17 @@
 - **검증됨**: 탐지 `0/3/0 → 1/1/1`, **MTTD=0**(② 같은 라운드 탐지), 깊이 4. TP=T1078(②),
   FN=T1213(④ 미탐), FP=①③(HTTP·pod-to-pod 감사 사각 — Falco 네트워크 룰이 다음 선행조건).
 
+**(4) 견고성 — exec 타임아웃 120s→15s**
+- 다중 에피소드에서 방어로 DB가 차단된 재시도 라운드의 `nc -zv postgres 5432` 가 커넥트 대기로
+  매달려 kubectl exec 가 120s 까지 걸림 → 턴이 오케스트레이터 read timeout(예산+30)을 넘겨 E2·E3 ABORT.
+- `create_harness` step_to 를 `min(time_limit,120)`→`min(time_limit,15)` (러너 기본도 15s). 정상 명령은
+  <1s 라 무해, 차단 명령은 15s 에 실패→perseveration 가드가 예산 안에서 발동. 턴 최악 ~195s < 210s.
+
+**(5) VM C 대시보드 + 실험 관제판** (`orchestrator/api.py`·`static/dashboard.html`)
+- FastAPI 가 rounds/episodes.jsonl 을 서빙 + 대시보드에서 ▶시작/■중지 + 2.5s 폴링 라이브(진행로그·
+  green 펄스·차트 자동갱신). 차트(ui-ux-pro-max): 공진화=스트리밍 area, precision/recall=추세 area.
+  인라인 SVG(CDN 0, 폐쇄망 OK). 관리망 전용(god-view).
+
 ---
 
 ## 남은 숙제 (루프가 아니라 '숫자'·확장)
