@@ -47,6 +47,11 @@ def build_user_prompt(*, goal: str, flag_format: str, history: AttackHistory,
     parts.append("[지금까지의 관측]\n" + history.render())
     parts.append("위를 보고 다음 행동 하나를 지정된 JSON 형식으로만 응답하라. "
                  "더 시도할 것이 없으면 tool 을 give_up 으로.")
+    # Qwen3 계열 '사고(thinking) 모드' OFF 소프트 스위치. 켜져 있으면 모델이 <think> 안에서
+    # 토큰 상한까지 추론만 하다 본문(content)을 빈 채로 잘려(finish=length, len=0) 스텝을 통째로
+    # 날린다 — 밤샘 런 파싱실패의 실제 원인. 우리 JSON 의 thought 필드가 추론 채널을 대신하므로
+    # 별도 <think> 는 불필요. (사고 모드 아닌 모델에선 그냥 무시되는 평범한 토큰 → 무해.)
+    parts.append("/no_think")
     return "\n\n".join(parts)
 
 
