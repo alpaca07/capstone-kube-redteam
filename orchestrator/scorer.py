@@ -46,11 +46,17 @@ class DetectionScore:
                 "precision": self.precision(), "recall": self.recall()}
 
 
+def _base(t: str) -> str:
+    """서브기법(T1078.004) → 부모(T1078). 탐지 매칭은 '기법 패밀리' 단위 —
+    truth 의 ①=T1552.001 과 방어자 보고(T1552·T1078.004 등 상·하위)를 공정히 맞춘다."""
+    return t.split(".", 1)[0] if t else t
+
+
 def confusion_matrix(reported: set[str], truth: set[str]) -> DetectionScore:
-    """보고 기법 집합 vs 실제 발생 기법 집합 → TP/FP/FN."""
-    return DetectionScore(tp=len(reported & truth),
-                          fp=len(reported - truth),
-                          fn=len(truth - reported))
+    """보고 vs 실제 발생 → TP/FP/FN. 서브기법↔부모는 같은 기법으로 매칭(패밀리 단위)."""
+    r = {_base(t) for t in reported}
+    g = {_base(t) for t in truth}
+    return DetectionScore(tp=len(r & g), fp=len(r - g), fn=len(g - r))
 
 
 @dataclass
@@ -160,9 +166,11 @@ class Scorer:
         truth_cum = self.truth.techniques_up_to(self.episode, round)
         reported = {d.technique for d in defense_result.detected if d.technique}
         self._reported_cum |= reported
+        _truth_base = {_base(t) for t in truth_cum}   # 서브기법↔부모 일관 매칭
         for t in reported:                         # 실제 발생을 맞춘 최초 라운드만 MTTD에
-            if t in truth_cum and t not in self._detection_first:
-                self._detection_first[t] = round
+            bt = _base(t)
+            if bt in _truth_base and bt not in self._detection_first:
+                self._detection_first[bt] = round
 
         # 킬체인 상태판용: 이 라운드 god-view 도달 단계(flag_id=단계번호) → 최대치까지 체인필.
         _round_stages = {int(ev.flag_id) for e in self.truth.entries(self.episode)
@@ -200,7 +208,11 @@ class Scorer:
     def summary(self, *, end_reason: str) -> EpisodeSummary:
         last_round = self._records[-1].round if self._records else 0
         truth_all = self.truth.techniques_up_to(self.episode, last_round)
-        occ = self.truth.first_occurrence_round(self.episode)
+        occ_raw = self.truth.first_occurrence_round(self.episode)
+        occ: dict[str, int] = {}          # MTTD 도 기법 패밀리 단위(부모로 접음)
+        for _t, _r in occ_raw.items():
+            _b = _base(_t)
+            occ[_b] = min(_r, occ.get(_b, _r))
         flags = self.truth.flags_up_to(self.episode, last_round)
         depth = max((int(f) for f in flags if f.isdigit()), default=0)
 
