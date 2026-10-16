@@ -9,6 +9,9 @@
 
 **자율 공격 체인 엔드투엔드 성공 — FLAG 획득 확인** (2026-10-16 09:32 UTC, 16스텝·252초).
 프롬프트에 정답 경로 0인 상태로 공격자가 스스로 web→wiki→DB creds→postgres→FLAG까지 뚫음.
+**방어자도 실제 패치 확인 (2026-10-16 21:02):** 공격정보 0으로 audit.log만 보고 T1552.001·T1210
+탐지 → `add_networkpolicy database`(networkpolicy/restrict-database-ingress) 라이브 적용
+(end_reason=patched, health=True). **공격·방어 양쪽이 처음으로 자력 성공.**
 **남은 최대 블로커: vmrun 라이브 스냅샷 revert가 k3s의 `kubectl exec` 경로를 느리게(10~120초)
 만드는 인프라 문제** → 다중 에피소드 반복 실험이 막힘. 단발 포획은 `--no-revert`로 우회해 성공.
 
@@ -97,11 +100,23 @@ web(10.43.183.240) 주석에서 internal-wiki 발견
 - 공격: 종료=flag, 플래그=1개, 16스텝/252초 ✓
 - 공격후 스냅샷: 326초 ✓ (이번엔 verify 내부 revert도 느리지만 완주 — 방금 k3s 재시작해 건강했던
   덕. §8 #1 revert 이슈는 '간헐적'임이 확인됨)
-- **방어: 종료=noop, 패치=False, 탐지=3개, health=True** — 방어자가 기법 3개를 보고하고도 **실제
-  패치를 안 냄(noop)** → 공진화의 방어 절반이 아직 비어 있음.
-- **검증: 판정=fake_patch** — 패치가 없으니 리플레이가 그대로 성공(= 방어 주장만, 실효 없음).
-- 채점: 플래그깊이=0(★ `flag4=없음`이라 ④ 깊이 0, §8 #4), 탐지 TP/FP/FN=0/3/0(★ god-view truth
-  미동기화로 보고 3개가 전부 FP, §8 #6). **→ 공격은 완성, 방어·채점 배관이 다음 숙제.**
+- **방어(그 라운드): 종료=noop, 패치=False** — 당시엔 탐지만 하고 패치를 안 냄. **→ 이후 해결(아래 ⭐).**
+- **검증(그 라운드): 판정=fake_patch** — 패치가 없어 리플레이 그대로 성공.
+- 채점: 플래그깊이=0(★ `flag4=없음`이라 ④ 깊이 0, §8 #4), 탐지 TP/FP/FN=0/N/0(★ god-view truth
+  미동기화로 보고가 전부 FP, §8 #6).
+
+**⭐ 방어자 noop 해결 — 실제 패치 적용 확인 (2026-10-16 21:02, `scripts/probe_defender`로 격리 검증):**
+```
+detected   : T1552.001(foothold-sa의 database secrets list) + T1210(교차 NS 접근)
+patch_set  : networkpolicy/restrict-database-ingress (database ns ingress를 backend·internal 티어로 제한)
+결과       : patch_applied=true, end_reason=patched, healthcheck_passed=true (서비스 무손상)
+```
+방어자가 공격정보 0으로 audit.log만 보고 올바른 위협→올바른 패치→라이브 적용→과잉차단 없음까지 자력.
+noop까지 걸렸던 **4개 근본원인**(순서대로 해결): ①carry-forward 리셋 누락→공격자 즉시 give_up(`6080f5e`)
+②관측 절단→크레덴셜이 페이지 하단(603자째)이라 잘림(`3b984cc`) ③방어자 프롬프트가 렌더 불가 어휘
+(`7583260`) ④**kubeconfig 권한** — 비root 하네스가 `/etc/rancher/k3s/k3s.yaml`(root 600)을 못 읽어
+dry-run 실패 → `write-kubeconfig-mode: "0644"` 로 영구화(§9). **남은 것: 전체 사이클로 `판정=blocked`
+(패치가 리플레이를 실제 차단하는지) 실효 검증.**
 
 **flag 값 수동 대조 확인 ✓ (2026-10-16):** 공격자 획득값 `FLAG{shopflow_4c90e0615c40f15e843bb61f7503b740}`
 == postgres `internal_secrets`(key=`master_db_backup_credential`) 실제 값 → **일치**. 즉 포맷
@@ -115,6 +130,10 @@ web(10.43.183.240) 주석에서 internal-wiki 발견
 
 | 커밋 | 내용 |
 |------|------|
+| `20ca61c` | **`scripts/probe_defender`** — 방어자 단독 probe(사이클 없이 noop 원인 규명). kubeconfig 권한 문제 발견 |
+| `3b984cc` | **[공격] 관측 절단 완화** — 최근 관측 full(1500자)+크레덴셜 `[핵심 발견]` 고정. 본문 하단 creds 읽힘 |
+| `6080f5e` | **[공격] carry-forward 리셋을 R1에도** — 상주 하네스 기억 누수→즉시 give_up 차단 |
+| `7583260` | **[방어] 프롬프트를 렌더 가능한 패치 어휘로** — `sa/web-app`(렌더 불가) 예시 제거, noop 직접원인 |
 | `4681b49` | **`--no-revert`** — vmrun revert 없이 라이브 클러스터 공격(단발 포획·인프라 우회). `RunParams.skip_revert` |
 | `3af477d` | test_llm_client.py 원본 복구 + reasoning_effort 테스트 병합(직전 커밋서 실수로 덮어쓴 것 복구) |
 | `39d0e07` | **방어자도 사고 OFF** — `OllamaClient`에 `reasoning_effort="none"` 기본값(공격·방어 공통 커버) |
@@ -156,12 +175,12 @@ web(10.43.183.240) 주석에서 internal-wiki 발견
    - 오프라인(파워오프) 스냅샷 사용 검토
    - VM B 자원 증설 / k3s 튜닝
    - 임시 우회: `--no-revert`(단발 포획엔 충분, 리셋은 안 됨)
-2. **[방어 사이드 최우선] 방어자가 noop(패치 안 함).** 2026-10-16 라운드에서 방어자가 기법 3개를
-   보고하고도 패치를 안 내 verify=fake_patch(실효 방어 0) → 공진화의 방어 절반이 빔. 확인 대상:
-   `defender/triage.py`(관측→기법/패치 결정)·`defender/patcher.py`(패치 생성·적용)·VM B
-   `journalctl -u defense-harness`. noop 원인이 (a) 보수적 판단인지 (b) 패치 생성/검증 실패인지 가려야.
-   사고 OFF(reasoning_effort)는 이미 적용됨 → 빈 출력은 아님.
-3. **carry-forward 히스토리 상한**: 라운드 누적 시 거대 프롬프트 → give_up/퇴화. 상한·요약 필요.
+2. ~~**방어자가 noop(패치 안 함).**~~ **✅ 해결(2026-10-16 21:02).** 4개 근본원인(§5 ⭐): 방어자
+   프롬프트 어휘(`7583260`)·공격자 측 2건(`6080f5e`,`3b984cc`)·**kubeconfig 권한**(비root 하네스가
+   k3s.yaml 600 못 읽어 dry-run 실패 → `write-kubeconfig-mode: 0644`, §9). 격리 검증 도구
+   `scripts/probe_defender`. **남은 것: 전체 사이클로 `판정=blocked`(패치가 리플레이를 실제 차단하는지) 실효 검증.**
+3. ~~**carry-forward 히스토리 상한.**~~ **✅ 해결(`6080f5e`,`3b984cc`).** R1(에피소드 시작) 리셋으로
+   상주 하네스 기억 누수(즉시 give_up) 차단 + 관측은 최근 full·오래된 건 축약·크레덴셜 고정으로 비대 방지.
 4. **④ FLAG 값 채점 연결**: 현재 `flag4=없음`(리플레이로만 ④ 판정) → 플래그깊이 0으로 뜸. `--flag-file`
    에 실제 값 주면 VC가 대조 채점. (`k8s/flags/flag-values.secret`)
 5. **방어 검증이 revert 의존** → #1 해결 전엔 플래그 라운드의 verify도 느릴 수 있음(간헐적; 2026-10-16엔
@@ -185,6 +204,18 @@ python3 -m orchestrator.main --episodes 1 --max-rounds 1 --time-limit 1800 --max
 
 # ── 베이스라인 재스냅샷 (VM C) — 반드시 완전 정착 상태에서 ──
 python3 scripts/baseline.py
+
+# ── 방어자 kubeconfig 권한 (VM B, ★재베이스라인·새 VM 셋업 때 반드시) ──
+#   비root 방어 하네스가 k3s admin kubeconfig 를 읽어야 kubectl 패치 가능.
+#   없으면 dry-run "k3s.yaml: permission denied" → 패치 skip → noop(방어 실효 0).
+echo 'write-kubeconfig-mode: "0644"' | sudo tee -a /etc/rancher/k3s/config.yaml   # 영구(재시작·재베이스라인 유지)
+sudo systemctl restart k3s        # 적용(+ exec 경로 리셋 겸함)
+#   급할 때 1회성: sudo chmod 644 /etc/rancher/k3s/k3s.yaml   (k3s 재시작 시 원복될 수 있음)
+
+# ── 방어자 단독 probe (VM C) — 전체 사이클(~29분) 없이 noop/패치 진단 ──
+python3 -m scripts.probe_defender   # 현재 audit.log로 1회 방어 턴 → detected·patch_set·patch_attempts·patch_note 출력
+#   주의: 방어 하네스는 증분 '로그 커서'라 연속 호출 시 2번째는 '새 이벤트 없음'(detected=[]).
+#   같은 공격을 재판정하려면 defense-harness 재시작(커서 0.0 리셋 → audit.log 전체 재독).
 
 # ── k3s/exec 느려졌을 때 복구 (VM B) ──
 sudo systemctl restart k3s        # 보통 이걸로 exec 0.3초 복구 (안 되면 sudo reboot)
