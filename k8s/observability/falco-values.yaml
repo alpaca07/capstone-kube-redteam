@@ -18,7 +18,7 @@ customRules:
         frontend 발판 파드에서 postgres(5432)로의 '성공한' 아웃바운드 연결 =
         킬체인 ③ 측면이동(NetworkPolicy 부재 악용). 차단된(실패) 연결은 evt.rawres 로 제외.
       condition: >-
-        evt.type=connect and evt.dir=< and evt.rawres=0
+        evt.type=connect and evt.rawres=0
         and container and k8s.ns.name=frontend and fd.sport=5432
       output: >-
         Lateral movement to DB (ns=%k8s.ns.name pod=%k8s.pod.name
