@@ -47,12 +47,17 @@ class OllamaClient:
     def __init__(self, base_url: str, model: str, *, api_key: str = "",
                  temperature: float = 0.0, timeout: float = 120.0,
                  max_tokens: Optional[int] = None,
+                 reasoning_effort: Optional[str] = "none",
                  transport: Optional[Transport] = None) -> None:
         self.base_url = base_url.rstrip("/")     # 예: http://211.x.x.x:11434/v1
         self.model = model
         self.temperature = temperature
         self.timeout = timeout
         self.max_tokens = max_tokens             # 생성 상한(호출마다 override 가능, 없으면 이 기본값)
+        # 사고(thinking) 모드 제어 — Qwen3 계열은 /v1 에서 native think:false 가 무시되고
+        # reasoning_effort='none' 이라야 꺼진다. 안 끄면 <think> 가 토큰 상한을 다 먹고 content 가
+        # 빈 채(finish=length,len=0) 와 파싱이 전부 깨진다(공격자·방어자 공통). 기본 off.
+        self.reasoning_effort = reasoning_effort
         self.transport = transport or requests_transport(api_key)
 
     def chat_meta(self, messages: list[dict], *, temperature: Optional[float] = None,
@@ -75,6 +80,8 @@ class OllamaClient:
         eff_max = max_tokens if max_tokens is not None else self.max_tokens
         if eff_max is not None:
             body["max_tokens"] = eff_max
+        if self.reasoning_effort is not None:    # 사고 모드 off(기본) — 호출자가 extra 로 덮어쓸 수 있음
+            body["reasoning_effort"] = self.reasoning_effort
         if stop is not None:
             body["stop"] = stop
         if extra:
