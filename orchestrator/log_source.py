@@ -36,10 +36,12 @@ def map_audit_event(ev: dict) -> Optional[str]:
 
 
 def map_falco_event(ev: dict) -> Optional[str]:
-    """Falco 이벤트 → MITRE 기법. 현재 컨테이너 셸만 매핑."""
+    """Falco 이벤트 → MITRE 기법. rule 이름 = falco-values customRules 와 1:1."""
     rule = ev.get("rule", "")
     if rule == "Terminal shell in container":
-        return "T1059"   # 명령/스크립트 실행
+        return "T1059"   # 명령/스크립트 실행(발판 exec — 킬체인 ①②③④ 단계는 아님)
+    if rule == "Lateral movement to database":
+        return "T1210"   # ③ 측면이동 — frontend 발판 → postgres:5432 성공 연결
     return None
 
 

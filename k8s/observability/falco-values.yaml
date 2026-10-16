@@ -8,4 +8,20 @@ falco:
   json_include_tags_property: true
   priority: notice                     # notice 이상만 출력(노이즈 축소)
   # 기본 룰셋(falco_rules.yaml) 사용 — 셸 생성·민감파일 접근·수상한 프로세스 등 탐지.
-  # 커스텀 룰(예: database NS로의 비정상 연결)은 필요 시 여기 rules 로 추가.
+  # 킬체인 커스텀 룰은 아래 customRules(top-level)로 추가(god-view map_falco_event 와 rule 이름 1:1).
+
+# ── 캡스톤 킬체인 커스텀 룰 ──
+customRules:
+  capstone_killchain.yaml: |-
+    - rule: Lateral movement to database
+      desc: >-
+        frontend 발판 파드에서 postgres(5432)로의 '성공한' 아웃바운드 연결 =
+        킬체인 ③ 측면이동(NetworkPolicy 부재 악용). 차단된(실패) 연결은 evt.rawres 로 제외.
+      condition: >-
+        evt.type=connect and evt.dir=< and evt.rawres=0
+        and container and k8s.ns.name=frontend and fd.sport=5432
+      output: >-
+        Lateral movement to DB (ns=%k8s.ns.name pod=%k8s.pod.name
+        proc=%proc.name dip=%fd.sip dport=%fd.sport)
+      priority: NOTICE
+      tags: [network, mitre_lateral_movement, T1210]
