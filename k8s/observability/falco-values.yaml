@@ -18,8 +18,8 @@ customRules:
         frontend 발판 파드에서 postgres(5432)로의 '성공한' 아웃바운드 연결 =
         킬체인 ③ 측면이동(NetworkPolicy 부재 악용). 차단된(실패) 연결은 evt.rawres 로 제외.
       condition: >-
-        evt.type=connect and evt.rawres=0
-        and container and k8s.ns.name=frontend and fd.sport=5432
+        evt.type=connect and evt.rawres=0 and container
+        and k8s.pod.name startswith "attacker-foothold" and fd.sport=5432
       output: >-
         Lateral movement to DB (ns=%k8s.ns.name pod=%k8s.pod.name
         proc=%proc.name dip=%fd.sip dport=%fd.sport)
@@ -31,8 +31,8 @@ customRules:
         (internal-wiki 단서·admin-dashboard Secret 을 HTTP 로 끌어오는 활동). HTTP
         페이로드는 Falco 가 못 보므로 프로세스 수준 근사 — 발판 NS 한정이라 공격자만 해당.
       condition: >-
-        spawned_process and container and k8s.ns.name=frontend
-        and proc.name in (wget, curl)
+        spawned_process and container
+        and k8s.pod.name startswith "attacker-foothold" and proc.name in (wget, curl)
       output: >-
         Credential access from foothold (ns=%k8s.ns.name pod=%k8s.pod.name
         proc=%proc.name cmd=%proc.cmdline)
