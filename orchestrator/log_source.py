@@ -42,6 +42,8 @@ def map_falco_event(ev: dict) -> Optional[str]:
         return "T1059"   # 명령/스크립트 실행(발판 exec — 킬체인 ①②③④ 단계는 아님)
     if rule == "Lateral movement to database":
         return "T1210"   # ③ 측면이동 — frontend 발판 → postgres:5432 성공 연결
+    if rule == "Credential access from foothold":
+        return "T1552.001"   # ① 크레덴셜 수집 — 발판에서 wget/curl(wiki 단서·SSRF 페치)
     return None
 
 
