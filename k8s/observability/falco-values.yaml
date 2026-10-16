@@ -15,10 +15,11 @@ customRules:
   capstone_killchain.yaml: |-
     - rule: Lateral movement to database
       desc: >-
-        frontend 발판 파드에서 postgres(5432)로의 '성공한' 아웃바운드 연결 =
-        킬체인 ③ 측면이동(NetworkPolicy 부재 악용). 차단된(실패) 연결은 evt.rawres 로 제외.
+        attacker-foothold 발판 파드에서 postgres(5432)로의 아웃바운드 연결 시도 =
+        킬체인 ③ 측면이동. psql 등 논블로킹 connect(EINPROGRESS)도 잡으려 결과 필터 없음
+        — 성공·시도 모두 포착(차단 성사 여부는 verdict 가 판정).
       condition: >-
-        evt.type=connect and evt.rawres=0 and container
+        evt.type=connect and container
         and k8s.pod.name startswith "attacker-foothold" and fd.sport=5432
       output: >-
         Lateral movement to DB (ns=%k8s.ns.name pod=%k8s.pod.name
