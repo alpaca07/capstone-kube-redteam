@@ -181,4 +181,5 @@ FP·FN=①③ 감사 사각), MTTD 0R, 가용성 100%, blocked 3/9. 타임라인
   Falco 네트워크 룰이 정밀도·재현율 50%→상향의 선행조건(HANDOVER §11.5).
 - **공진화 모드 선택**: 지금은 에피소드마다 리셋(독립 재시행=견고성 곡선). `skip_revert` 로 패치
   누적(군비경쟁=flag 깊이 하강 곡선) 전환 가능 — 서사 결정 후 배선.
-- 감사 동기화(`scripts/vmc-sync-audit.sh`) systemd 영속화 / 대시보드 추가 다듬기.
+- **자동 기동(systemd) 완료 (2026-10-17)**: 대시보드·Falco/감사 동기(VM C)·Falco tail(VM B)을
+  `docs/deploy/capstone-*.service` 로 영속화 → 재부팅 시 자동 기동·크래시 자동 복구(수동 nohup 제거).

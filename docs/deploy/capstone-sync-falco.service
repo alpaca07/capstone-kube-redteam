@@ -1,0 +1,20 @@
+# VM C Falco 로그 동기 systemd 유닛 — /etc/systemd/system/capstone-sync-falco.service
+# <USER> 를 VM C 사용자로 치환. 설치:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now capstone-sync-falco
+# 스크립트가 $HOME/.kube/vmb-admin.kubeconfig 를 기본 사용(KUBECONFIG_VMB 로 override).
+[Unit]
+Description=Capstone Falco 로그 동기 (VM B -> VM C god-view)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<USER>
+WorkingDirectory=/home/<USER>/capstone
+ExecStart=/usr/bin/bash scripts/vmc-sync-falco.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

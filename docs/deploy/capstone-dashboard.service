@@ -1,0 +1,21 @@
+# VM C 대시보드(FastAPI :8090) systemd 유닛 — /etc/systemd/system/capstone-dashboard.service
+# <USER> 를 VM C 사용자로 치환. 설치:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now capstone-dashboard
+# python 이 fastapi 를 못 찾으면: pip install --break-system-packages fastapi uvicorn aiofiles
+# (venv 를 쓰면 ExecStart 의 python3 를 그 venv 의 python 절대경로로 교체.)
+[Unit]
+Description=Capstone 공수 공진화 대시보드 (VM C, FastAPI :8090)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<USER>
+WorkingDirectory=/home/<USER>/capstone
+ExecStart=/usr/bin/python3 -m orchestrator.api
+Environment=PORT=8090
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

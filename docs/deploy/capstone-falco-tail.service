@@ -1,0 +1,20 @@
+# VM B Falco tail systemd 유닛 — /etc/systemd/system/capstone-falco-tail.service
+# <USER> 를 VM B 사용자로 치환. 설치:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now capstone-falco-tail
+# 방어자 Observer 가 읽는 Falco 입력(~/capstone/logs/falco.log)을 상주로 채운다.
+[Unit]
+Description=Capstone Falco tail (VM B, 방어자 입력)
+After=network-online.target k3s.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<USER>
+WorkingDirectory=/home/<USER>/capstone
+ExecStart=/usr/bin/bash scripts/vmb-tail-falco.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

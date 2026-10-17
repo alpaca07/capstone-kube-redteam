@@ -1,0 +1,19 @@
+# VM C 감사로그 동기 systemd 유닛 — /etc/systemd/system/capstone-sync-audit.service
+# <USER> 를 VM C 사용자로 치환. 설치:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now capstone-sync-audit
+[Unit]
+Description=Capstone 감사로그 동기 (VM B -> VM C god-view)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<USER>
+WorkingDirectory=/home/<USER>/capstone
+ExecStart=/usr/bin/bash scripts/vmc-sync-audit.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
