@@ -6,6 +6,7 @@ LLM·실행은 주입(execute_action이 실행 손발) → fake로 전 루프 �
 """
 from __future__ import annotations
 
+import os
 import time
 from typing import Callable, Optional, Protocol
 
@@ -129,6 +130,10 @@ class ReActLoop:
             # 스텝당 한 줄: llm(생성+파싱, 실제 호출수) / exec(명령) / step합 / 남은예산 / 무슨 명령이었는지
             self.log(f"[공격 step {i+1}] llm={llm_sec:.1f}s(calls={n_calls}) exec={exec_sec:.1f}s "
                      f"step={llm_sec+exec_sec:.1f}s 남은={remain:.0f}s | {_action_hint(action)}{blocked}")
+            if os.environ.get("ATTACK_DEBUG_RAW"):   # 디버그: 전체 thought+명령 원본(저널로). 평소엔 off.
+                _full = (action.tool + " " + " ".join(action.args)).strip()
+                self.log(f"[raw step {i+1}] thought={action.thought!r}")
+                self.log(f"[raw step {i+1}] cmd={_full!r}")
             if obs.flag_found:
                 flags.append(FlagObtained(flag_id="4", value=obs.flag_found, step=obs.step))
                 end = AttackEndReason.FLAG
