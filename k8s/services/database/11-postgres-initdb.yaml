@@ -67,7 +67,10 @@ data:
     # ④ FLAG 주입 — env FLAG_4(gitignore된 secret 'flag-values')에서 가져옴.
     # secret 없으면 placeholder (generate-flags.sh 실행 전). 재기동마다 재주입(리셋 친화).
     set -e
-    FLAG="${FLAG_4:-FLAG{PLACEHOLDER_RUN_generate-flags_sh}}"
+    # ${FLAG_4:-기본값} 는 기본값 안의 '}' 가 ${...} 닫는 괄호로 먹혀 끝에 '}' 가 하나 더 붙는
+    # 버그가 있었다(DB 값이 FLAG{...}} 로 이중괄호). if/else 로 분기해 깔끔히 대입.
+    # (공격자 추출 정규식 FLAG\{[^}]*\} 가 첫 '}' 에서 끊어 값대조엔 영향 없었지만, 표시·위생 수정.)
+    if [ -n "${FLAG_4:-}" ]; then FLAG="$FLAG_4"; else FLAG="FLAG{PLACEHOLDER_RUN_generate-flags_sh}"; fi
     psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<EOSQL
     INSERT INTO internal_secrets (key, value, note) VALUES
      ('master_db_backup_credential', '${FLAG}', '④ 목표물 (값 기반 FLAG)')
