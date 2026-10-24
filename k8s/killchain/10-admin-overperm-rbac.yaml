@@ -38,6 +38,13 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "create"]
+  # ★ 위험(Wave1): pods/log get — 배포한 점검 파드의 '출력(로그)'을 회수. 탈출 파드가 호스트
+  #   파일을 stdout 으로 흘리면 그게 파드 로그로 나오고, 공격자는 이 권한으로 로그를 읽어 호스트
+  #   FLAG 를 획득한다(exec 는 SPDY/websocket 이라 wget 불가 → 로그가 유일한 비대화식 회수 경로).
+  #   create 만 있고 이게 없으면 파드는 띄워도 결과를 못 읽어 탈출이 미완. 방어 restrict_rbac 로 함께 제거됨.
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
