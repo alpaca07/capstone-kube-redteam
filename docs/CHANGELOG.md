@@ -210,6 +210,36 @@ FP·FN=①③ 감사 사각), MTTD 0R, 가용성 100%, blocked 3/9. 타임라인
 
 ---
 
+## 2026-10-24 (저녁) — Wave1 라이브 검증 + 호스트 objective + 오탐 수정
+
+**라이브 검증(VM B 실클러스터)**: 탈출 체인을 kubectl 로 직접 확인 — T1610 파드 생성(admin-sa
+과권한) ✓, T1611 노드 `/etc/shadow` 실제 read ✓, Falco `Escape to host filesystem` 발동 ✓,
+`restrict_pod_security=baseline` 재생성 admission 거부 ✓, `restrict_rbac` 삭제 후 admin-sa
+create 불가(impersonation can-i=no) ✓, 리셋 복구 ✓. **환경·탐지·차단·복구 4박자 전부 작동.**
+(주의: `kubectl --token` 은 k3s 기본 kubeconfig 의 클라 인증서가 우선돼 무시됨 → 실 공격자는
+raw Bearer 라 admin-sa 로 인증. impersonation `--as` 로 RBAC 경로 검증.)
+
+**통합 테스트**: `tests/test_wave1_integration.py` — 실 log_source·sequencer·scorer 를 가짜
+클라이언트로 엮어 배선 증명(기법 8종 추출 / truth 편입·TP·FP·FN / Discovery TP). 215 passed.
+
+**WHAT/WHY (저녁 변경)**:
+- **호스트 장악 objective(크라운 주얼 축)** — 자율 공격자는 "DB FLAG" 목표만으론 탈출할 이유가
+  없다(실런에서 순수 ①②③④). → 노드 파일 `/etc/shopflow/host.flag` 에 FLAG 를 심고 공격 목표에
+  "노드 호스트 FLAG 도 획득" 추가. `FlagSpec(flag_id="host", VALUE, T1005)`, 비-digit 라 선형
+  깊이 불변. *일반화*: 하네스가 flag_id 를 "4"로 하드코딩하므로 god-view 가 **값으로 objective
+  식별**(`match_value`) → Wave2/3 objective 는 VALUE flag 만 더하면 자동 집계(재배선 불필요).
+  (`flags.py`·`sequencer._build_truth`·`main.py`·`generate-flags.sh`·`escape-pod.yaml`)
+- **방어 오탐 억제** — 새 기법을 프롬프트에 넣으니 방어가 신호 없이 T1611·T1046 과보고(정밀도↓).
+  `defender_system.txt` 에 '근거 기반 탐지'(관측 보고서에 신호 있을 때만 보고) 규칙 추가. 전체
+  매핑표는 안 박음(기법 분류 변동성은 연구 관찰 대상이라 보존).
+- **인프라**: 방어 DGX(.110) 다운 → `config.yaml` `dgx.defender_host` .110→.111(동일 모델
+  qwen3.8:27b). Wave1 코드 무관한 순수 장비 이슈였음.
+
+**그날 끝(저녁):** 탈출 체인이 실클러스터에서 검증됐고, 호스트 objective 로 '탈출할 이유'를 부여.
+다음: 노드 FLAG 설치(generate-flags.sh) + 자율 런으로 공격자가 실제 탈출·획득하는지 관측.
+
+---
+
 ## 남은 숙제 (루프가 아니라 '숫자'·확장)
 
 - **①③ 관측(Falco)**: 현재 FP·FN 이 ①③(HTTP 단서·pod-to-pod)에서 발생 — 감사로그 사각.

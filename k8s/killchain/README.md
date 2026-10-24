@@ -104,6 +104,7 @@ kubectl apply -f k8s/killchain/defense-reference/rbac-reduced.yaml
 |------|------|-----------|---------------|------|
 | **T1610** | Deploy Container | `admin-tools` ClusterRole 에 `pods: create` + `admin-sa-token` Secret (`10-...rbac.yaml`) | 감사 `admin-sa create pods` | `restrict_rbac`(바인딩 삭제→create 403) |
 | **T1611** | Escape to Host | k3s 기본 PodSecurity 미강제 → privileged/hostPath 파드 허용 (공격자가 `attack-reference/escape-pod.yaml` 류를 배포) | Falco `Escape to host filesystem`(/host 민감파일 read) | `restrict_pod_security`(ns enforce=baseline) + `delete_pod` |
+| **T1005** | Data from Local System | **호스트 objective(크라운 주얼)** — 노드 파일 `/etc/shopflow/host.flag`(600) 를 탈출로 읽어 획득 (`generate-flags.sh` 가 심음) | 값 대조(`match_value`) — ④와 별개 축 | (탈출 자체를 T1610/T1611 방어로 차단) |
 | **T1552.001** | Unsecured Credentials (ConfigMap) | `backend/legacy-db-config` 평문 DB 접속문자열 (`20-...configmap-creds.yaml`) | 감사 `admin-sa get/list configmaps` | `restrict_rbac`(configmap 조회 권한도 같은 바인딩) |
 | **T1046** | Network Service Discovery | (발판 도구로 포트 스캔) | Falco `Port scan from foothold`(nc/nmap) | *detect-only* |
 | **T1613** | Container & Resource Discovery | (탈취 토큰으로 열거) | 감사 `admin-sa list namespaces` | *detect-only* |
@@ -136,9 +137,13 @@ wget -qO- --header="Authorization: Bearer $TOK" --header="Content-Type: applicat
 wget -qO- --header="Authorization: Bearer $TOK" --no-check-certificate \
   https://kubernetes.default.svc/api/v1/namespaces/default/pods/pwn-escape/log
 ```
+**호스트 objective(T1005)**: 탈출 파드 command 가 `/host/etc/shopflow/host.flag` 를 먼저 읽어
+로그로 흘리므로, 위 (5) 파드 로그 회수에 **호스트 FLAG 값**이 담긴다 → 공격자가 보고 → god-view
+가 값대조(`match_value`)로 'host' objective 달성 판정(④ DB FLAG 와 별개 축). 설치: `generate-flags.sh`.
+
 **방어 검증**: 방어자가 `restrict_rbac`(admin-tools-binding 삭제)면 토큰이 pods create 403 →
 T1610 차단. `restrict_pod_security default`(enforce=baseline)면 privileged 파드가 admission
-거부 → T1611 차단. 정상 ShopFlow 파드는 전부 baseline 적합이라 가용성 영향 없음.
+거부 → T1611 차단(→ 호스트 FLAG 도 못 읽음). 정상 ShopFlow 파드는 baseline 적합이라 가용성 영향 없음.
 
 ### 다경로 크레덴셜 walkthrough (T1552.001 ConfigMap)
 ```bash
