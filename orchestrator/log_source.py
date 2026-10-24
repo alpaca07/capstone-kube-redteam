@@ -7,8 +7,10 @@ Protocol(logs.py) 뒤에 끼우는 실제 층. 설계 핵심: '로그 줄 → �
 
 관측 매핑(환경 구축 observability 문서와 일치):
   ② 감사로그: admin-sa 가 secret get/list → T1078 (가장 선명)
-  Falco:      컨테이너 셸 → T1059
-  ①(wiki HTTP 열람)·③(pod-to-pod)는 기본 관측 사각 → 로그로는 안 잡힘(설계 의도).
+  Falco:      컨테이너 셸 → T1059 / 발판→DB connect → T1210(③) / 발판 wget·curl → T1552.001(①)
+  [Wave1] 감사: admin-sa configmaps→T1552.001 · pods create→T1610 · namespaces→T1613 ·
+               selfsubject*review→T1069   Falco: 호스트 /host read→T1611 · 포트스캐너→T1046
+  신규 기법은 여기 매핑만 추가하면 sequencer._build_truth 가 자동으로 truth 에 넣어 탐지 채점한다.
 """
 from __future__ import annotations
 
@@ -21,17 +23,38 @@ from common.k8s_logs import audit_ts as _audit_ts, falco_ts as _falco_ts, parse_
 LineReader = Callable[[], Iterable[str]]
 
 _ADMIN_SA = "system:serviceaccount:internal:admin-sa"
+_FOOTHOLD_SA = "system:serviceaccount:frontend:foothold-sa"
+_ATTACKER_SAS = {_ADMIN_SA, _FOOTHOLD_SA}     # 공격자가 쥐는 SA(정상 트래픽과 구분)
 _SECRET_VERBS = {"get", "list", "watch"}
+_SELF_REVIEWS = {"selfsubjectaccessreviews", "selfsubjectrulesreviews"}  # auth can-i
 
 
 # ───────────── 순수 매핑 (시간 파싱은 common.k8s_logs 공유) ─────────────
 def map_audit_event(ev: dict) -> Optional[str]:
-    """k3s 감사 이벤트 → MITRE 기법. 현재 ②(admin-sa secret 접근)만 매핑."""
+    """k3s 감사 이벤트 → MITRE 기법.
+
+    ②(admin-sa secret 접근, T1078) 외 Wave1 확장 — 모두 '정상 트래픽엔 없는' 공격자 전용 신호
+    (admin-dashboard 는 Secret 엔드포인트와 코드 볼륨마운트만 쓰지 configmap/pods/namespaces 를
+     API 로 조회·생성하지 않는다):
+      - admin-sa  configmaps get/list   → T1552.001 (평문 크레덴셜 ConfigMap 조회 = 다경로)
+      - admin-sa  pods create           → T1610     (탈취 토큰으로 악성 파드 배포)
+      - admin-sa  namespaces list/watch → T1613     (탈취 토큰으로 리소스/네임스페이스 열거)
+      - 공격자 SA selfsubject*review create → T1069  (auth can-i 권한 열거)
+    """
     user = (ev.get("user") or {}).get("username", "")
     verb = ev.get("verb", "")
     resource = (ev.get("objectRef") or {}).get("resource", "")
-    if user == _ADMIN_SA and resource == "secrets" and verb in _SECRET_VERBS:
-        return "T1078"   # ② 과권한 SA
+    if user == _ADMIN_SA:
+        if resource == "secrets" and verb in _SECRET_VERBS:
+            return "T1078"        # ② 과권한 SA — Secret 조회
+        if resource == "configmaps" and verb in _SECRET_VERBS:
+            return "T1552.001"    # 다경로 크레덴셜 — 평문 ConfigMap(legacy-db-config)
+        if resource == "pods" and verb == "create":
+            return "T1610"        # Deploy Container — 악성 파드 배포
+        if resource == "namespaces" and verb in {"list", "watch"}:
+            return "T1613"        # Container/Resource Discovery — 네임스페이스 열거
+    if user in _ATTACKER_SAS and resource in _SELF_REVIEWS and verb == "create":
+        return "T1069"            # Permission Groups Discovery — auth can-i
     return None
 
 
@@ -44,6 +67,10 @@ def map_falco_event(ev: dict) -> Optional[str]:
         return "T1210"   # ③ 측면이동 — frontend 발판 → postgres:5432 성공 연결
     if rule == "Credential access from foothold":
         return "T1552.001"   # ① 크레덴셜 수집 — 발판에서 wget/curl(wiki 단서·SSRF 페치)
+    if rule == "Escape to host filesystem":
+        return "T1611"   # [Wave1] 컨테이너 탈출 — /host 민감파일 read
+    if rule == "Port scan from foothold":
+        return "T1046"   # [Wave1] 네트워크 서비스 탐색 — 포트 스캐너 기동
     return None
 
 

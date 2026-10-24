@@ -159,6 +159,41 @@ def test_map_falco_shell():
     assert map_falco_event({"rule": "Some other rule"}) is None
 
 
+# ───────────── [Wave1] 신규 기법 매핑 ─────────────
+def test_map_audit_wave1_configmap_pods_namespaces():
+    sa = "system:serviceaccount:internal:admin-sa"
+    # 다경로 크레덴셜 — 평문 configmap 조회
+    assert map_audit_event({"verb": "get", "user": {"username": sa},
+                            "objectRef": {"resource": "configmaps"}}) == "T1552.001"
+    # T1610 — pod 생성(탈취 토큰)
+    assert map_audit_event({"verb": "create", "user": {"username": sa},
+                            "objectRef": {"resource": "pods"}}) == "T1610"
+    # T1613 — 네임스페이스 열거
+    assert map_audit_event({"verb": "list", "user": {"username": sa},
+                            "objectRef": {"resource": "namespaces"}}) == "T1613"
+    # pod get/list 는 정찰(생성만 T1610) → 매핑 없음
+    assert map_audit_event({"verb": "get", "user": {"username": sa},
+                            "objectRef": {"resource": "pods"}}) is None
+
+
+def test_map_audit_wave1_permission_discovery():
+    # auth can-i = selfsubject review 생성 → T1069 (공격자 SA 한정)
+    foot = "system:serviceaccount:frontend:foothold-sa"
+    assert map_audit_event({"verb": "create", "user": {"username": foot},
+                            "objectRef": {"resource": "selfsubjectaccessreviews"}}) == "T1069"
+    assert map_audit_event({"verb": "create",
+                            "user": {"username": "system:serviceaccount:internal:admin-sa"},
+                            "objectRef": {"resource": "selfsubjectrulesreviews"}}) == "T1069"
+    # 비-공격자(방어자 admin 등)면 매핑 안 됨(정상 can-i 와 구분)
+    assert map_audit_event({"verb": "create", "user": {"username": "kubernetes-admin"},
+                            "objectRef": {"resource": "selfsubjectaccessreviews"}}) is None
+
+
+def test_map_falco_wave1_escape_and_portscan():
+    assert map_falco_event({"rule": "Escape to host filesystem"}) == "T1611"
+    assert map_falco_event({"rule": "Port scan from foothold"}) == "T1046"
+
+
 def _reader(lines):
     return lambda: iter(lines)
 

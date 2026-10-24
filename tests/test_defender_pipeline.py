@@ -102,6 +102,26 @@ def test_render_unknown_unsupported():
     assert render_op(PatchStep(action="pray", target="x")) is None
 
 
+# ───────────── render: [Wave1] restrict_pod_security ─────────────
+def test_render_pod_security():
+    op = render_op(PatchStep(action="restrict_pod_security", target="default"))
+    assert op.kind == "apply"
+    assert "pod-security.kubernetes.io/enforce: baseline" in op.manifest
+    assert "name: default" in op.manifest
+
+
+def test_render_pod_security_fallback_ns():
+    # 타깃이 비면 default(탈출 파드가 주로 뜨는 ns)로 폴백
+    op = render_op(PatchStep(action="restrict_pod_security", target=""))
+    assert op is not None and op.kind == "apply" and "name: default" in op.manifest
+
+
+def test_render_pod_security_not_confused_with_delete_pod():
+    # action 에 "pod"가 들어가도 pod_security 는 delete 로 오인식되면 안 됨(apply 여야 함)
+    op = render_op(PatchStep(action="restrict_pod_security", target="internal"))
+    assert op.kind == "apply" and "name: internal" in op.manifest
+
+
 def test_render_networkpolicy_natural_language_target_falls_back():
     # LLM이 "all namespaces"(공백 포함) 같은 자연어 타깃을 줘도 무효 매니페스트를 만들지 않고
     # 기본 NS(database)로 폴백 — dry-run 실패→세트 롤백 방지.
@@ -141,6 +161,15 @@ def test_patcher_healthcheck_fail_flags():
     out = Patcher(_FakeCluster(healthy=False)).apply_plan(
         [PatchStep(action="add_networkpolicy", target="database")])
     assert out.patch_applied and not out.healthcheck_passed        # 과잉차단 신호
+
+
+def test_patcher_applies_pod_security():
+    # [Wave1] restrict_pod_security 가 ns 라벨 apply 로 적용되고 healthcheck 통과
+    cluster = _FakeCluster(healthy=True)
+    out = Patcher(cluster).apply_plan([PatchStep(action="restrict_pod_security", target="default")])
+    assert out.patch_applied and out.healthcheck_passed
+    assert any(c[0] == "apply" and "pod-security.kubernetes.io/enforce" in c[2]
+               for c in cluster.calls if c[1] is False)            # 실제 적용된 매니페스트에 PSA 라벨
 
 
 def _run() -> int:

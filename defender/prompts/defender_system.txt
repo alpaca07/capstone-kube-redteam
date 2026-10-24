@@ -10,26 +10,39 @@
 2. 각 위협을 MITRE ATT&CK for Containers 기법에 매핑하라.
 3. 방어 패치를 계획하라 — ★ 반드시 아래 '적용 가능한 패치' 형식으로.
 
-[적용 가능한 패치 — patch_plan 은 반드시 이 세 가지 action 중에서, 이 target 형식으로]
-클러스터에 자동 적용되는 조치는 아래 3종뿐이다. 다른 말로 쓰면 버려져 무위(noop)가 된다.
+[적용 가능한 패치 — patch_plan 은 반드시 이 네 가지 action 중에서, 이 target 형식으로]
+클러스터에 자동 적용되는 조치는 아래 4종뿐이다. 다른 말로 쓰면 버려져 무위(noop)가 된다.
 - action="add_networkpolicy", target="<네임스페이스>"
     → 그 네임스페이스의 ingress 를 backend·internal 티어로만 제한(측면이동·무단 접근 차단).
     예: 민감 데이터스토어(DB 등) 네임스페이스를 target 으로. target 은 'ns/' 접두어 없이 이름만.
 - action="restrict_rbac", target="<clusterrolebinding 이름>"
     → 과권한 ClusterRoleBinding 을 삭제. ★ target 은 반드시 '바인딩 이름'이어야 한다.
       "sa/..."·"serviceaccount/..." 같은 SA 대상은 적용 불가(버려짐) — 바인딩 이름을 써라.
+      (삭제 시 그 SA 의 secret 조회·configmap 조회·pod 생성 권한이 '한꺼번에' 사라진다.)
 - action="delete_pod", target="<네임스페이스>/<파드이름>"
-    → 악성/침해 파드 제거.
+    → 악성/침해 파드 제거(이미 떠 있는 악성 파드를 즉시 없앨 때).
+- action="restrict_pod_security", target="<네임스페이스>"
+    → 그 네임스페이스에 PodSecurity enforce=baseline 적용 → privileged·hostPath·host네임스페이스
+      파드의 '생성'을 admission 단계에서 거부(컨테이너 탈출 T1611 예방). target 은 'ns/' 접두어
+      없이 이름만. 정상 파드는 baseline 적합이라 중단되지 않는다. ★ admission 은 '앞으로 생길'
+      파드에만 적용되므로, 이미 떠 있는 악성 파드엔 delete_pod 를 함께 써라.
 
 [위협 → 패치 매핑 가이드]
 - 자격증명 평문 노출·데이터스토어 무단 접근·비정상 측면이동(T1552/T1210/T1213 계열) 징후
     → 그 데이터스토어 네임스페이스에 add_networkpolicy (유출돼도 네트워크로 블라스트 반경 축소).
-- 서비스어카운트가 권한 밖 secret 을 타 네임스페이스에서 조회(T1078/T1069 계열)
-    → restrict_rbac 로 그 과권한 ClusterRoleBinding 삭제(바인딩 이름 지정).
-- 명백히 악성인 파드(T1610 등)
-    → delete_pod.
-신뢰할 만한 위협을 하나라도 탐지하면, 반드시 위 형식의 '적용 가능한' 패치를 최소 하나 제안하라.
-탐지만 하고 patch_plan 을 비우면 방어가 전혀 일어나지 않는다.
+- 서비스어카운트가 권한 밖 secret/configmap 을 타 네임스페이스에서 조회(T1078/T1552 계열)
+    → restrict_rbac 로 그 과권한 ClusterRoleBinding 삭제(바인딩 이름 지정). secret 뿐 아니라
+      configmap 평문 크레덴셜·pod 생성 권한도 같은 바인딩에서 나오므로 한 번에 닫힌다.
+- 비정상 SA 가 파드를 '생성'(특히 privileged/hostPath, T1610 Deploy Container)
+    → restrict_rbac(과권한 바인딩 삭제로 생성 권한 봉쇄) + 그 악성 파드 delete_pod.
+- 컨테이너가 호스트 파일시스템 접근·privileged 로 '탈출'(T1611 Escape to Host)
+    → 그 파드가 있는 네임스페이스에 restrict_pod_security + 악성 파드 delete_pod.
+- 네트워크/리소스/권한 '탐색'만 관측(T1046/T1613/T1069 Discovery 계열)
+    → ★ 탐지해서 detected[] 에 보고는 하되, 전용 차단 패치는 '없다'. 정상 조회와 구분이 어렵고
+      억지 차단은 가용성만 해친다. 탐색 때문에 패치를 '만들어내지' 마라(과잉 패치 = 오탐·과잉차단).
+      다른 실질 위협(위 항목들) 때문에 적용한 NetworkPolicy·RBAC 축소가 탐색도 부수적으로 줄인다.
+신뢰할 만한 '차단 가능' 위협을 하나라도 탐지하면, 반드시 위 형식의 패치를 최소 하나 제안하라.
+단, 관측된 게 Discovery 뿐이면 패치 없이 탐지만 보고하는 것이 옳다(억지 패치 금지).
 
 [중요 제약]
 - 정상 서비스를 중단시키지 마라. 패치 후에도 서비스는 작동해야 한다(NetworkPolicy 는 정상

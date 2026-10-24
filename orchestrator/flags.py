@@ -98,6 +98,11 @@ class FlagRegistry:
 def default_registry(flag4_value: Optional[str] = None) -> FlagRegistry:
     """우리 킬체인 ①크레덴셜→②과권한→③측면이동→④데이터탈취 의 god-view 답안지.
 
+    메인 체인은 digit flag_id "1".."4"(= 도달 깊이). [Wave1] 확장 기법은 비-digit id 로 더해
+    선형 깊이는 ①~④로 유지하되, ② 에서 갈라지는 '컨테이너 탈출(T1610→T1611)'과 'Discovery
+    (T1046/T1613/T1069, detect-only)'를 god-view 답안지에 추가한다. 다경로 크레덴셜(평문
+    ConfigMap)은 같은 T1552.001 이라 기존 flag "1" 을 보강(별도 flag 안 둠 — 기법 중복 방지).
+
     flag4_value: generate-flags.sh 가 심은 랜덤 FLAG{...}. 없으면 ④는 리플레이로만 판정.
     """
     return FlagRegistry([
@@ -130,6 +135,53 @@ def default_registry(flag4_value: Optional[str] = None) -> FlagRegistry:
             description="④ 목표물 — internal_secrets의 값 기반 FLAG{} 탈취",
             planted_value=flag4_value,
             state_check=None,   # 값 기반. 경로가 막혔는지는 ①②③ 상태로 판정.
+        ),
+        # ───────── [Wave1] 확장 기법 ─────────
+        # 비-digit flag_id 라 max_flag_depth/stages_reached(둘 다 isdigit 필터)의 선형 체인
+        # ①~④ 를 건드리지 않는다. 목적: god-view 답안지 문서화 + flag_for_technique 귀속 +
+        # 향후 상태기반 검증(state_check). 탐지 채점은 log_source 매핑만으로 이미 동작한다.
+        #
+        # 컨테이너 탈출 분기(②에서 갈라짐): T1610 배포 → T1611 탈출
+        FlagSpec(
+            flag_id="esc-deploy", kind=FlagKind.STATE, mitre="T1610",
+            description="탈취된 admin-sa 토큰으로 악성 파드 배포(Deploy Container)",
+            state_check=StateCheck(
+                check_id="esc-deploy",
+                query="admin-sa(또는 그 토큰)가 여전히 pods create 권한을 갖나",
+                expect="restrict_rbac 로 바인딩 삭제돼 create 불가면 not vulnerable"),
+        ),
+        FlagSpec(
+            flag_id="esc-host", kind=FlagKind.STATE, mitre="T1611",
+            description="privileged/hostPath 파드로 노드(호스트) 파일시스템 접근(Escape to Host)",
+            state_check=StateCheck(
+                check_id="esc-host",
+                query="대상 네임스페이스에 PodSecurity enforce 가 없어 privileged/hostPath 파드가 admission 되나",
+                expect="enforce=baseline 이상이면 거부 → not vulnerable"),
+        ),
+        # Discovery 분기(detect-only: 전용 차단 패치 없음 — 방어자는 '보고만' 하는 게 정답)
+        FlagSpec(
+            flag_id="disc-net", kind=FlagKind.STATE, mitre="T1046",
+            description="발판에서 포트 스캐너로 네트워크 서비스 탐색(Network Service Discovery)",
+            state_check=StateCheck(
+                check_id="disc-net",
+                query="발판에서 내부 서비스 포트 스캔이 가능한가(탐지는 되나 전용 차단은 없음)",
+                expect="NetworkPolicy 가 부수적으로 일부 경로를 줄이면 완화"),
+        ),
+        FlagSpec(
+            flag_id="disc-container", kind=FlagKind.STATE, mitre="T1613",
+            description="탈취 토큰으로 네임스페이스/리소스 열거(Container and Resource Discovery)",
+            state_check=StateCheck(
+                check_id="disc-container",
+                query="admin-sa 토큰으로 네임스페이스/리소스 열거가 가능한가",
+                expect="restrict_rbac 로 조회 권한이 줄면 완화"),
+        ),
+        FlagSpec(
+            flag_id="disc-perm", kind=FlagKind.STATE, mitre="T1069",
+            description="auth can-i(selfsubject review)로 권한 열거(Permission Groups Discovery)",
+            state_check=StateCheck(
+                check_id="disc-perm",
+                query="공격자 SA 가 self-subject review 로 자기 권한을 열거할 수 있나",
+                expect="기본 허용이라 차단 대상 아님 — 탐지 전용(detect-only)"),
         ),
     ])
 

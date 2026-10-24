@@ -65,6 +65,22 @@ def test_reset_issues_expected_commands():
     assert any("get clusterrolebinding admin-tools-binding" in c for c in cmds)
 
 
+def test_reset_reverts_pod_security_and_attacker_pods():
+    # [Wave1] restrict_pod_security 역산(enforce 라벨 제거) + 공격자 생성 파드(T1610 탈출 파드) 정리.
+    r = FakeRunner(rules=_binding_present())
+    _bm(r).reset_to_clean()
+    cmds = r.joined()
+    # default ns 전 파드 삭제(탈출 파드 정리 — default 엔 정상 파드 없음)
+    assert any("delete pod --all -n default" in c for c in cmds), "default 파드 정리 없음"
+    # created-by=attacker 라벨 파드 전 ns 삭제
+    assert any("delete pod -l app.kubernetes.io/created-by=attacker --all-namespaces" in c
+               for c in cmds), "공격자 라벨 파드 정리 없음"
+    # PodSecurity enforce 라벨 제거(앱 ns + default)
+    for ns in ("frontend", "backend", "database", "internal", "default"):
+        assert any(f"label namespace {ns} pod-security.kubernetes.io/enforce-" in c
+                   for c in cmds), f"{ns} PSA 라벨 제거 없음"
+
+
 def test_networkpolicy_delete_precedes_fingerprint():
     # 삭제가 지문 검사보다 먼저여야(안 그러면 방어 패치가 지문에 잡혀 매번 ResetError)
     r = FakeRunner(rules=_binding_present())

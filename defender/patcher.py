@@ -4,7 +4,8 @@ TriageResult.patch_plan → 구체 클러스터 조치로 렌더 → 전부 dry-
 헬스체크. dry-run이 하나라도 실패하면 세트 전체 미적용(원자성). 패치 후 서비스가 죽으면
 healthcheck_passed=False (과잉 차단 감점 신호). 적용 I/O는 ClusterClient 주입 → fake 테스트.
 
-렌더 가능한 액션(킬체인 방어): networkpolicy(③), rbac 축소(②), pod 삭제. 나머지는 미지원 기록.
+렌더 가능한 액션(킬체인 방어): networkpolicy(③), rbac 축소(②), pod 삭제, [Wave1]
+pod_security(ns PodSecurity enforce=baseline → T1611 탈출 예방). 나머지는 미지원 기록.
 실제 적용은 클러스터 전체 대상(특정 NS 아님).
 """
 from __future__ import annotations
@@ -85,6 +86,24 @@ def _np_manifest(ns: str) -> str:
         "    - namespaceSelector: {matchLabels: {tier: internal}}\n")
 
 
+def _psa_manifest(ns: str) -> str:
+    """[Wave1] ns 에 PodSecurity Admission enforce=baseline 라벨을 머지-apply(T1611 탈출 예방).
+
+    baseline 은 privileged·hostPID/IPC/Network·hostPath 등 '컨테이너 탈출' 필드를 admission 에서
+    거부한다. 정상 ShopFlow 파드는 전부 baseline 적합(비-privileged·hostPath 없음)이라 재생성돼도
+    막히지 않음 → 가용성 영향 없음. kubectl apply(3-way 병합)라 기존 라벨(tier 등 NetworkPolicy
+    의존)을 지우지 않는다. 이미 떠 있는 악성 파드는 admission 소급 적용이 안 되므로 delete_pod 병행.
+    """
+    return (
+        "apiVersion: v1\n"
+        "kind: Namespace\n"
+        "metadata:\n"
+        f"  name: {ns}\n"
+        "  labels:\n"
+        "    pod-security.kubernetes.io/enforce: baseline\n"
+        "    pod-security.kubernetes.io/enforce-version: latest\n")
+
+
 def _strip_kind(target: str, *kinds: str) -> str:
     t = target.strip()
     for k in kinds:
@@ -122,6 +141,12 @@ def render_op(step: PatchStep) -> Optional[_Op]:
     if "networkpolicy" in a or "netpol" in a or "network" in a:
         ns = _ns_from_target(tgt) or "database"
         return _Op(kind="apply", manifest=_np_manifest(ns), label=f"NetworkPolicy({ns})")
+    # [Wave1] PodSecurity — privileged/hostPath 파드 admission 차단(T1611 예방). "pod"+"security"
+    #   조합(또는 pss)으로 인식. pod-delete 분기(delete/remove/kill)보다 먼저 와 오인식 방지.
+    if ("pod_security" in a or "podsecurity" in a or "pod security" in a
+            or "pss" in a or ("pod" in a and "security" in a)):
+        ns = _ns_from_target(tgt) or "default"
+        return _Op(kind="apply", manifest=_psa_manifest(ns), label=f"PodSecurity({ns})")
     if "rbac" in a or "role" in a:
         name = _strip_kind(tgt, "clusterrolebinding", "crb")
         # sa/serviceaccount 대상은 바인딩명을 특정 못 하므로 미지원(LLM이 바인딩명 주도록 유도)

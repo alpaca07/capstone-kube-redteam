@@ -6,12 +6,15 @@
 (§8 #1). 재시작/재부팅만 복구됨. → 상태 리셋을 'VM 레벨'이 아니라 'k8s 리소스 레벨'로 하면
 stun 자체가 없어진다. 공격이 전부 읽기(파괴 아님)라 선언적 리셋으로 '완전'하다.
 
-리셋이 되돌려야 하는 것 = 방어자 패치 어휘 3종(정확히 이것만):
-  - add_networkpolicy  → 타깃 ns 의 NetworkPolicy 전부 삭제(베이스라인엔 NetworkPolicy 0개).
-  - restrict_rbac      → 삭제된 과권한 ClusterRoleBinding 복구(killchain 매니페스트 재적용, 멱등).
-  - delete_pod         → 발판/서비스 파드는 Deployment 관리라 자동 재생성 + rollout restart 로
-                         파일시스템까지 초기화.
-공격자는 상태를 안 바꾼다(발판 안에서 읽기/psql SELECT) → 리셋 대상 아님(발판 rollout 로 위생만).
+리셋이 되돌려야 하는 것 = 방어자 패치 어휘 4종(정확히 이것만):
+  - add_networkpolicy     → 타깃 ns 의 NetworkPolicy 전부 삭제(베이스라인엔 NetworkPolicy 0개).
+  - restrict_rbac         → 삭제된 과권한 ClusterRoleBinding 복구(killchain 매니페스트 재적용, 멱등).
+  - delete_pod            → 발판/서비스 파드는 Deployment 관리라 자동 재생성 + rollout restart 로
+                            파일시스템까지 초기화.
+  - restrict_pod_security → 방어자가 붙인 PodSecurity enforce 라벨 제거([Wave1], psa_namespaces).
+[Wave1] 공격자도 이제 상태를 바꾼다 — T1610 으로 악성 '탈출 파드'를 생성한다. 그래서 리셋이
+  공격자 산출물도 지운다: default ns 전 파드 삭제(정상 파드 없음) + created-by=attacker 라벨 파드.
+  나머지 공격(발판 안 읽기/psql SELECT)은 여전히 상태 불변 → 발판 rollout 로 위생만.
 
 심판(VM C)이 아레나를 리셋한다 — cfg.target.kubeconfig(설계상 'VC god-view용')로 kubectl 직접
 실행(govc_snapshot 의 subprocess 패턴과 동일, runner 주입 가능 → 네트워크·클러스터 없이 테스트).
@@ -67,6 +70,9 @@ _DEFAULT_MANIFESTS = ("k8s/killchain",)          # 삭제된 과권한 바인딩
 _DEFAULT_FOOTHOLD = ("frontend", "attacker-foothold")   # (ns, deployment)
 _DEFAULT_OVERPERM_BINDING = "admin-tools-binding"       # restrict_rbac 가 지우는 과권한 바인딩
 _DEFAULT_READY_DEPLOYS = (("frontend", "attacker-foothold"),)  # rollout status 로 대기할 Deployment
+# [Wave1] restrict_pod_security 가 enforce 라벨을 붙일 수 있는 ns(역산 대상). 공격자 탈출 파드가
+#   주로 default 에 뜨므로 default 포함. 앱 ns 는 정상 파드가 baseline 적합이라 라벨 자체는 무해.
+_DEFAULT_PSA_NS = ("frontend", "backend", "database", "internal", "default")
 
 
 class BaselineManager:
@@ -79,6 +85,7 @@ class BaselineManager:
                  foothold: tuple[str, str] = _DEFAULT_FOOTHOLD,
                  overperm_binding: str = _DEFAULT_OVERPERM_BINDING,
                  ready_deploys: tuple[tuple[str, str], ...] = _DEFAULT_READY_DEPLOYS,
+                 psa_namespaces: tuple[str, ...] = _DEFAULT_PSA_NS,
                  baseline_name: str = "clean-baseline",
                  rollout_timeout_sec: int = 120) -> None:
         self.runner = runner
@@ -87,6 +94,7 @@ class BaselineManager:
         self.foothold_ns, self.foothold_deploy = foothold
         self.overperm_binding = overperm_binding
         self.ready_deploys = ready_deploys
+        self.psa_namespaces = psa_namespaces
         self.baseline_name = baseline_name
         self.rollout_timeout_sec = rollout_timeout_sec
 
@@ -105,6 +113,18 @@ class BaselineManager:
         for ns in self.target_namespaces:
             self._run(["delete", "networkpolicy", "--all", "-n", ns,
                        "--ignore-not-found=true"])
+        # 1.4 [Wave1] 공격자 생성 파드 제거(T1610 악성 '탈출 파드'). default ns 전삭제(정상 파드
+        #     없음) + created-by=attacker 라벨 파드 전 ns. 멱등(ignore-not-found), best-effort.
+        self._run(["delete", "pod", "--all", "-n", "default",
+                   "--ignore-not-found=true"], check=False)
+        self._run(["delete", "pod", "-l", "app.kubernetes.io/created-by=attacker",
+                   "--all-namespaces", "--ignore-not-found=true"], check=False)
+        # 1.5 [Wave1] PodSecurity enforce 라벨 역산(restrict_pod_security 되돌리기). 라벨이 없으면
+        #     kubectl 이 에러를 내므로 check=False(best-effort) — 클린 베이스라인엔 라벨이 없다.
+        for ns in self.psa_namespaces:
+            self._run(["label", "namespace", ns,
+                       "pod-security.kubernetes.io/enforce-",
+                       "pod-security.kubernetes.io/enforce-version-"], check=False)
         # 2. killchain 매니페스트 재적용(restrict_rbac 로 삭제된 과권한 바인딩·발판 복구). apply=멱등.
         for path in self.manifest_paths:
             self._run(["apply", "-f", path])
