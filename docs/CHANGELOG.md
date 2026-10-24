@@ -266,6 +266,42 @@ DB 얻고 더 어려운 호스트 목표를 안 쫓거나 DB 막히면 DB만 붙
 
 ---
 
+## 2026-10-25 — Wave1 end-to-end 완주 + 대시보드 '노드·호스트 탈출 축'
+
+탈출 레시피까지 깔았는데도 자율 공격자가 안 뚫던 **근본 원인**을 잡고, 공진화 루프에서 호스트
+장악이 실제로 발생하는 걸 확인 → 대시보드에 그 축을 시각화.
+
+**근본 원인(탈출 미발동) 2건**:
+- `1050047` **공격자가 첫 FLAG 에서 멈췄다** — `react_loop.py` 가 `obs.flag_found` 에 `break`.
+  DB FLAG(④) 를 얻는 순간 루프 종료 → 예산이 남아도 호스트 축을 쫓을 기회가 없었다. 목표·레시피·
+  HTTPS 가 다 맞아도 이 한 줄 때문에 탈출이 구조적으로 불가능. → 멀티-objective 로 전환(같은 값
+  FLAG 는 재기록 안 함, 종료는 timeout/max_steps/give_up/perseveration 이 담당).
+- `1e04128` **pods/log 403** — 탈출 파드는 띄워도 `admin-tools` 에 `pods/log get` 이 없어 결과
+  (호스트 파일 stdout)를 회수 못 함. exec 는 SPDY 라 wget 불가 → 로그가 유일한 비대화식 회수 경로.
+  권한 추가(방어 `restrict_rbac` 가 바인딩째 제거하므로 과권한 봉쇄는 그대로 유효).
+
+**최종 자율 런(완주)**: 1 에피소드에서 공격자가 **두 FLAG 모두 자력 획득** — DB `FLAG{shopflow_…}`(④)
+에 더해, admin-sa 토큰 탈취→`--post-data` 로 privileged/hostPath 파드 배포(T1610)→노드 FS 접근
+(T1611, Falco "Escape to host filesystem" 점화)→`/etc/shopflow/host.flag` 회수(T1005). 심판은
+값 매칭(`match_value`)으로 `host` objective 크레딧. **공진화도 관측**: 다음 라운드에서 방어의
+`restrict_rbac` 가 confused-deputy 를 끊어 공격자를 403 으로 잠금(탈출 축 자가 봉쇄).
+
+**대시보드 '노드·호스트 탈출 축' 패널 추가**(`orchestrator/static/dashboard.html`):
+- **WHY**: 호스트 장악은 선형 DB 킬체인(①②③④)이 아니라 ②에서 분기하는 **별도 axis**(option A).
+  기존 ①→④ 보드에 끼워 넣으면 '깊이'가 왜곡되므로 전용 보드로 분리 — 확장 구조(Wave2/3 축 추가)와도 일치.
+- **WHAT**: ② 과권한 SA 분기 → `T1610 컨테이너 배포`→`T1611 호스트 탈출`→`T1005 노드 FLAG(크라운
+  주얼 ♚)` 3단계 미니 체인. `flags_reached_cum` 의 비-숫자 마커(`esc-deploy`/`esc-host`/`host`)로
+  진행도를, 방어 보고 `T1610`/`T1611` 로 차단을 읽음. 우상단 **'호스트 장악' 배지**(미도달→탈출
+  진행→탈출 차단→호스트 장악✓) + KPI 타일 `호스트 장악 N/ep`. 색·컴포넌트는 기존 다크 디자인
+  그대로(공격 빨강 `--atk`/방어 파랑 `--def`).
+- **검증**: headless(playwright)로 pwned/blocked/none 3상태 렌더·JS 에러 0건 확인 후 반영.
+
+**그날 끝:** 공격자가 **인센티브+레시피 하에서 호스트까지 자율 완주**하고, 방어가 그 축을 되받아치는
+공진화가 성립. 대시보드가 DB 축과 탈출 축을 분리해 보여줌. 다음: 정보량 ablation(레시피→힌트→목표만)
+으로 '최소 유도' 임계 탐색.
+
+---
+
 ## 남은 숙제 (루프가 아니라 '숫자'·확장)
 
 - **①③ 관측(Falco)**: 현재 FP·FN 이 ①③(HTTP 단서·pod-to-pod)에서 발생 — 감사로그 사각.

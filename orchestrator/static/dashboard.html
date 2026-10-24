@@ -103,6 +103,29 @@ button.stop{background:var(--atk-dim);border-color:rgba(251,85,105,.5);color:var
 .shield{position:absolute;top:10px;right:11px;width:15px;height:17px;opacity:0;transform:scale(.6);transition:opacity .3s,transform .3s}
 .stage.def .shield{opacity:1;transform:scale(1)}
 
+/* ── 노드·호스트 탈출 축 (별도 axis) ── */
+.esc{padding:16px 16px 18px;margin-bottom:14px}
+.esc .phead{margin-bottom:6px}
+.escsub{font-family:var(--mono);font-size:11.5px;color:var(--muted2);margin:0 0 13px;line-height:1.5}
+.escsub b{color:var(--atk2);font-weight:600}
+.hostbadge{margin-left:auto;font-family:var(--disp);font-size:12px;font-weight:600;letter-spacing:.02em;
+  padding:5px 13px;border-radius:999px;border:1px solid var(--line2);color:var(--muted);
+  display:inline-flex;align-items:center;gap:7px;white-space:nowrap;transition:all .35s}
+.hostbadge::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--sys);transition:all .35s}
+.hostbadge.partial{background:rgba(255,176,32,.1);border-color:rgba(255,176,32,.45);color:var(--live)}
+.hostbadge.partial::before{background:var(--live);color:var(--live);animation:lp 1.4s infinite}
+.hostbadge.blocked{background:var(--def-dim);border-color:rgba(63,147,245,.5);color:var(--def2)}
+.hostbadge.blocked::before{background:var(--def)}
+.hostbadge.pwned{background:var(--atk-dim);border-color:rgba(251,85,105,.6);color:var(--atk2);
+  box-shadow:0 0 0 1px rgba(251,85,105,.18),0 8px 26px -10px var(--atk-glow)}
+.hostbadge.pwned::before{background:var(--atk);box-shadow:0 0 7px 1px var(--atk-glow)}
+.escnum{font-family:var(--mono);font-size:14px;font-weight:600;line-height:1;color:var(--muted);letter-spacing:.01em;transition:color .3s}
+.stage.atk .escnum{color:var(--atk2)} .stage.def .escnum{color:var(--def2)}
+.escstep{font-family:var(--mono);font-size:10px;color:var(--muted2);border:1px solid var(--line);border-radius:4px;padding:1px 6px;letter-spacing:.05em}
+.scard .crown{position:absolute;top:9px;right:11px;font-size:16px;line-height:1;opacity:0;transform:scale(.5);color:var(--atk2);text-shadow:0 0 10px var(--atk-glow);transition:opacity .35s,transform .35s}
+.stage.pwned .scard.jewel .crown{opacity:1;transform:scale(1)}
+.stage.pwned .scard.jewel{border-color:rgba(251,85,105,.7);background:linear-gradient(180deg,var(--atk-dim),transparent 60%),var(--bg2);box-shadow:0 0 0 1px rgba(251,85,105,.25),0 12px 34px -12px var(--atk-glow)}
+
 .combat{padding:16px;margin-bottom:14px}
 .rtag{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:2px 9px}
 .versus{display:grid;grid-template-columns:1fr 128px 1fr;gap:12px;align-items:stretch}
@@ -203,6 +226,14 @@ svg text{font-family:var(--mono)}
     <div class="chain" id="chain"></div>
   </div>
 
+  <div class="panel esc">
+    <div class="phead"><h2>노드·호스트 탈출 축</h2><span class="cap">별도 axis · 크라운 주얼</span>
+      <span class="hostbadge" id="hostBadge">노드 미도달</span>
+    </div>
+    <p class="escsub">킬체인 <b>②</b> 과권한 SA 토큰 탈취 지점에서 분기 — 탈취 토큰으로 privileged 파드를 띄워 노드(호스트)까지 상승. 색 규칙은 위 보드와 동일.</p>
+    <div class="chain" id="escchain"></div>
+  </div>
+
   <div class="panel combat">
     <div class="phead"><h2>현재 라운드 교전</h2><span class="rtag" id="rtag">—</span></div>
     <div class="versus">
@@ -277,6 +308,14 @@ const SYM=['0','①','②','③','④'];
 const S2T={1:'T1552.001',2:'T1078',3:'T1210',4:'T1213'};
 const T2S={'T1552.001':1,'T1078':2,'T1210':3,'T1213':4};
 
+/* 노드·호스트 탈출 축(별도 axis): 킬체인 ② 에서 분기 → T1610→T1611→T1005.
+   flags_reached_cum 의 비-숫자 마커(esc-deploy/esc-host/host)로 진행도를 읽는다. */
+const ESC_STAGES=[
+ {k:1,mitre:'T1610',name:'컨테이너 배포',where:'탈취 admin-sa 토큰 → privileged 파드'},
+ {k:2,mitre:'T1611',name:'호스트 탈출',where:'hostPath 마운트 → 노드 FS · Falco 탐지'},
+ {k:3,mitre:'T1005',name:'노드 FLAG 탈취',where:'/etc/shopflow/host.flag · 크라운 주얼',jewel:true},
+];
+
 /* ── kill chain ── */
 function buildChain(){const host=$('chain');host.innerHTML='';
   STAGES.forEach((s,i)=>{const st=document.createElement('div');st.className='stage idle';st.dataset.k=s.k;
@@ -292,14 +331,41 @@ function setChain(reach,patched){[...$('chain').children].forEach(st=>{
   else if(k<=reach){st.classList.add('atk');stat.textContent='공격 도달';if(k>1)st.classList.add('flow');}
   else{stat.textContent='미도달';}});}
 
+/* ── 탈출 축 보드 ── */
+function buildEscape(){const host=$('escchain');host.innerHTML='';
+  ESC_STAGES.forEach((s,i)=>{const st=document.createElement('div');st.className='stage idle';st.dataset.k=s.k;
+    st.innerHTML=(i>0?'<div class="conn"></div>':'')+
+      `<div class="scard${s.jewel?' jewel':''}">`+(s.jewel?'<span class="crown">♚</span>':'')+
+      `<svg class="shield" viewBox="0 0 24 26"><path d="M12 1l10 4v8c0 7-4.5 10.5-10 12C6.5 23.5 2 20 2 13V5z" fill="${DEF}" opacity=".9"/><path d="M8 13l3 3 5-6" fill="none" stroke="${BG}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div class="srow"><span class="escnum">${s.mitre}</span><span class="escstep">탈출 ${s.k}/3</span></div>
+      <div><div class="sname">${s.name}</div><div class="swhere">${s.where}</div></div>
+      <div class="sstat">미도달</div></div>`;
+    host.appendChild(st);});}
+function setEscape(reach,patched,pwned){
+  [...$('escchain').children].forEach(st=>{
+    const k=+st.dataset.k;st.classList.remove('atk','def','active','flow','pwned');const stat=st.querySelector('.sstat');
+    if(patched.has(k)){st.classList.add('def');stat.textContent='방어 차단';if(k>1)st.classList.add('flow');}
+    else if(k<=reach){st.classList.add('atk');stat.textContent=(k===3)?'호스트 장악':'공격 도달';if(k>1)st.classList.add('flow');
+      if(k===3&&pwned)st.classList.add('pwned');}
+    else{stat.textContent='미도달';}});
+  const b=$('hostBadge');b.className='hostbadge';
+  if(pwned){b.classList.add('pwned');b.textContent='호스트 장악 ✓';}
+  else if(patched.size){b.classList.add('blocked');b.textContent='탈출 차단';}
+  else if(reach>0){b.classList.add('partial');b.textContent='탈출 진행';}
+  else{b.textContent='노드 미도달';}}
+
 /* ── normalize real RoundRecord → 표시 모델 (+ 에피소드별 누적 패치/도달) ── */
-function enrich(rounds){let ep=null,patched=new Set();
+function enrich(rounds){let ep=null,patched=new Set(),escPatched=new Set();
   return rounds.map(rc=>{
     const sr=(Array.isArray(rc.stages_reached)&&rc.stages_reached.length)?rc.stages_reached.map(Number):null;
     const end=rc.attack_end_reason||'', rep=rc.reported_techniques||[];
     const flagDepth=Math.max(0,...((rc.flags_reached_cum||[]).map(Number).filter(n=>!isNaN(n))));
-    if(rc.episode!==ep){ep=rc.episode;patched=new Set();}
-    if(rc.patch_applied)rep.forEach(t=>{if(T2S[t])patched.add(T2S[t]);});
+    const fset=new Set((rc.flags_reached_cum||[]).map(String));
+    const escReach=fset.has('host')?3:fset.has('esc-host')?2:fset.has('esc-deploy')?1:0;
+    const hostPwned=fset.has('host');
+    if(rc.episode!==ep){ep=rc.episode;patched=new Set();escPatched=new Set();}
+    if(rc.patch_applied)rep.forEach(t=>{if(T2S[t])patched.add(T2S[t]);
+      if(/^T1610/.test(t))escPatched.add(1);if(/^T1611/.test(t))escPatched.add(2);});
     let reach;
     if(sr)reach=Math.max(...sr);
     else if(end==='flag'||end==='FLAG')reach=4;
@@ -307,7 +373,7 @@ function enrich(rounds){let ep=null,patched=new Set();
     return {ep:rc.episode,r:rc.round,end,verdict:rc.verdict||'inconclusive',reach,flagDepth,
       patched:new Set(patched),patchApplied:!!rc.patch_applied,defEnd:rc.defense_end_reason||'',
       rep,health:rc.healthcheck_passed,aSec:Math.round(rc.elapsed_attack_sec||0),dSec:Math.round(rc.elapsed_defense_sec||0),
-      det:rc.detection_cum||{}};});}
+      det:rc.detection_cum||{},escReach,hostPwned,escPatched:new Set(escPatched)};});}
 
 const li=(k,v)=>`<li><span>${k}</span><b>${v??'—'}</b></li>`;
 const tagset=arr=>arr.length?arr.map(t=>`<span class="mtag">${t}</span>`).join(''):'—';
@@ -335,8 +401,10 @@ function renderTiles(E,R){
   const mv=E.map(e=>e.mttd?.mean_rounds).filter(x=>x!=null),mttd=mv.length?mv.reduce((a,b)=>a+b)/mv.length:null;
   const av=E.map(e=>e.availability).filter(x=>x!=null),avail=av.length?av.reduce((a,b)=>a+b)/av.length:null;
   const blocked=R.filter(r=>r.verdict==='blocked').length;
+  const hostEps=new Set(R.filter(r=>r.hostPwned).map(r=>r.ep)).size;
   const T=(k,v,sub,cls)=>`<div class="tile ${cls||''}"><div class="k">${k}</div><div class="v">${v}${sub?` <small>${sub}</small>`:''}</div></div>`;
   $('tiles').innerHTML=T('에피소드',E.length)+T('라운드',R.length)+T('평균 깊이',num(avgD,1),'/ 4','a')+
+    T('호스트 장악',hostEps,`/ ${E.length} ep`,'a')+
     T('정밀도',pct(prec),'','d')+T('재현율',pct(rec))+T('MTTD',mttd==null?'—':num(mttd,1),mttd==null?'':'R')+
     T('가용성',pct(avail),'','d')+T('방어 성공',blocked,`/ ${R.length}`,'d');
 }
@@ -414,6 +482,7 @@ function render(rounds,episodes){
   $('empty').hidden=has||LIVE;
   const last=R.length?R[R.length-1]:null;
   setChain(last?last.reach:0,last?last.patched:new Set());
+  setEscape(last?last.escReach:0,last?last.escPatched:new Set(),last?last.hostPwned:false);
   renderCombat(last);
   renderTiles(E,R);
   const e2=E.map(e=>`E${e.episode}`);
@@ -459,7 +528,7 @@ $('start').onclick=async()=>{$('start').disabled=true;
   catch(e){$('runmeta').textContent='시작 실패: '+e.message;}$('start').disabled=false;poll();};
 $('stop').onclick=async()=>{try{await fetch('/api/run/stop',{method:'POST'});}catch(e){}poll();};
 
-buildChain();poll();setInterval(poll,2500);
+buildChain();buildEscape();poll();setInterval(poll,2500);
 let rz;addEventListener('resize',()=>{clearTimeout(rz);rz=setTimeout(()=>{if(LAST)render(LAST.rounds,LAST.episodes);},200);});
 </script>
 </body>
