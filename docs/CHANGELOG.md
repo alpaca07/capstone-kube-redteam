@@ -253,6 +253,17 @@ raw Bearer 라 admin-sa 로 인증. impersonation `--as` 로 RBAC 경로 검증.
 - *발견(발표 포인트)*: LLM 공격자는 인센티브만으론 탐색 방향은 바뀌나, obscure 다단계 벡터는
   breadcrumb 없이 못 뚫는다.
 
+**21:50 breadcrumb 재조정 (salience + executability)**: 부스러기 배포 후 재런했으나 공격자가
+runbook 의 노드 섹션을 **읽고도 무시**(admin-sa-token 조회·pods API 시도 '0건', grep 확인) —
+DB 얻고 더 어려운 호스트 목표를 안 쫓거나 DB 막히면 DB만 붙잡음(pivot 실패). = capability 아닌
+**salience 문제**. 두 레버 상향:
+- 목표 2단계·명시화(sequencer goal): "DB 얻은 뒤 멈추지 말고 노드로 상승, 런북 '노드 유지보수'
+  절차를 따르라".
+- 런북에 **실행 가능 레시피**(토큰 조회→`--post-data` 한 줄 JSON 으로 privileged/hostPath 파드
+  배포→`/pods/.../log` 회수). busybox wget HTTPS 로 되게 heredoc·리다이렉트 없이 구성.
+- *긍정 지표*: 이 재런에서 **정밀도 100%**(오탐 억제 먹힘) · 재현율 60% · 방어 1/3 차단.
+- 다음 확인: 발판 busybox wget 이 HTTPS POST 가능한지(안 되면 foothold 에 curl/kubectl 필요).
+
 ---
 
 ## 남은 숙제 (루프가 아니라 '숫자'·확장)
