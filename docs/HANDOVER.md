@@ -7,6 +7,14 @@
 
 ## 0. 한 줄 현황
 
+**[2026-10-24] Wave 1 취약점 확장 — 코드·테스트 완료(210 passed).** 메인 ①~④에 탈출 체인
+(T1610 Deploy Container→T1611 Escape to Host), 다경로 크레덴셜(T1552.001 평문 ConfigMap),
+Discovery 3종(T1046/T1613/T1069, detect-only)을 이식. 새 방어 어휘 `restrict_pod_security`
+(PodSecurity enforce=baseline) 추가. 채점은 `log_source` 매핑→`_build_truth` 자동 편입(선형
+깊이 ①~④ 불변). **배포 대기**: VM B `kubectl apply -f k8s/killchain/` + Falco values 재적용 +
+하네스 재시작. 설계 전문: [wave1-design.md](wave1-design.md). T1110 은 auth-로그 관측이 필요해
+Wave 1b 로 스테이징.
+
 **다중 에피소드 공진화 3×3 완주 — ABORT 0, rc=0 (2026-10-17 04:05 KST).** 3망 분리 + ② 활성화
 + 측정배관(#4·#6) + exec 타임아웃 픽스 위의 첫 완전 공진화 런. 대시보드 실시간 관제로 에피소드마다
 `R1 flag(깊이4)→patched→blocked, R2·R3 inconclusive` 관측 — **방어 실패 0**. 집계: 평균깊이 4/4,

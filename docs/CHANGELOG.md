@@ -175,6 +175,41 @@ FP·FN=①③ 감사 사각), MTTD 0R, 가용성 100%, blocked 3/9. 타임라인
 
 ---
 
+## 2026-10-24 — Wave 1 취약점 확장 (MITRE 공격면 확대)
+
+중간발표 이후. 메인 킬체인 ①~④에 **②에서 갈라지는 두 분기 + 다경로 크레덴셜**을 이식해 공격면을
+넓히고, '차단 가능' vs '탐지만 가능(Discovery)' 위협을 구분. 설계·결정 전문: [wave1-design.md](wave1-design.md).
+
+**WHAT / WHY (무엇을·왜)**
+- **T1610 Deploy Container + T1611 Escape to Host (체인)** — `admin-tools` 과권한에 `pods:create`
+  와 `admin-sa` classic 토큰 Secret 추가. *왜*: 공격자가 탈취 토큰으로 privileged/hostPath 파드를
+  배포→노드 탈출하는 현실적 경로. 기존 `restrict_rbac`(바인딩 삭제)가 ②+T1610 을 한 번에 막는 시너지.
+- **T1552.001 (평문 ConfigMap, 다경로 크레덴셜)** — `backend/legacy-db-config` 에 DB 비번 평문.
+  *왜*: 과권한이 Secret 만의 문제가 아님(ConfigMap 도 샌다)을 보여 `restrict_rbac` 의 가치를 키움.
+- **Discovery 채점 편입 (T1046/T1613/T1069, detect-only)** — Falco 포트스캔 룰 + 감사(네임스페이스
+  열거·auth can-i) 매핑. *왜*: 전용 차단 패치가 없는 '탐지 전용' 범주로 방어자의 **과잉 패치
+  억제(정밀도)**를 시험 → 탐지≠차단 주제 강화.
+- **새 방어 어휘 `restrict_pod_security`** — ns 에 PodSecurity `enforce=baseline`(privileged/
+  hostPath admission 거부). *왜*: T1611 예방. baseline 은 정상 파드를 안 깨 가용성 유지(restricted
+  는 과잉차단 함정).
+- **A2 리셋 보강** — 공격자 생성 파드(default 전삭제 + `created-by=attacker`) + PodSecurity 라벨
+  역산. *왜*: 공격자가 이제 상태를 바꾸므로(T1610) 에피소드 독립성 유지.
+
+**구현/채점 배선**: 신규 기법은 `orchestrator/log_source.py` 매핑만으로 `sequencer._build_truth`
+가 truth 에 자동 편입(탐지 TP/FP/FN). 확장 기법은 비-digit flag_id 라 선형 깊이(①~④) 불변.
+방어자 관측(observer/filter)은 제네릭이라 무수정으로 신규 신호 포착.
+
+**테스트**: 신규 8케이스 추가(audit/falco 매핑·render_op pod_security·baseline PSA 역산) →
+`tests/run_all.py` **210 passed, 0 failed**. 매니페스트 YAML·Falco 룰 파싱 검증.
+
+**스테이징(Wave 1b)**: T1110 Brute Force(약한 DB 크레덴셜)는 **postgres auth 로그**라는 새 관측
+소스가 필요(k8s 레이어에선 T1210 과 구분 불가) → VM B 배포 단계가 늘어 별도 증분으로 분리.
+
+**그날 끝:** 공격면이 ①~④ + 탈출 체인(T1610→T1611) + 다경로 크레덴셜 + Discovery 3종으로 확대.
+코드·테스트 완료, VM B/C 재적용·하네스 재시작으로 반영 대기(배포 메모: wave1-design §6).
+
+---
+
 ## 남은 숙제 (루프가 아니라 '숫자'·확장)
 
 - **①③ 관측(Falco)**: 현재 FP·FN 이 ①③(HTTP 단서·pod-to-pod)에서 발생 — 감사로그 사각.
@@ -183,3 +218,8 @@ FP·FN=①③ 감사 사각), MTTD 0R, 가용성 100%, blocked 3/9. 타임라인
   누적(군비경쟁=flag 깊이 하강 곡선) 전환 가능 — 서사 결정 후 배선.
 - **자동 기동(systemd) 완료 (2026-10-17)**: 대시보드·Falco/감사 동기(VM C)·Falco tail(VM B)을
   `docs/deploy/capstone-*.service` 로 영속화 → 재부팅 시 자동 기동·크래시 자동 복구(수동 nohup 제거).
+- **[Wave1b] T1110 Brute Force**: 약한 DB 크레덴셜 무차별 대입. postgres auth 로그(새 관측 소스)
+  필요 — `log_connections` 활성화 + tail 유닛 + `log_source` 3번째 reader. 설계는 wave1-design §5.
+- **[Wave1 배포]**: 코드·테스트는 끝. VM B `kubectl apply -f k8s/killchain/` + Falco values 재적용,
+  VM B/C 하네스 재시작으로 반영(배포 메모: wave1-design §6). `admin-sa-token` Secret 생성 확인.
+- **Wave 2/3 (후보)**: 공급망(악성 이미지/initContainer), 지속성(CronJob 백도어), 토큰 탈취 확대 등.
