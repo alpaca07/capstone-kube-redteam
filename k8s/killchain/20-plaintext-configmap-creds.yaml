@@ -1,0 +1,32 @@
+# [Wave1] 다경로 크레덴셜 (T1552.001 Unsecured Credentials: Credentials In Files)
+#
+# "흔한 실수": 레거시 백엔드가 DB 접속정보를 Secret 이 아니라 '평문 ConfigMap' 에 박아둠.
+#   (개발 중 급하게 넣고 Secret 으로 안 옮긴 전형적 케이스.)
+#
+# 왜 두는가(설계): 기존 ① 경로는 internal-wiki 런북 → admin-dashboard /internal/secret 로 'Secret'
+#   을 읽는다. 여기에 '두 번째 독립 크레덴셜 소스'를 더한다 — 과권한 admin-sa 토큰(admin-tools 는
+#   configmaps get/list 도 가진다)을 탈취하면 이 ConfigMap 을 k8s API 로 직접 읽어 같은 DB 비번을
+#   얻는다. 교훈: 과권한은 Secret 만의 문제가 아니다(ConfigMap 으로도 샌다) → 방어자는 Secret 잠금
+#   만으로 부족하고 restrict_rbac(바인딩 삭제)로 '조회 권한 자체'를 줄여야 두 경로가 함께 막힌다.
+#
+# god-view 채점: 탈취 토큰의 `admin-sa get/list configmaps` 가 감사로그에 뜬다 → T1552.001.
+#   (admin-dashboard 는 자기 코드 ConfigMap 을 '볼륨 마운트'로 쓰지 API 로 get 하지 않으므로,
+#    admin-sa 의 configmap API 조회는 정상 트래픽에 없다 = 공격자 신호로 결정적.)
+#
+# 베이스라인 리셋: killchain/ 디렉터리째 재적용되므로 이 ConfigMap 도 매 에피소드 복구된다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: legacy-db-config
+  namespace: backend
+  labels:
+    app.kubernetes.io/part-of: capstone-killchain
+    role: plaintext-credentials
+data:
+  # ★ 평문 노출: Secret 에 있어야 할 접속 문자열이 ConfigMap 에 그대로. appuser/devpassword123
+  #   은 database/postgres-credentials Secret 과 동일한 '진짜' 크레덴셜 → ④ 로 가는 또 다른 열쇠.
+  DATABASE_URL: "postgresql://appuser:devpassword123@postgres.database.svc.cluster.local:5432/customerdb"
+  DB_HOST: "postgres.database.svc.cluster.local"
+  DB_USER: "appuser"
+  DB_PASSWORD: "devpassword123"
+  NOTE: "TODO(legacy): move these to a Secret before prod — 아직 안 옮김(취약점)"

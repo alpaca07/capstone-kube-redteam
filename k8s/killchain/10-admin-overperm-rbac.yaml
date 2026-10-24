@@ -2,6 +2,14 @@
 # "흔한 실수": 사내 관리 대시보드에 "가시성 확보용"으로 넓은 조회 권한을 붙임.
 # admin-dashboard 파드가 이 SA 토큰을 들고 있어, 침해 시 전 네임스페이스 Secret(= DB 크레덴셜)을
 # 읽고 타 NS를 정찰할 수 있다 → ④ 목표로 가는 또 다른 경로.
+#
+# [Wave1 확장] 이 과권한에 두 가지를 더한다(여전히 "관리 편의 과권한"의 전형):
+#   (a) pods: create  — 탈취된 admin-sa 토큰으로 privileged/hostPath 파드 배포(T1610 Deploy
+#       Container) → 호스트 탈출(T1611)의 발판. 방어: restrict_rbac(바인딩 삭제→create 봉쇄)
+#       + restrict_pod_security(ns PodSecurity enforce=baseline→admission 차단).
+#   (b) admin-sa 의 classic(비만료) 토큰 Secret — admin-dashboard 의 /internal/secret 엔드포인트가
+#       이 Secret 을 읽어주면 공격자가 "재사용 가능한 admin-sa Bearer 토큰"을 손에 넣어 k8s API 를
+#       직접 호출(pod 생성)할 수 있다. (bound 토큰은 파드 안에만 있어 공격자가 못 꺼냄 → classic 필요.)
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -19,10 +27,17 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "list"]
-  # 타 네임스페이스 정찰 (서비스·파드·네임스페이스 열거)
+  # 타 네임스페이스 정찰 (서비스·컨피그맵·네임스페이스 열거)
+  #   configmaps get/list = Wave1 '다경로 크레덴셜': 평문 크레덴셜이 담긴 ConfigMap 을
+  #   탈취 토큰으로 읽는 경로(T1552.001) — Secret 만 잠가선 못 막는다(configmap 도 샌다).
   - apiGroups: [""]
-    resources: ["pods", "services", "configmaps", "namespaces"]
+    resources: ["services", "configmaps", "namespaces"]
     verbs: ["get", "list"]
+  # ★ 위험(Wave1 T1610 Deploy Container): pod 생성 권한. 탈취된 admin-sa 토큰으로 privileged/
+  #   hostPath 파드를 배포해 노드(호스트)로 탈출(T1611)하는 발판. get/list 는 정찰용(유지).
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -37,3 +52,20 @@ subjects:
   - kind: ServiceAccount
     name: admin-sa
     namespace: internal
+---
+# [Wave1] admin-sa 의 classic(비만료) 토큰 Secret.
+#   왜 필요한가: 공격자가 pod 를 생성(T1610)하려면 k8s API 를 직접 호출할 '재사용 가능한' admin-sa
+#   토큰이 있어야 한다. admin-dashboard 에 자동 마운트되는 bound 토큰은 그 파드 파일시스템 안에만
+#   있어 공격자가 못 꺼낸다(발판 SA 는 frontend exec 전용). 대신 admin-dashboard 의 confused-deputy
+#   /internal/secret/internal/admin-sa-token 엔드포인트가 이 Secret 을 읽어주면 → 공격자가 토큰
+#   JWT 를 손에 넣어(base64 디코드) Bearer 로 API 에 pod 를 POST 할 수 있다.
+#   방어: restrict_rbac 로 admin-tools-binding 삭제 시 이 토큰도 권한을 잃어 pod 생성이 403.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: admin-sa-token
+  namespace: internal
+  labels: { app.kubernetes.io/part-of: capstone-killchain }
+  annotations:
+    kubernetes.io/service-account.name: admin-sa
+type: kubernetes.io/service-account-token

