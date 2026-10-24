@@ -94,17 +94,18 @@ def _escape_attack() -> AttackTurnResult:
         attack_summary="②토큰탈취→T1610 배포→T1611 탈출 + ④ FLAG", elapsed_sec=1.0)
 
 
-def _seq(defense: DefenseTurnResult):
+def _seq(defense: DefenseTurnResult, *, attack: AttackTurnResult = None,
+         flag4: str = "FLAG{win}", host: str = None):
     attacker = FakeAttackerClient(
         replay_by_phase={
             PRE: ReplayResult(phase=PRE, overall_success=True,
                               steps_result=[StepReplayRec(step=3, success=True)]),
             POST: ReplayResult(phase=POST, overall_success=False,          # 패치 후 ④ 재생 실패 → BLOCKED
                                steps_result=[StepReplayRec(step=3, success=False)])},
-        attack_result=_escape_attack())
+        attack_result=attack or _escape_attack())
     defender = FakeDefenderClient(defense_result=defense)
     snaps = FakeBaseline(existing=["clean-baseline"])
-    registry = default_registry("FLAG{win}")
+    registry = default_registry(flag4, host)
     verifier = VerificationEngine(attacker, defender, snaps, registry)
     truth = TruthLog()
     captured: list[dict] = []
@@ -158,6 +159,43 @@ def test_discovery_reported_counts_as_tp():
     seq.run_episode(1)
     det = ctx["captured"][0]["detection_cum"]
     assert det["tp"] == 2 and det["fp"] == 0, det   # 둘 다 truth 에 있음 → TP, 오탐 0
+
+
+# ───────────── 호스트 objective (크라운 주얼, 값대조) ─────────────
+def _attack_db_and_host() -> AttackTurnResult:
+    # 하네스는 찾은 FLAG 를 전부 flag_id="4" 로 보고(하드코딩) — god-view 가 '값'으로 구분해야 함.
+    return AttackTurnResult(
+        end_reason=AttackEndReason.FLAG,
+        flags_obtained=[FlagObtained(flag_id="4", value="FLAG{db1}", step=3),
+                        FlagObtained(flag_id="4", value="FLAG{host1}", step=5)],
+        replay_script=_escape_script(),
+        attack_summary="DB ④ + 호스트 탈출 objective 둘 다", elapsed_sec=1.0)
+
+
+def test_match_value_identifies_objective_by_value():
+    reg = default_registry("FLAG{db_xyz}", "FLAG{host_abc}")
+    assert reg.match_value("FLAG{db_xyz}") == "4"         # 값으로 ④ 식별
+    assert reg.match_value("FLAG{host_abc}") == "host"    # 값으로 호스트 objective 식별
+    assert reg.match_value("FLAG{unknown}") is None       # 안 심은 값은 매칭 안 됨(추측 금지)
+    assert {s.flag_id for s in reg.objectives()} == {"4", "host"}
+    assert reg.get("host").mitre == "T1005"
+
+
+def test_host_objective_scored_end_to_end():
+    # DB(④)·호스트 FLAG 를 둘 다 '값'으로 보고(하네스는 flag_id="4" 하드코딩) → god-view 가 값으로
+    # 각 objective 식별 → 'host'(T1005) + ④(T1213) 둘 다 truth. 선형 깊이는 digit(④)만.
+    defense = DefenseTurnResult(
+        patch_applied=True, end_reason=DefenseEndReason.PATCHED,
+        detected=[Detection(technique="T1611", evidence="falco escape")],  # 탈출 실제 발생 → TP
+        healthcheck_passed=True, elapsed_sec=1.0)
+    seq, ctx = _seq(defense, attack=_attack_db_and_host(), flag4="FLAG{db1}", host="FLAG{host1}")
+    summary = seq.run_episode(1)
+    entry = ctx["truth"].entries(1)[0]
+    assert "host" in entry.flags_reached and "4" in entry.flags_reached   # 두 크라운 주얼 달성
+    assert "T1005" in entry.techniques() and "T1213" in entry.techniques()
+    assert summary.max_flag_depth == 4            # 선형 깊이는 digit(④)만 — 'host'(비-digit) 안 흐림
+    det = ctx["captured"][0]["detection_cum"]
+    assert det["tp"] == 1 and det["fp"] == 0      # 탈출 실발생 → T1611 보고는 정탐(오탐 아님)
 
 
 # ───────────── 자체 러너 ─────────────

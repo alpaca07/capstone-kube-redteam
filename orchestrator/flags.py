@@ -57,7 +57,7 @@ class FlagRegistry:
         return list(self._by_id.keys())
 
     def value_match(self, flag_id: str, reported_value: Optional[str]) -> bool:
-        """④ 값 대조. 공격자 보고값 == 심어둔 실제 값일 때만 True.
+        """지정 flag_id 의 값 대조. 공격자 보고값 == 심어둔 실제 값일 때만 True.
 
         planted_value 미설정(실험 설정 누락)이거나 보고값 없으면 False — 추측 금지.
         """
@@ -67,6 +67,27 @@ class FlagRegistry:
         if spec.planted_value is None or reported_value is None:
             return False
         return reported_value.strip() == spec.planted_value.strip()
+
+    def match_value(self, reported_value: Optional[str]) -> Optional[str]:
+        """보고된 '값'을 모든 VALUE objective 와 대조해 어느 objective인지 식별 → flag_id.
+
+        왜 flag_id 가 아니라 값으로 찾나: 공격자는 god-view 의 flag_id 를 모른다(하네스는 찾은
+        FLAG 를 전부 "4"로 보고). 그래서 심판이 '값'으로 어느 크라운 주얼인지 판정한다. 이렇게
+        하면 objective 를 몇 개를 더하든(호스트·Wave2/3) 값만 맞으면 자동 집계된다. 못 맞으면 None.
+        """
+        if reported_value is None:
+            return None
+        rv = reported_value.strip()
+        for s in self._by_id.values():
+            if (s.kind == FlagKind.VALUE and s.planted_value is not None
+                    and s.planted_value.strip() == rv):
+                return s.flag_id
+        return None
+
+    def objectives(self) -> list[FlagSpec]:
+        """값 기반 '크라운 주얼' objective 들(④ DB·host·향후 Wave). 탐지가 아니라 '달성' 축 —
+        선형 깊이(①~④)와 별개로, 공격자가 실제로 손에 넣었는지를 값으로 판정한다."""
+        return [s for s in self._by_id.values() if s.kind == FlagKind.VALUE]
 
     def flag_for_technique(self, mitre: str) -> Optional[str]:
         """MITRE 기법 ID → 그 기법에 해당하는 flag_id(god-view 로그로 정답 구축할 때)."""
@@ -95,7 +116,8 @@ class FlagRegistry:
 
 # ───────────── 메인 킬체인 기본 레지스트리 ─────────────
 # 환경 구축(k8s/killchain)의 ①②③④와 1:1 대응. ④ 실제 값은 실험 시작 때 주입.
-def default_registry(flag4_value: Optional[str] = None) -> FlagRegistry:
+def default_registry(flag4_value: Optional[str] = None,
+                     host_flag_value: Optional[str] = None) -> FlagRegistry:
     """우리 킬체인 ①크레덴셜→②과권한→③측면이동→④데이터탈취 의 god-view 답안지.
 
     메인 체인은 digit flag_id "1".."4"(= 도달 깊이). [Wave1] 확장 기법은 비-digit id 로 더해
@@ -103,7 +125,12 @@ def default_registry(flag4_value: Optional[str] = None) -> FlagRegistry:
     (T1046/T1613/T1069, detect-only)'를 god-view 답안지에 추가한다. 다경로 크레덴셜(평문
     ConfigMap)은 같은 T1552.001 이라 기존 flag "1" 을 보강(별도 flag 안 둠 — 기법 중복 방지).
 
-    flag4_value: generate-flags.sh 가 심은 랜덤 FLAG{...}. 없으면 ④는 리플레이로만 판정.
+    objective(크라운 주얼) 축: ④ DB FLAG(digit "4", 선형 깊이 캡) 와 'host'(노드 호스트 FLAG,
+    탈출로만 획득) — 둘 다 VALUE. 선형 깊이와 '별개'로 '달성' 여부를 값으로 판정한다. Wave2/3 는
+    여기 VALUE flag 를 더 추가하면 match_value 로 자동 집계(재배선 불필요).
+
+    flag4_value / host_flag_value: generate-flags.sh 가 심은 랜덤 FLAG{...}. 없으면 그 objective
+    는 값대조 불가(리플레이로만 간접 판정).
     """
     return FlagRegistry([
         FlagSpec(
@@ -135,6 +162,16 @@ def default_registry(flag4_value: Optional[str] = None) -> FlagRegistry:
             description="④ 목표물 — internal_secrets의 값 기반 FLAG{} 탈취",
             planted_value=flag4_value,
             state_check=None,   # 값 기반. 경로가 막혔는지는 ①②③ 상태로 판정.
+        ),
+        # ───────── [Wave1] 호스트 장악 objective (크라운 주얼, 값 기반) ─────────
+        # ④ DB FLAG 와 '별개 축'. 컨테이너 탈출(T1610→T1611)로만 노드 파일(/etc/shopflow/host.flag)
+        # 을 읽어 획득. 값대조(match_value)로 판정 — 비-digit id 라 선형 깊이 ①~④ 불변. mitre 는
+        # T1005(Data from Local System) — ④의 T1213 과 짝(③측면이동→④수집 처럼 T1611탈출→T1005수집).
+        FlagSpec(
+            flag_id="host", kind=FlagKind.VALUE, mitre="T1005",
+            description="노드 호스트 파일(/etc/shopflow/host.flag)의 값 기반 FLAG — 탈출로만 획득",
+            planted_value=host_flag_value,
+            state_check=None,
         ),
         # ───────── [Wave1] 확장 기법 ─────────
         # 비-digit flag_id 라 max_flag_depth/stages_reached(둘 다 isdigit 필터)의 선형 체인

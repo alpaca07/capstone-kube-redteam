@@ -34,19 +34,29 @@ from orchestrator.truth_log import TruthLog  # noqa: E402
 from orchestrator.verifier import VerificationEngine  # noqa: E402
 
 
-def load_flag4(path: str) -> Optional[str]:
-    """generate-flags.sh가 심은 ④ 값을 읽음(gitignore된 secret). `FLAG_4=...` 또는 bare FLAG{...}."""
+def _load_flag_var(path: str, var: str, *, bare_ok: bool) -> Optional[str]:
+    """flag-values.secret 에서 `<var>=값` 을 읽음. bare_ok 면 `FLAG{...}` 단독 줄도 허용."""
     try:
         with open(path, encoding="utf-8") as f:
             for raw in f:
                 line = raw.strip()
-                if line.startswith("FLAG_4="):
+                if line.startswith(var + "="):
                     return line.split("=", 1)[1].strip().strip('"').strip("'")
-                if line.startswith("FLAG{"):
+                if bare_ok and line.startswith("FLAG{"):
                     return line
     except FileNotFoundError:
         return None
     return None
+
+
+def load_flag4(path: str) -> Optional[str]:
+    """generate-flags.sh가 심은 ④ 값을 읽음(gitignore된 secret). `FLAG_4=...` 또는 bare FLAG{...}."""
+    return _load_flag_var(path, "FLAG_4", bare_ok=True)
+
+
+def load_flag_host(path: str) -> Optional[str]:
+    """[Wave1] 노드 호스트 objective 값. 같은 secret 의 `FLAG_HOST=...` (bare 폴백 없음)."""
+    return _load_flag_var(path, "FLAG_HOST", bare_ok=False)
 
 
 def _build_snapshots(cfg: Config):
@@ -74,6 +84,7 @@ def _build_snapshots(cfg: Config):
 
 
 def build_sequencer(cfg: Config, *, flag4_value: Optional[str] = None,
+                    host_flag_value: Optional[str] = None,
                     sink=None, params: Optional[RunParams] = None) -> TurnSequencer:
     """config + 실 어댑터로 턴 시퀀서 조립(I/O 없음 — 실제 연결은 run_experiment에서)."""
     attacker = HttpAttackerClient(cfg.network.attacker_url, token=cfg.network.shared_token)
@@ -85,7 +96,7 @@ def build_sequencer(cfg: Config, *, flag4_value: Optional[str] = None,
         runner=kubectl_runner(cfg.target.kubeconfig or None),
         manifest_paths=(str(_ROOT / "k8s" / "killchain"),),
         baseline_name=cfg.vmware.baseline_snapshot)
-    registry = default_registry(flag4_value)
+    registry = default_registry(flag4_value, host_flag_value)
     verifier = VerificationEngine(attacker, defender, baseline, registry)
     logs = AuditFalcoLogSource(file_line_reader(cfg.observability.audit_log_path),
                                file_line_reader(cfg.observability.falco_log_path))
@@ -140,6 +151,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     cfg = load_config(args.config)
     flag4 = load_flag4(args.flag_file)
+    flag_host = load_flag_host(args.flag_file)       # [Wave1] 노드 호스트 objective 값
     params = _params_from_args(cfg, args)
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -147,12 +159,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     episodes_path = os.path.join(args.out_dir, "episodes.jsonl")
     sink = jsonl_file_sink(rounds_path)
 
-    seq = build_sequencer(cfg, flag4_value=flag4, sink=sink, params=params)
+    seq = build_sequencer(cfg, flag4_value=flag4, host_flag_value=flag_host,
+                          sink=sink, params=params)
 
     print(f"[*] 실험 시작: episodes={params.episodes} max_rounds={params.max_rounds} "
           f"time_limit={params.time_limit_sec}s "
           f"max_tokens={params.max_tokens if params.max_tokens is not None else '무제한(config 기본)'} "
-          f"flag4={'로드됨' if flag4 else '없음(리플레이로만 ④판정)'}")
+          f"flag4={'로드됨' if flag4 else '없음(리플레이로만 ④판정)'} "
+          f"flag_host={'로드됨' if flag_host else '없음(호스트 objective 값대조 불가)'}")
     print(f"    대상 VM={cfg.vmware.target_vm_name} baseline={params.baseline_snapshot}")
     print(f"    공격자={cfg.network.attacker_url}  방어자={cfg.network.defender_url}")
     foothold_desc = (f"in-cluster exec({cfg.attack.exec_namespace}/{cfg.attack.exec_pod})"
