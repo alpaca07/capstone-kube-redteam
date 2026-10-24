@@ -135,9 +135,13 @@ class ReActLoop:
                 self.log(f"[raw step {i+1}] thought={action.thought!r}")
                 self.log(f"[raw step {i+1}] cmd={_full!r}")
             if obs.flag_found:
-                flags.append(FlagObtained(flag_id="4", value=obs.flag_found, step=obs.step))
-                end = AttackEndReason.FLAG
-                break
+                # [멀티-objective] 첫 FLAG 에서 멈추지 않는다 — 목표가 여럿(DB FLAG + 노드 호스트
+                # FLAG 등)일 수 있으므로, 예산이 남는 한 계속 탐색해 추가 objective 를 노린다.
+                # 종료는 timeout/max_steps/give_up/perseveration 이 담당. 같은 값 FLAG 는 재기록 안 함
+                # (god-view 는 값으로 objective 를 식별하므로 서로 다른 값만 의미 있음).
+                if obs.flag_found not in {f.value for f in flags}:
+                    flags.append(FlagObtained(flag_id="4", value=obs.flag_found, step=obs.step))
+                    end = AttackEndReason.FLAG
             # perseveration 가드: 성공(exit0)하면 리셋, 실패(차단·거부·오류) 누적. 연속 실패가
             # 한계면 '방어된 경로에 갇힘'으로 조기 종료(막힌 명령 반복으로 라운드를 갈아먹지 않게).
             if obs.success:

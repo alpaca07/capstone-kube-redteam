@@ -37,6 +37,18 @@ class FakeRunner:
         return CommandResult(exit_code=0, stdout=self.stdout)
 
 
+class TwoFlagRunner:
+    """1번째 호출은 DB FLAG, 이후는 호스트 FLAG stdout — 멀티 objective 수집 테스트용."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def run(self, tool, args, *, stdin=None, timeout=None):
+        self.calls += 1
+        out = "db=FLAG{db1}" if self.calls == 1 else "host=FLAG{host1}"
+        return CommandResult(exit_code=0, stdout=out)
+
+
 class FakeLLM:
     """scripted: 호출별 동작 리스트. ('ok', json[, finish]) 은 그 JSON 반환(finish 기본 'stop'),
     ('timeout',) 은 LLMTimeout. 마지막 항목을 넘어가면 반복. 각 호출의 timeout·max_tokens 기록."""
@@ -126,6 +138,19 @@ def test_flag_found_still_terminates_flag():
     res = _loop(llm, stdout="secret=FLAG{smoke}").run(foothold={"attack_endpoint": "10.0.0.1"})
     assert res.end_reason == AttackEndReason.FLAG, res.end_reason
     assert any(f.value == "FLAG{smoke}" for f in res.flags_obtained)
+
+
+def test_multi_objective_does_not_stop_on_first_flag():
+    # [멀티-objective] 첫 FLAG(DB) 에서 멈추지 않고 계속 탐색 → 두 번째 FLAG(호스트)도 수집.
+    #   (예전엔 첫 FLAG 에서 break → 호스트 탈출을 시도조차 못 했음.)
+    llm = FakeLLM([("ok", _FLAG_ACTION)])
+    ex = ActionExecutor(TwoFlagRunner(), scope_policy=default_policy(),
+                        session_id="t", episode=1, round=1)
+    res = ReActLoop(llm, ex, AttackHistory(), system_prompt="s", goal="g",
+                    time_limit_sec=300.0, max_steps=4).run(foothold={"attack_endpoint": "10.0.0.1"})
+    vals = [f.value for f in res.flags_obtained]
+    assert "FLAG{db1}" in vals and "FLAG{host1}" in vals, vals     # 두 objective 다 수집
+    assert vals.count("FLAG{host1}") == 1                          # 중복 재기록 안 함(값 단위 dedup)
 
 
 def test_persistent_parse_fail_is_deadend_not_error():
