@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1300 660" width="1300" height="660"><rect x="0" y="0" width="1300" height="660" fill="#0b0e16"/><defs><marker id="ah-atk" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#fb5569"/></marker><marker id="ah-def" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3f93f5"/></marker><marker id="ah-sys" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7f8aa3"/></marker><marker id="ah-mut" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6b7794"/></marker><marker id="ah-gold" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#ffb020"/></marker></defs><text x="40" y="38" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="18" font-weight="700" fill="#6aa9ff" text-anchor="start">VM B · 대상 클러스터 + 방어 하네스</text>
+<rect x="560" y="23" width="13" height="13" rx="3" ry="3" fill="#fb5569"/>
+<text x="579" y="34" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">공격</text>
+<rect x="621.54" y="23" width="13" height="13" rx="3" ry="3" fill="#3f93f5"/>
+<text x="640.54" y="34" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">대상·방어</text>
+<rect x="712.06" y="23" width="13" height="13" rx="3" ry="3" fill="#7f8aa3"/>
+<text x="731.06" y="34" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">시스템</text>
+<rect x="784.8699999999999" y="23" width="13" height="13" rx="3" ry="3" fill="#2a1420" stroke="#fb5569" stroke-width="1.5" stroke-dasharray="3,2"/>
+<text x="803.8699999999999" y="34" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">취약점</text>
+<rect x="40" y="70" width="900" height="560" rx="14" ry="14" fill="#0f1522" stroke="#3f93f5" stroke-width="2.3"/>
+<rect x="40" y="70" width="900" height="34" rx="14" ry="14" fill="#0c1220"/>
+<text x="58" y="93" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="15.5" font-weight="700" fill="#6aa9ff" text-anchor="start">VM B · 대상 클러스터 + 방어 하네스</text>
+<text x="922" y="92" font-family="ui-monospace,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="11" font-weight="400" fill="#9aa6bd" text-anchor="end">defender/ · k8s/</text>
+<rect x="60" y="120" width="420" height="490" rx="10" ry="10" fill="#0f1c2e" stroke="#3f93f5" stroke-width="1.4"/>
+<rect x="61.5" y="126" width="3" height="478" rx="1.5" ry="1.5" fill="#3f93f5"/>
+<text x="75" y="141" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13.5" font-weight="600" fill="#6aa9ff" text-anchor="start">k3s 취약 클러스터 · ShopFlow (이커머스)</text>
+<rect x="431.6" y="128" width="36.400000000000006" height="17" rx="5" ry="5" fill="#0c121e" stroke="#283350" stroke-width="1"/>
+<text x="449.8" y="140" font-family="ui-monospace,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="10" font-weight="400" fill="#9aa6bd" text-anchor="middle">k8s/</text>
+<rect x="76" y="162" width="388" height="46" rx="10" ry="10" fill="#141b2a" stroke="#283350" stroke-width="1.4"/>
+<rect x="77.5" y="168" width="3" height="34" rx="1.5" ry="1.5" fill="#6b7794"/>
+<text x="91" y="183" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#e9edf6" text-anchor="start">frontend · 발판 파드(공격 진입)</text>
+<rect x="76" y="162" width="388" height="46" rx="10" ry="10" fill="#1a1420" stroke="#fb5569" stroke-width="1.5"/>
+<text x="91" y="186" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#ff8591" text-anchor="start">frontend · 발판 파드 (공격자 진입점)</text>
+<rect x="76" y="220" width="388" height="40" rx="10" ry="10" fill="#141b2a" stroke="#283350" stroke-width="1.4"/>
+<rect x="77.5" y="226" width="3" height="28" rx="1.5" ry="1.5" fill="#6b7794"/>
+<text x="91" y="241" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="600" fill="#e9edf6" text-anchor="start">backend (catalog·order·auth) / database / internal</text>
+<rect x="76" y="272" width="388" height="150" rx="10" ry="10" fill="#2a1420" stroke="#fb5569" stroke-width="2.0" stroke-dasharray="5,4"/>
+<rect x="77.5" y="278" width="3" height="138" rx="1.5" ry="1.5" fill="#fb5569"/>
+<text x="91" y="293" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12.5" font-weight="600" fill="#ff8591" text-anchor="start">심은 취약점 (킬체인 ①~④ + Wave1 분기)</text>
+<text x="91" y="311" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.3" font-weight="400" fill="#9aa6bd" text-anchor="start">① T1552.001 크레덴셜 노출  ② T1078 과권한 SA</text>
+<text x="91" y="327.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.3" font-weight="400" fill="#9aa6bd" text-anchor="start">③ T1210 NetPol 부재  ④ T1213 내부 Secret</text>
+<text x="91" y="344.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.3" font-weight="400" fill="#9aa6bd" text-anchor="start">탈출: T1610→T1611  ·  다경로 T1552.001(ConfigMap)</text>
+<text x="91" y="360.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.3" font-weight="400" fill="#9aa6bd" text-anchor="start">정찰: T1046 / T1613 / T1069 (탐지 전용)</text>
+<rect x="76" y="434" width="388" height="40" rx="10" ry="10" fill="#141b2a" stroke="#283350" stroke-width="1.4"/>
+<rect x="77.5" y="440" width="3" height="28" rx="1.5" ry="1.5" fill="#6b7794"/>
+<text x="91" y="455" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#e9edf6" text-anchor="start">Falco · 런타임 침입 탐지 (탈출·포트스캔 룰)</text>
+<rect x="76" y="486" width="388" height="40" rx="10" ry="10" fill="#141b2a" stroke="#283350" stroke-width="1.4"/>
+<rect x="77.5" y="492" width="3" height="28" rx="1.5" ry="1.5" fill="#6b7794"/>
+<text x="91" y="507" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#e9edf6" text-anchor="start">k3s 감사로그 + Falco 로그 → god-view 공급</text>
+<rect x="500" y="120" width="420" height="490" rx="10" ry="10" fill="#0f1c2e" stroke="#3f93f5" stroke-width="1.4"/>
+<rect x="501.5" y="126" width="3" height="478" rx="1.5" ry="1.5" fill="#3f93f5"/>
+<text x="515" y="141" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13.5" font-weight="600" fill="#6aa9ff" text-anchor="start">방어 하네스 · 관측 → 추론 → 패치</text>
+<rect x="843.6" y="128" width="64.4" height="17" rx="5" ry="5" fill="#0c121e" stroke="#283350" stroke-width="1"/>
+<text x="875.8" y="140" font-family="ui-monospace,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="10" font-weight="400" fill="#9aa6bd" text-anchor="middle">defender/</text>
+<rect x="516" y="162" width="388" height="40" rx="10" ry="10" fill="#141b2a" stroke="#283350" stroke-width="1.4"/>
+<rect x="517.5" y="168" width="3" height="28" rx="1.5" ry="1.5" fill="#6b7794"/>
+<text x="531" y="183" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#e9edf6" text-anchor="start">server.py · HTTP 서버 (:8000)</text>
+<rect x="516" y="214" width="388" height="54" rx="10" ry="10" fill="#141b2a" stroke="#283350" stroke-width="1.4"/>
+<rect x="517.5" y="220" width="3" height="42" rx="1.5" ry="1.5" fill="#6b7794"/>
+<text x="531" y="235" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#e9edf6" text-anchor="start">observer.py · 관측 레이어</text>
+<text x="531" y="253" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.3" font-weight="400" fill="#9aa6bd" text-anchor="start">감사로그 · Falco · 클러스터 상태 수집</text>
+<rect x="516" y="280" width="388" height="46" rx="10" ry="10" fill="#141b2a" stroke="#283350" stroke-width="1.4"/>
+<rect x="517.5" y="286" width="3" height="34" rx="1.5" ry="1.5" fill="#6b7794"/>
+<text x="531" y="301" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#e9edf6" text-anchor="start">filter.py · 노이즈 필터 (baseline diff·룰)</text>
+<rect x="516" y="338" width="388" height="54" rx="10" ry="10" fill="#141b2a" stroke="#283350" stroke-width="2.0"/>
+<rect x="517.5" y="344" width="3" height="42" rx="1.5" ry="1.5" fill="#6b7794"/>
+<text x="531" y="359" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#e9edf6" text-anchor="start">triage.py · LLM 트리아지 (일반 모델)</text>
+<text x="531" y="377" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.3" font-weight="400" fill="#9aa6bd" text-anchor="start">탐지 판단 → DGX(.111) Ollama</text>
+<rect x="516" y="404" width="388" height="54" rx="10" ry="10" fill="#141b2a" stroke="#283350" stroke-width="1.4"/>
+<rect x="517.5" y="410" width="3" height="42" rx="1.5" ry="1.5" fill="#6b7794"/>
+<text x="531" y="425" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#e9edf6" text-anchor="start">patcher.py · 패치 세트 적용</text>
+<text x="531" y="443" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.3" font-weight="400" fill="#9aa6bd" text-anchor="start">atomic 적용 + 헬스체크 (라운드당 1회)</text>
+<rect x="516" y="470" width="388" height="46" rx="10" ry="10" fill="#141b2a" stroke="#283350" stroke-width="1.4"/>
+<rect x="517.5" y="476" width="3" height="34" rx="1.5" ry="1.5" fill="#6b7794"/>
+<text x="531" y="491" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#e9edf6" text-anchor="start">state_query.py · 상태조회 핸들러</text>
+<rect x="516" y="528" width="388" height="40" rx="10" ry="10" fill="#141b2a" stroke="#283350" stroke-width="1.4"/>
+<rect x="517.5" y="534" width="3" height="28" rx="1.5" ry="1.5" fill="#6b7794"/>
+<text x="531" y="549" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="600" fill="#e9edf6" text-anchor="start">패치 어휘: NetworkPolicy·RBAC·PodSecurity·delete</text>
+<rect x="1080" y="120" width="200" height="70" rx="10" ry="10" fill="#20141c" stroke="#fb5569" stroke-width="1.4"/>
+<rect x="1081.5" y="126" width="3" height="58" rx="1.5" ry="1.5" fill="#fb5569"/>
+<text x="1095" y="141" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13" font-weight="600" fill="#ff8591" text-anchor="start">VM A · 공격</text>
+<text x="1095" y="159" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.3" font-weight="400" fill="#9aa6bd" text-anchor="start">발판 exec</text>
+<rect x="1080" y="300" width="200" height="70" rx="10" ry="10" fill="#171d29" stroke="#495472" stroke-width="1.4"/>
+<rect x="1081.5" y="306" width="3" height="58" rx="1.5" ry="1.5" fill="#7f8aa3"/>
+<text x="1095" y="321" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13" font-weight="600" fill="#aab4c9" text-anchor="start">DGX Spark</text>
+<text x="1095" y="339" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.3" font-weight="400" fill="#9aa6bd" text-anchor="start">일반 (.111)</text>
+<rect x="1080" y="470" width="200" height="86" rx="10" ry="10" fill="#171d29" stroke="#495472" stroke-width="1.4"/>
+<rect x="1081.5" y="476" width="3" height="74" rx="1.5" ry="1.5" fill="#7f8aa3"/>
+<text x="1095" y="491" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13" font-weight="600" fill="#aab4c9" text-anchor="start">VM C · 심판</text>
+<text x="1095" y="509" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.3" font-weight="400" fill="#9aa6bd" text-anchor="start">관측 로그 →</text>
+<text x="1095" y="525.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.3" font-weight="400" fill="#9aa6bd" text-anchor="start">패치/리셋 ←</text>
+<polyline points="940,150 1080,150" fill="none" stroke="#fb5569" stroke-width="2.2" marker-end="url(#ah-atk)" marker-start="url(#ah-atk)" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="986.3" y="140.0" width="47.400000000000006" height="20" rx="10.0" ry="10.0" fill="#0c121e" stroke="#39466c" stroke-width="1"/>
+<text x="1010" y="153.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="500" fill="#ff8591" text-anchor="middle">공격망</text>
+<polyline points="940,335 1080,335" fill="none" stroke="#3f93f5" stroke-width="2" stroke-dasharray="6,5" marker-end="url(#ah-def)" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="986.3" y="325.0" width="47.400000000000006" height="20" rx="10.0" ry="10.0" fill="#0c121e" stroke="#39466c" stroke-width="1"/>
+<text x="1010" y="338.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="500" fill="#6aa9ff" text-anchor="middle">모델망</text>
+<polyline points="940,505 1080,505" fill="none" stroke="#7f8aa3" stroke-width="2" marker-end="url(#ah-sys)" marker-start="url(#ah-sys)" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="986.3" y="495.0" width="47.400000000000006" height="20" rx="10.0" ry="10.0" fill="#0c121e" stroke="#39466c" stroke-width="1"/>
+<text x="1010" y="508.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="500" fill="#9aa6bd" text-anchor="middle">관리망</text></svg>

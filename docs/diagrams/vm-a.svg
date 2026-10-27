@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600"><rect x="0" y="0" width="1200" height="600" fill="#0b0e16"/><defs><marker id="ah-atk" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#fb5569"/></marker><marker id="ah-def" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3f93f5"/></marker><marker id="ah-sys" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7f8aa3"/></marker><marker id="ah-mut" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6b7794"/></marker><marker id="ah-gold" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#ffb020"/></marker></defs><text x="40" y="38" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="18" font-weight="700" fill="#ff8591" text-anchor="start">VM A · 공격 하네스 (자율 침투)</text>
+<rect x="430" y="23" width="13" height="13" rx="3" ry="3" fill="#fb5569"/>
+<text x="449" y="34" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">공격</text>
+<rect x="491.54" y="23" width="13" height="13" rx="3" ry="3" fill="#7f8aa3"/>
+<text x="510.54" y="34" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">시스템</text>
+<rect x="40" y="70" width="700" height="500" rx="14" ry="14" fill="#0f1522" stroke="#fb5569" stroke-width="2.3"/>
+<rect x="40" y="70" width="700" height="34" rx="14" ry="14" fill="#0c1220"/>
+<text x="58" y="93" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="15.5" font-weight="700" fill="#ff8591" text-anchor="start">VM A · 공격 하네스</text>
+<text x="722" y="92" font-family="ui-monospace,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="11" font-weight="400" fill="#9aa6bd" text-anchor="end">attacker/</text>
+<rect x="60" y="120" width="660" height="40" rx="10" ry="10" fill="#141b2a" stroke="#283350" stroke-width="1.4"/>
+<rect x="61.5" y="126" width="3" height="28" rx="1.5" ry="1.5" fill="#6b7794"/>
+<text x="75" y="141" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12.5" font-weight="600" fill="#e9edf6" text-anchor="start">server.py · HTTP 서버 (:8000) — 메시지 수신/응답</text>
+<rect x="60" y="174" width="660" height="164" rx="10" ry="10" fill="#20141c" stroke="#fb5569" stroke-width="1.4"/>
+<rect x="61.5" y="180" width="3" height="152" rx="1.5" ry="1.5" fill="#fb5569"/>
+<text x="75" y="195" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13" font-weight="600" fill="#ff8591" text-anchor="start">react_loop.py · ReAct 루프 (Reason → Act → Observe)</text>
+<rect x="76" y="212" width="196" height="112" rx="10" ry="10" fill="#141b2a" stroke="#283350" stroke-width="1.4"/>
+<rect x="77.5" y="218" width="3" height="100" rx="1.5" ry="1.5" fill="#6b7794"/>
+<text x="91" y="233" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="600" fill="#e9edf6" text-anchor="start">출력 파서 / 킬스위치</text>
+<text x="91" y="251" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.3" font-weight="400" fill="#9aa6bd" text-anchor="start">LLM 출력 파싱</text>
+<text x="91" y="267.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.3" font-weight="400" fill="#9aa6bd" text-anchor="start">안전 중단(kill-switch)</text>
+<rect x="284" y="212" width="196" height="112" rx="10" ry="10" fill="#141b2a" stroke="#283350" stroke-width="2.0"/>
+<rect x="285.5" y="218" width="3" height="100" rx="1.5" ry="1.5" fill="#6b7794"/>
+<text x="299" y="233" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="600" fill="#e9edf6" text-anchor="start">execute_action.py</text>
+<rect x="399.7" y="220" width="68.3" height="17" rx="5" ry="5" fill="#0c121e" stroke="#283350" stroke-width="1"/>
+<text x="433.85" y="232" font-family="ui-monospace,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="10" font-weight="400" fill="#9aa6bd" text-anchor="middle">★ 단일통로</text>
+<text x="299" y="251" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.3" font-weight="400" fill="#9aa6bd" text-anchor="start">모든 명령 실행</text>
+<text x="299" y="267.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.3" font-weight="400" fill="#9aa6bd" text-anchor="start">리플레이 대본 기록</text>
+<rect x="492" y="212" width="212" height="112" rx="10" ry="10" fill="#141b2a" stroke="#283350" stroke-width="1.4"/>
+<rect x="493.5" y="218" width="3" height="100" rx="1.5" ry="1.5" fill="#6b7794"/>
+<text x="507" y="233" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="600" fill="#e9edf6" text-anchor="start">history.py</text>
+<text x="507" y="251" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.3" font-weight="400" fill="#9aa6bd" text-anchor="start">공격 히스토리 누적</text>
+<text x="507" y="267.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.3" font-weight="400" fill="#9aa6bd" text-anchor="start">라운드 간 기억</text>
+<rect x="60" y="352" width="320" height="58" rx="10" ry="10" fill="#141b2a" stroke="#283350" stroke-width="1.4"/>
+<rect x="61.5" y="358" width="3" height="46" rx="1.5" ry="1.5" fill="#6b7794"/>
+<text x="75" y="373" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12.5" font-weight="600" fill="#e9edf6" text-anchor="start">replay_engine.py · 리플레이 재생</text>
+<text x="75" y="391" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.3" font-weight="400" fill="#9aa6bd" text-anchor="start">결정론 재현 (LLM 없음) — 검증용</text>
+<rect x="400" y="352" width="320" height="58" rx="10" ry="10" fill="#141b2a" stroke="#283350" stroke-width="1.4"/>
+<rect x="401.5" y="358" width="3" height="46" rx="1.5" ry="1.5" fill="#6b7794"/>
+<text x="415" y="373" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12.5" font-weight="600" fill="#e9edf6" text-anchor="start">llm_client.py · 탈옥 모델 호출</text>
+<text x="415" y="391" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.3" font-weight="400" fill="#9aa6bd" text-anchor="start">→ DGX(.109) Ollama</text>
+<rect x="60" y="424" width="660" height="40" rx="10" ry="10" fill="#141b2a" stroke="#283350" stroke-width="1.4"/>
+<rect x="61.5" y="430" width="3" height="28" rx="1.5" ry="1.5" fill="#6b7794"/>
+<text x="75" y="445" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12.5" font-weight="600" fill="#e9edf6" text-anchor="start">prompts/ · 공격자 시스템 프롬프트 (ReAct 지시·행동 규칙)</text>
+<rect x="910" y="110" width="250" height="70" rx="10" ry="10" fill="#171d29" stroke="#495472" stroke-width="1.4"/>
+<rect x="911.5" y="116" width="3" height="58" rx="1.5" ry="1.5" fill="#7f8aa3"/>
+<text x="925" y="131" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13" font-weight="600" fill="#aab4c9" text-anchor="start">VM C · 심판</text>
+<text x="925" y="149" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.3" font-weight="400" fill="#9aa6bd" text-anchor="start">턴 지시 / 결과 수신</text>
+<rect x="910" y="300" width="250" height="70" rx="10" ry="10" fill="#171d29" stroke="#495472" stroke-width="1.4"/>
+<rect x="911.5" y="306" width="3" height="58" rx="1.5" ry="1.5" fill="#7f8aa3"/>
+<text x="925" y="321" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13" font-weight="600" fill="#aab4c9" text-anchor="start">DGX Spark</text>
+<text x="925" y="339" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.3" font-weight="400" fill="#9aa6bd" text-anchor="start">탈옥 모델 (.109) · Ollama</text>
+<rect x="910" y="470" width="250" height="70" rx="10" ry="10" fill="#0f1c2e" stroke="#3f93f5" stroke-width="1.4"/>
+<rect x="911.5" y="476" width="3" height="58" rx="1.5" ry="1.5" fill="#3f93f5"/>
+<text x="925" y="491" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13" font-weight="600" fill="#6aa9ff" text-anchor="start">VM B · 대상</text>
+<text x="925" y="509" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.3" font-weight="400" fill="#9aa6bd" text-anchor="start">발판 파드 (frontend)</text>
+<polyline points="740,150 910,150" fill="none" stroke="#7f8aa3" stroke-width="2" marker-end="url(#ah-sys)" marker-start="url(#ah-sys)" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="775.55" y="140.0" width="98.9" height="20" rx="10.0" ry="10.0" fill="#0c121e" stroke="#39466c" stroke-width="1"/>
+<text x="825" y="153.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="500" fill="#9aa6bd" text-anchor="middle">① 턴시작 · 보고</text>
+<polyline points="740,335 910,335" fill="none" stroke="#fb5569" stroke-width="2" stroke-dasharray="6,5" marker-end="url(#ah-atk)" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="784.5" y="325.0" width="81.0" height="20" rx="10.0" ry="10.0" fill="#0c121e" stroke="#39466c" stroke-width="1"/>
+<text x="825" y="338.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="500" fill="#ff8591" text-anchor="middle">모델망 · LLM</text>
+<polyline points="740,500 910,500" fill="none" stroke="#fb5569" stroke-width="2.2" marker-end="url(#ah-atk)" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="781.7" y="490.0" width="86.60000000000001" height="20" rx="10.0" ry="10.0" fill="#0c121e" stroke="#39466c" stroke-width="1"/>
+<text x="825" y="503.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="500" fill="#ff8591" text-anchor="middle">공격망 · exec</text></svg>

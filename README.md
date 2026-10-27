@@ -10,6 +10,30 @@
 
 ---
 
+## 시스템 구조도
+
+색상 코드 — 🟥 공격 / 🟦 대상·방어 / ⬜ 시스템 / 🟥⃝ 취약점. 망: 공격망(VM A↔B) · 관리망(VM C↔A/B) · 모델망(DGX).
+
+### 전체 구조
+<img src="docs/diagrams/overview.svg" alt="전체 시스템 구조 — VM A(공격)·VM B(대상+방어)·VM C(심판)·DGX" width="900">
+
+### VM A — 공격 하네스
+탈옥 LLM을 ReAct 루프로 돌려 발판 셸에서 자율 침투. `execute_action` 단일 통로가 모든 명령을 실행하며 리플레이 대본을 남긴다.
+
+<img src="docs/diagrams/vm-a.svg" alt="VM A 공격 하네스 내부 구조" width="900">
+
+### VM B — 대상 클러스터 + 방어 하네스
+k3s 취약 클러스터(ShopFlow)에 킬체인 ①~④와 Wave 1 분기(탈출·다경로·정찰)를 이식. 옆에 방어 하네스(관측→트리아지→패치)와 Falco가 붙는다.
+
+<img src="docs/diagrams/vm-b.svg" alt="VM B 대상 클러스터 및 방어 하네스 내부 구조" width="920">
+
+### VM C — 오케스트레이터 / 심판
+LLM이 아닌 결정론 심판. 턴 시퀀서로 루프를 제어하고, god-view 정답지로 공격·탐지를 검증·채점하며, 대시보드로 실시간 관제한다.
+
+<img src="docs/diagrams/vm-c.svg" alt="VM C 오케스트레이터/심판 내부 구조" width="900">
+
+---
+
 ## 구성 (3 VM + DGX)
 
 | VM | 역할 | 디렉토리 | 모델 |
