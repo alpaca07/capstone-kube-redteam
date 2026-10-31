@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1260 860" width="1260" height="860"><rect x="0" y="0" width="1260" height="860" fill="#0b0e16"/><defs><marker id="ah-atk" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#fb5569"/></marker><marker id="ah-def" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3f93f5"/></marker><marker id="ah-sys" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7f8aa3"/></marker><marker id="ah-mut" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6b7794"/></marker><marker id="ah-gold" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#ffb020"/></marker></defs><text x="40" y="42" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="19" font-weight="700" fill="#e9edf6" text-anchor="start">제안 구조 — 방어 하네스 분리 (VM D 신설) · 4-VM 토폴로지</text>
+<rect x="40" y="62" width="13" height="13" rx="3" ry="3" fill="#fb5569"/>
+<text x="59" y="73" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">공격(VM A)</text>
+<rect x="140.18" y="62" width="13" height="13" rx="3" ry="3" fill="#3f93f5"/>
+<text x="159.18" y="73" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">대상·방어(VM B/D)</text>
+<rect x="282.21999999999997" y="62" width="13" height="13" rx="3" ry="3" fill="#7f8aa3"/>
+<text x="301.21999999999997" y="73" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">시스템/심판(VM C)</text>
+<rect x="422.65" y="62" width="13" height="13" rx="3" ry="3" fill="#2a1420" stroke="#fb5569" stroke-width="1.5" stroke-dasharray="3,2"/>
+<text x="441.65" y="73" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">취약점</text>
+<rect x="495.46" y="62" width="13" height="13" rx="3" ry="3" fill="#201528" stroke="#ffb020" stroke-width="1.5"/>
+<text x="514.46" y="73" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">신규</text>
+<rect x="350" y="100" width="360" height="96" rx="13" ry="13" fill="#171d29" stroke="#495472" stroke-width="1.8"/>
+<rect x="351.5" y="107" width="3" height="82" rx="1.5" ry="1.5" fill="#7f8aa3"/>
+<text x="366" y="124" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13.5" font-weight="700" fill="#aab4c9" text-anchor="start">DGX Spark · Ollama (:11434)</text>
+<rect x="381.67" y="155.75" width="132.65999999999997" height="20.5" rx="10.25" ry="10.25" fill="#1a1016" stroke="#fb5569" stroke-width="1"/>
+<text x="448" y="169.675" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10.5" font-weight="500" fill="#ff8591" text-anchor="middle">공격 모델 .109 · 탈옥</text>
+<rect x="545.6700000000001" y="155.75" width="132.65999999999997" height="20.5" rx="10.25" ry="10.25" fill="#0e1826" stroke="#3f93f5" stroke-width="1"/>
+<text x="612" y="169.675" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10.5" font-weight="500" fill="#6aa9ff" text-anchor="middle">방어 모델 .111 · 일반</text>
+<rect x="70" y="330" width="280" height="200" rx="13" ry="13" fill="#20141c" stroke="#fb5569" stroke-width="1.8"/>
+<rect x="71.5" y="337" width="3" height="186" rx="1.5" ry="1.5" fill="#fb5569"/>
+<text x="86" y="354" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="15" font-weight="700" fill="#ff8591" text-anchor="start">VM A · 공격 하네스</text>
+<rect x="268.08" y="340" width="68.92000000000002" height="19" rx="6" ry="6" fill="#0c121e" stroke="#283350" stroke-width="1"/>
+<text x="302.53999999999996" y="353" font-family="ui-monospace,'SF Mono',Menlo,Consolas,monospace" font-size="10.5" font-weight="600" fill="#9aa6bd" text-anchor="middle">attacker/</text>
+<text x="86" y="373" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">탈옥 LLM · ReAct 루프</text>
+<text x="86" y="390" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">execute_action 단일 통로</text>
+<text x="86" y="407" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">리플레이 엔진</text>
+<rect x="450" y="330" width="320" height="255" rx="13" ry="13" fill="#0f1c2e" stroke="#3f93f5" stroke-width="1.8"/>
+<rect x="451.5" y="337" width="3" height="241" rx="1.5" ry="1.5" fill="#3f93f5"/>
+<text x="466" y="354" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="15" font-weight="700" fill="#6aa9ff" text-anchor="start">VM B · 대상 클러스터</text>
+<rect x="717.48" y="340" width="39.52" height="19" rx="6" ry="6" fill="#0c121e" stroke="#283350" stroke-width="1"/>
+<text x="737.24" y="353" font-family="ui-monospace,'SF Mono',Menlo,Consolas,monospace" font-size="10.5" font-weight="600" fill="#9aa6bd" text-anchor="middle">k8s/</text>
+<text x="466" y="373" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">k3s 취약 클러스터 (ShopFlow)</text>
+<text x="466" y="390" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">Falco + 감사로그</text>
+<text x="466" y="407" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">→ godview/falco DaemonSet 로 로그 노출</text>
+<rect x="466" y="470" width="288" height="100" rx="13" ry="13" fill="#2a1420" stroke="#fb5569" stroke-width="2.0" stroke-dasharray="5,4"/>
+<rect x="467.5" y="477" width="3" height="86" rx="1.5" ry="1.5" fill="#fb5569"/>
+<text x="482" y="494" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="700" fill="#ff8591" text-anchor="start">심은 취약점 (킬체인+Wave1)</text>
+<text x="482" y="513" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">① T1552 ② T1078 ③ T1210 ④ T1213</text>
+<text x="482" y="530" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">탈출 T1610·T1611 / 다경로 / 정찰</text>
+<rect x="880" y="330" width="300" height="200" rx="13" ry="13" fill="#0f1c2e" stroke="#3f93f5" stroke-width="2.3"/>
+<rect x="881.5" y="337" width="3" height="186" rx="1.5" ry="1.5" fill="#3f93f5"/>
+<text x="896" y="354" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="15" font-weight="700" fill="#6aa9ff" text-anchor="start">VM D · 방어 하네스</text>
+<rect x="1130.42" y="340" width="36.58" height="19" rx="6" ry="6" fill="#201528" stroke="#ffb020" stroke-width="1.4"/>
+<text x="1148.71" y="353" font-family="ui-monospace,'SF Mono',Menlo,Consolas,monospace" font-size="10.5" font-weight="600" fill="#ffb020" text-anchor="middle">신규</text>
+<text x="896" y="373" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">관측 → 트리아지 → 패치</text>
+<text x="896" y="390" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">defender/ 코드 (VM B 에서 이전)</text>
+<text x="896" y="407" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">원격 kubectl + 로그 pull</text>
+<rect x="380" y="665" width="440" height="155" rx="13" ry="13" fill="#171d29" stroke="#495472" stroke-width="1.8"/>
+<rect x="381.5" y="672" width="3" height="141" rx="1.5" ry="1.5" fill="#7f8aa3"/>
+<text x="396" y="689" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="15" font-weight="700" fill="#aab4c9" text-anchor="start">VM C · 오케스트레이터 / 심판</text>
+<rect x="714.56" y="675" width="92.44000000000001" height="19" rx="6" ry="6" fill="#0c121e" stroke="#283350" stroke-width="1"/>
+<text x="760.78" y="688" font-family="ui-monospace,'SF Mono',Menlo,Consolas,monospace" font-size="10.5" font-weight="600" fill="#9aa6bd" text-anchor="middle">orchestrator/</text>
+<text x="396" y="708" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">턴 시퀀서 · 검증 · god-view 채점</text>
+<text x="396" y="725" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#9aa6bd" text-anchor="start">베이스라인 리셋 · 대시보드 (:8090)</text>
+<polyline points="350,420 450,420" fill="none" stroke="#fb5569" stroke-width="2.4" marker-end="url(#ah-atk)" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="356.7" y="392.0" width="86.60000000000001" height="20" rx="10.0" ry="10.0" fill="#0c121e" stroke="#39466c" stroke-width="1"/>
+<text x="400" y="405.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="500" fill="#ff8591" text-anchor="middle">공격망 · exec</text>
+<polyline points="210,330 210,250 430,196" fill="none" stroke="#fb5569" stroke-width="2" stroke-dasharray="6,5" marker-end="url(#ah-atk)" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="276.3" y="240.0" width="47.400000000000006" height="20" rx="10.0" ry="10.0" fill="#0c121e" stroke="#39466c" stroke-width="1"/>
+<text x="300" y="253.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="500" fill="#ff8591" text-anchor="middle">모델망</text>
+<polyline points="960,330 960,240 650,196" fill="none" stroke="#3f93f5" stroke-width="2" stroke-dasharray="6,5" marker-end="url(#ah-def)" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="796.3" y="230.0" width="47.400000000000006" height="20" rx="10.0" ry="10.0" fill="#0c121e" stroke="#39466c" stroke-width="1"/>
+<text x="820" y="243.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="500" fill="#6aa9ff" text-anchor="middle">모델망</text>
+<polyline points="880,440 770,440" fill="none" stroke="#3f93f5" stroke-width="2.6" marker-end="url(#ah-def)" marker-start="url(#ah-def)" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="738.3000000000001" y="410.0" width="173.39999999999995" height="20" rx="10.0" ry="10.0" fill="#201528" stroke="#ffb020" stroke-width="1"/>
+<text x="825" y="423.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="500" fill="#ffb020" text-anchor="middle">관리망 · 패치·조회 + 로그 pull</text>
+<polyline points="430,665 230,530" fill="none" stroke="#7f8aa3" stroke-width="2" marker-end="url(#ah-sys)" marker-start="url(#ah-sys)" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="257.5" y="594.0" width="108.99999999999999" height="20" rx="10.0" ry="10.0" fill="#0c121e" stroke="#39466c" stroke-width="1"/>
+<text x="312" y="607.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="500" fill="#9aa6bd" text-anchor="middle">관리망 · 제어·보고</text>
+<polyline points="575,665 590,585" fill="none" stroke="#7f8aa3" stroke-width="2" marker-end="url(#ah-sys)" marker-start="url(#ah-sys)" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="573.8" y="618.0" width="124.39999999999998" height="20" rx="10.0" ry="10.0" fill="#0c121e" stroke="#39466c" stroke-width="1"/>
+<text x="636" y="631.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="500" fill="#9aa6bd" text-anchor="middle">리셋 + god-view 로그</text>
+<polyline points="770,665 960,530" fill="none" stroke="#7f8aa3" stroke-width="2" marker-end="url(#ah-sys)" marker-start="url(#ah-sys)" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="832.1" y="602.0" width="125.79999999999997" height="20" rx="10.0" ry="10.0" fill="#0c121e" stroke="#39466c" stroke-width="1"/>
+<text x="895" y="615.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="500" fill="#9aa6bd" text-anchor="middle">방어 턴 (HTTP :8000)</text>
+<text x="40" y="842" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#6b7794" text-anchor="start">핵심 변화: 방어 하네스가 VM B(노드)에서 VM D 로 이전 → 공격자의 호스트 탈출(T1611)이 방어자와 격리됨. VM D 는 관리망·모델망에만 연결(공격망 X).</text></svg>
