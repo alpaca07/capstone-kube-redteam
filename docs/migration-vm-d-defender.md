@@ -52,7 +52,7 @@
 - [ ] 도달성 확인: `kubectl --kubeconfig vmb-admin.kubeconfig get ns`, `curl .110:11434/api/tags`
 
 ### Phase 2 — 코드·로그·설정
-- [ ] sparse-checkout `defender common` 으로 VM D 에 clone, `pip install -r requirements.txt`
+- [ ] sparse-checkout `common defender orchestrator scripts docs` 로 VM D 에 clone, `pip install -r requirements.txt` (orchestrator/ 는 probe_defender 의 HTTP 클라이언트용)
 - [ ] VM D 로그 sync 기동(VM C 의 `vmc-sync-audit.sh`/`vmc-sync-falco.sh` 재사용, 로컬 경로로) → **파일이 실제로 채워지는지 확인**
 - [ ] VM D `config.yaml` 작성 (아래 표)
 
@@ -72,7 +72,7 @@
 1. **사전(VM B)** — k3s `--tls-san <VM B IP>` + `write-kubeconfig-mode 0644` 적용·재기동, VM D 용 `vmb-admin.kubeconfig`(server=VM B IP) 발급.
 2. **VM D 프로비저닝** — OS·Python3·`kubectl` 설치. 관리망/모델망 2개 NIC 연결(공격망 미연결).
 3. **네트워크 열기·확인** — VM D→VM B:6443, VM D→DGX .110:11434, VM C→VM D:8000 방화벽 허용 후 도달성 테스트.
-4. **코드 배포** — `git clone --no-checkout … && git sparse-checkout set defender common && git checkout`.
+4. **코드 배포** — `git clone --no-checkout … && git sparse-checkout set common defender orchestrator scripts docs && git checkout`.
 5. **의존성** — `pip install -r requirements.txt` (kubectl 은 subprocess 로 호출하므로 바이너리만 있으면 됨).
 6. **kubeconfig 배치·검증** — `vmb-admin.kubeconfig` 를 VM D 에 두고:
    - `kubectl --kubeconfig … get ns` (원격 접속)

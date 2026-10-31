@@ -295,7 +295,8 @@ timestamp로 구분.
 
 - **GitHub**: `alpaca07/capstone-kube-redteam`, branch `main`, 최신 `4681b49`.
 - **sparse-checkout**: VM A = `common/ attacker/ docs/ tests/`, VM B = `common/ defender/ k8s/ docs/ tests/`,
-  VM C = `common/ orchestrator/ scripts/ docs/`.
+  VM C = `common/ orchestrator/ scripts/ docs/`, VM D = `common/ defender/ orchestrator/ scripts/ docs/`
+  (VM D 의 orchestrator/ 는 `scripts/probe_defender.py` 의 `HttpDefenderClient` import 때문 — 실행은 안 함).
 - **config.yaml**: gitignore(각 VM 로컬). DGX 주소·모델명·토큰은 여기서 주입.
 - **주요 파일**:
   - `common/llm_client.py` — OllamaClient (reasoning_effort="none" 기본)

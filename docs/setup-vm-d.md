@@ -164,14 +164,16 @@ scp /tmp/vmb-admin.kubeconfig vm-d@192.168.16.131:~/.kube/vmb-admin.kubeconfig
 
 ## 6. 코드 배포 (sparse-checkout)
 
-VM D 는 방어 코드 + 공통 + 로그 sync 스크립트만 받는다(k8s/ 는 클러스터를 호스팅하는 VM B 전용):
+VM D 는 방어 코드 + 공통 + 스크립트 + docs 를 받는다(k8s/ 는 클러스터 호스팅 VM B 전용). `orchestrator/`
+도 포함하는데, 스모크용 `scripts/probe_defender.py` 가 `orchestrator.http_clients`(HTTP 클라이언트)를
+import 하기 때문(VM D 가 orchestrator 를 *실행*하진 않음 — 코드만 있으면 됨):
 ```bash
 # (VM D)
 cd ~
 git clone --no-checkout https://github.com/alpaca07/capstone-kube-redteam.git capstone
 cd capstone
 git sparse-checkout init --cone
-git sparse-checkout set common defender scripts docs
+git sparse-checkout set common defender orchestrator scripts docs
 git checkout main
 pip install -r requirements.txt     # fastapi·uvicorn·pydantic·requests·pyyaml
 mkdir -p ~/capstone/logs

@@ -322,6 +322,9 @@ VM B 한 대에 **대상 클러스터 + 방어 하네스**가 공존하던 걸, 
 - **VM B 방어 로직 제거 지침** — 분리의 보안 이점(T1611 탈출 노드에서 방어자+admin 격리)은 VM B 의
   `defense-harness`·`capstone-falco-tail` 를 내려야 완성. 단 리포의 `defender/` 코드는 VM D 가 쓰므로
   삭제하지 않음(런북 §12).
+- **sparse-checkout 보정** — VM D 실기동 중 `probe_defender` 가 `ModuleNotFoundError: orchestrator` 로
+  죽어, VM D 세트에 `orchestrator/` 추가(`scripts/probe_defender.py` 가 `orchestrator.http_clients` 를
+  import — VM D 는 실행 안 하고 코드만 필요). HANDOVER §10·런북 §6·migration 반영.
 
 **그날 끝:** VM D 분리 설계·문서·런북 완비, 네트워크 현실(단일 NIC)·방어 DGX(.110) 반영. 다음: VM D
 실기동(네트워크→kubeconfig→로그 sync→스모크) 후 VM C `defender_url` 전환.
