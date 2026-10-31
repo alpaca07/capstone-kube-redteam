@@ -6,10 +6,11 @@
 ```
 호스트 로그인 (사람이 하는 유일한 것)
  ├─ 스냅샷 에이전트 자동 ↑            [host-startup.bat → 시작프로그램 폴더]
- └─ (선택) VM A/B/C 자동 전원 ↑       [host-startup.bat 의 vmrun start]
+ └─ (선택) VM A/B/C/D 자동 전원 ↑     [host-startup.bat 의 vmrun start]
       ├─ VM A: 공격 하네스 자동 ↑      [attack-harness.service]
-      ├─ VM B: k3s(이미 자동) + 방어 하네스 자동 ↑  [defense-harness.service]
-      └─ VM C: (대시보드 웹서버 — 나중)
+      ├─ VM B: k3s(이미 자동) + Falco  [방어 하네스는 VM D 로 이전(2026-10-31)]
+      ├─ VM C: 대시보드 + god-view 로그 sync  [capstone-dashboard / capstone-sync-audit / capstone-sync-falco]
+      └─ VM D: 방어 하네스 + 로그 sync  [defense-harness / capstone-sync-audit / capstone-sync-falco]
 ```
 
 ## ⚠ 핵심 제약 — 에이전트는 반드시 '로그인된 데스크톱 세션'
@@ -22,7 +23,7 @@
 - `host-startup.bat` — 호스트(Windows) 로그온 시 실행. VM 전원(선택) + 스냅샷 에이전트.
   `<USER>` 등 경로를 환경에 맞게 치환 후, 이 파일의 **바로가기를 `shell:startup`** 폴더에 넣는다.
 - `attack-harness.service` — VM A systemd 유닛(공격 하네스 부팅 자동 기동).
-- `defense-harness.service` — VM B systemd 유닛(방어 하네스 부팅 자동 기동).
+- `defense-harness.service` — 방어 하네스 systemd 유닛. **2026-10-31 부터 VM D**(이전엔 VM B). VM D 의 완전 유닛(KUBECONFIG override 포함)·로그 sync 2종은 `../setup-vm-d.md` §11, 호스트 자동 전원은 `host-startup.bat` 의 VM D 줄.
 
 ## systemd 설치 (VM A·B 각각)
 ```bash
