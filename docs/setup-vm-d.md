@@ -62,6 +62,32 @@ sudo apt -y install chrony           # NTP 동기(시계 스큐 방지)
 
 ---
 
+## 2.5 Tailscale 설치 (원격 관리 접속 — 기존 VM 과 동일)
+
+개발 중 어디서든 SSH·코드 pull 하려고 기존 VM(A/B/C)처럼 Tailscale 를 깐다. **실험 중에는
+끄는 게 원칙**(격리 — 랩은 관리망/모델망만으로 돈다. README 의 개발/실험 모드 표와 동일).
+
+```bash
+# (VM D) 설치
+curl -fsSL https://tailscale.com/install.sh | sh
+# 로그인 (인터랙티브: 출력된 URL 을 브라우저로 인증)
+sudo tailscale up --hostname vm-d --ssh
+#   재사용 auth key 가 있으면 무인 가입:  sudo tailscale up --authkey tskey-... --hostname vm-d --ssh
+tailscale ip -4          # 할당된 100.x 주소 확인
+tailscale status         # 다른 VM(A/B/C) 이 보이면 정상
+```
+
+- `--ssh` 는 Tailscale SSH(태일넷 내 키 없이 SSH). 기존 VM 이 일반 SSH 만 쓰면 생략 가능.
+- **실험 돌릴 때는 끈다:**
+  ```bash
+  sudo tailscale down                       # 세션만 내림(다시 up 하면 복구)
+  # 완전 비활성(부팅에도 안 뜨게): sudo systemctl disable --now tailscaled
+  ```
+- ⚠️ 공수 루프(방어자 ↔ VM B ↔ DGX)는 **관리망·모델망**으로 도므로 Tailscale 를 꺼도 영향 없다.
+  Tailscale 는 '운영자의 원격 접속' 편의일 뿐 데이터 경로가 아니다.
+
+---
+
 ## 3. 네트워크 설정 (netplan)
 
 두 NIC 의 인터페이스명 확인:
