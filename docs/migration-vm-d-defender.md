@@ -23,7 +23,7 @@
 | VM A 공격 | ✅ (→B) | ✅ (↔C) | ✅ (→DGX .109) | 변동 없음 |
 | VM B 대상 | ✅ (←A) | ✅ (↔C, **←D**) | — | 방어 코드 제거, 로그는 DaemonSet로 노출 |
 | VM C 심판 | ❌ | ✅ (↔A/B/D) | — | `defender_url` → VM D 로 변경 |
-| **VM D 방어** | ❌ | ✅ (↔C, **→B**) | ✅ (→DGX .111) | **신규** · 공격망에 두지 말 것 |
+| **VM D 방어** | ❌ | ✅ (↔C, **→B**) | ✅ (→DGX .110) | **신규** · 공격망에 두지 말 것 |
 
 ## 끊어지는 결합 3가지 (방어 하네스가 VM B 로컬에 의존하던 지점)
 
@@ -32,7 +32,7 @@
 2. **로그 관측** — `Observer` 가 로컬 파일(`observability.audit_log_path` 기본
    `/var/lib/rancher/k3s/server/logs/audit.log` + Falco 로컬)을 `open()` 으로 읽음. VM D 엔 그
    파일이 없음 → **VM C 와 동일한 sync 방식으로 원격 pull** 후 로컬 경로 지정.
-3. **모델 접근** — 방어 LLM(DGX .111)을 VM D 가 모델망으로 도달.
+3. **모델 접근** — 방어 LLM(DGX .110)을 VM D 가 모델망으로 도달.
 
 > ⚠️ **가장 흔한 함정**: Observer 는 로그 파일이 없거나 비어 있으면 **에러 없이 빈 관측 → 매
 > 라운드 NOOP**. VM D 에서 로그 sync 가 먼저 떠 있어야 하고, 경로는 `~` 확장이 안 되므로 **절대경로**.
@@ -48,8 +48,8 @@
 
 ### Phase 1 — VM D 신설·연결
 - [ ] VM D 프로비저닝(OS + Python3 + `kubectl` 바이너리), 관리망·모델망 NIC 연결(**공격망 X**)
-- [ ] 방화벽: VM D→VM B **6443**, VM D→DGX **.111:11434**, VM C→VM D **:8000** 허용
-- [ ] 도달성 확인: `kubectl --kubeconfig vmb-admin.kubeconfig get ns`, `curl .111:11434/api/tags`
+- [ ] 방화벽: VM D→VM B **6443**, VM D→DGX **.110:11434**, VM C→VM D **:8000** 허용
+- [ ] 도달성 확인: `kubectl --kubeconfig vmb-admin.kubeconfig get ns`, `curl .110:11434/api/tags`
 
 ### Phase 2 — 코드·로그·설정
 - [ ] sparse-checkout `defender common` 으로 VM D 에 clone, `pip install -r requirements.txt`
@@ -71,7 +71,7 @@
 
 1. **사전(VM B)** — k3s `--tls-san <VM B IP>` + `write-kubeconfig-mode 0644` 적용·재기동, VM D 용 `vmb-admin.kubeconfig`(server=VM B IP) 발급.
 2. **VM D 프로비저닝** — OS·Python3·`kubectl` 설치. 관리망/모델망 2개 NIC 연결(공격망 미연결).
-3. **네트워크 열기·확인** — VM D→VM B:6443, VM D→DGX .111:11434, VM C→VM D:8000 방화벽 허용 후 도달성 테스트.
+3. **네트워크 열기·확인** — VM D→VM B:6443, VM D→DGX .110:11434, VM C→VM D:8000 방화벽 허용 후 도달성 테스트.
 4. **코드 배포** — `git clone --no-checkout … && git sparse-checkout set defender common && git checkout`.
 5. **의존성** — `pip install -r requirements.txt` (kubectl 은 subprocess 로 호출하므로 바이너리만 있으면 됨).
 6. **kubeconfig 배치·검증** — `vmb-admin.kubeconfig` 를 VM D 에 두고:
@@ -92,7 +92,7 @@
 | `target.kubeconfig` | VM D 의 **원격** `vmb-admin.kubeconfig` 절대경로 | 방어 kubectl 이 VM B API 로 붙음 |
 | `observability.audit_log_path` | VM D 로컬 동기 파일 **절대경로** | Observer 가 읽을 감사로그 |
 | `observability.falco_log_path` | VM D 로컬 동기 파일 **절대경로** | Observer 가 읽을 Falco 로그 |
-| `dgx.defender_host` | `211.170.162.111` | 방어 LLM (모델망 도달) |
+| `dgx.defender_host` | `211.170.162.110` | 방어 LLM (모델망 도달) |
 | `network.shared_token` | 기존과 동일 | 관리망 인증 |
 
 ### VM C config 값 (바뀌는 항목만)

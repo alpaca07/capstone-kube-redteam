@@ -5,8 +5,8 @@
 > [diagrams/topology-4vm.svg](diagrams/topology-4vm.svg). 작성 2026-10-31.
 >
 > 기준 주소(관리망 192.168.16.0/24): VM A `.129` · VM B `.128` · VM C `.130` · 호스트 `.1` ·
-> **VM D `.131`(신규)**. DGX 방어 모델 = `211.170.162.111:11434`(현재 가동 중인 쪽. HANDOVER 의
-> `.110` 은 장비 다운으로 `.111` 로 이전된 상태). k3s 는 containerd(도커 없음).
+> **VM D `.131`(신규)**. DGX 방어 모델 = `211.170.162.110:11434`(HANDOVER DGX #2).
+> k3s 는 containerd(도커 없음).
 
 ---
 
@@ -16,12 +16,13 @@
 |------|----|------|
 | OS | 기존 VM 과 동일(Ubuntu Server 22.04 LTS 권장) | k3s/systemd/Python 환경 일치 |
 | vCPU / RAM / Disk | 2 vCPU / 4 GB / 30 GB | LLM 은 DGX 라 가벼움 |
-| NIC 1 — **관리망** | Host-only, `192.168.16.131/24` | VM C↔D(:8000), D→VM B API(:6443) |
-| NIC 2 — **모델망** | NAT(VMnet8)+방화벽 | D→DGX `.111:11434` |
-| NIC — 공격망 | **연결하지 않음** | 공격자와 격리(분리의 핵심) |
+| **NIC 1 (단일)** | VM C 와 동일 VMnet (= `192.168.16.0/24` 서빙 — 이 랩은 VMnet8 NAT) | static `192.168.16.131/24`, gw `.2`. **VM↔VM(관리) + DGX(모델) 모두 이 한 망** |
+| 공격망 | **연결하지 않음** | 공격자와 격리 |
 
-> 어느 VMnet 이 관리망/모델망인지는 기존 VM A·B 의 어댑터 설정과 **동일하게** 맞춘다
-> (VM > Settings > Network Adapter 에서 VM B 가 쓰는 Host-only/NAT VMnet 번호 확인 → VM D 도 같은 번호).
+> ⚠️ **NIC 은 1개만.** 이 랩은 `192.168.16.0/24`(VMnet8 NAT) 한 망이 VM 간 통신과 DGX 외부
+> egress 를 모두 처리한다(2026-10-31 실측 확인: VM A/B/C `.128/.129/.130` 이 이 NAT 대역). NIC 을
+> 2개(관리망+모델망) 붙이면 둘 다 같은 서브넷이 돼 라우팅이 split → 한쪽 ARP 실패(No route to host).
+> VM B/C 의 어댑터 VMnet 번호를 확인해 VM D 도 **동일한 하나**로 맞춘다. (공격망만 별도 Host-only 로 격리)
 
 ---
 
@@ -37,10 +38,11 @@
    - *Split virtual disk into multiple files*(2 GB 조각)는 **FAT32/exFAT 처럼 큰 단일 파일을 못 담는 매체**에 VM 을 두거나 그런 곳으로 옮길 때만. 랩 호스트가 NTFS 면 쓸 이유 없음.
    - *Allocate all disk space now*(사전할당·thick)는 체크하지 않음 — VM D 는 가벼워 **grow as needed(thin)** 로 공간 절약.
    - 참고: 스냅샷은 단일/분할과 **무관하게** 델타 파일로 생기므로 이 선택이 스냅샷 동작엔 영향 없다.
-7. **Customize Hardware** 에서 네트워크 어댑터를 아래처럼:
-   - **Network Adapter 1** = VM B 의 **관리망 VMnet**(Host-only) 과 같은 번호
-   - **Add > Network Adapter 2** = VM B 의 **모델망 VMnet**(NAT) 과 같은 번호
-   - (공격망 어댑터는 추가하지 않음)
+7. **Customize Hardware** 에서 네트워크 어댑터는 **VM C 와 동일한 VMnet 하나만** 둔다
+   (= VM A/B/C 가 쓰는 `192.168.16.0/24` 망 — 이 랩은 NAT/VMnet8).
+   - VM B/C 의 Settings > Network Adapter 에서 그 VMnet 번호를 확인해 VM D 도 동일하게 맞춘다.
+   - 공격망 어댑터는 추가하지 않음.
+   - ⚠️ 어댑터를 2개(관리망+모델망) 붙이지 말 것 — 둘 다 같은 서브넷이 돼 라우팅이 split 된다(§3).
 8. Finish → VM 전원 ON → ISO 로 부팅.
 
 ---
@@ -88,38 +90,45 @@ tailscale status         # 다른 VM(A/B/C) 이 보이면 정상
 
 ---
 
-## 3. 네트워크 설정 (netplan)
+## 3. 네트워크 설정 (netplan) — 단일 NIC
 
-두 NIC 의 인터페이스명 확인:
+> 이 랩은 `192.168.16.0/24`(VMnet8 NAT) **한 망**이 VM↔VM 통신과 DGX 외부 egress 를 모두
+> 처리한다(2026-10-31 실측: `ping -I <iface>` 로 VM B/C 도달 확인). 2-NIC 분리는 불필요·금물.
+
+인터페이스명 확인(보통 `ens33`):
 ```bash
-ip -br link        # 예: ens33(관리망), ens34(모델망)
+ip -br a           # 192.168.16.x 를 받은(또는 받을) 인터페이스 확인
 ```
 
-`/etc/netplan/00-vm-d.yaml` 작성(인터페이스명은 위 결과로 교체):
+`/etc/netplan/50-cloud-init.yaml` (인터페이스명은 위 결과로 교체):
 ```yaml
 network:
   version: 2
   ethernets:
-    ens33:                       # 관리망
+    ens33:                         # VM A/B/C + DGX 모두 이 망(VMnet8 NAT)
       addresses: [192.168.16.131/24]
       routes:
-        - to: 192.168.16.0/24
-          scope: link
-    ens34:                       # 모델망(NAT) — DGX 로 나가는 기본 게이트웨이
-      dhcp4: true                # NAT DHCP 사용(또는 고정+게이트웨이 지정)
+        - to: default
+          via: 192.168.16.2        # NAT 게이트웨이
+      nameservers:
+        addresses: [192.168.16.2, 8.8.8.8]
 ```
 ```bash
+sudo chmod 600 /etc/netplan/50-cloud-init.yaml   # netplan '권한 너무 열림' 경고 방지
 sudo netplan apply
 ```
+> ⚠️ **NIC 을 2개 붙이지 말 것.** 둘 다 `192.168.16.0/24` 가 되면 라우팅이 split 돼 한쪽이
+> ARP 실패(No route to host) 한다. VM C 처럼 **단일 NIC** 로 간다.
 
 **도달성 확인(중요):**
 ```bash
-ping -c1 192.168.16.128                               # VM B (관리망)
-ping -c1 192.168.16.130                               # VM C (관리망)
+ip -br a                                              # .131 이 그 NIC 에만 떠야
+ping -c1 192.168.16.128                               # VM B
+ping -c1 192.168.16.130                               # VM C
 nc -zv 192.168.16.128 6443                            # VM B k3s API
-curl -s http://211.170.162.111:11434/api/tags | head  # DGX 방어 모델(모델망)
+curl -s http://211.170.162.110:11434/api/tags | head  # DGX 방어 모델(.110)
 ```
-- VM B 6443, DGX 11434 가 안 열리면 **VMware 방화벽/모델망 allowlist** 를 먼저 손본다(여기서 막히면 뒤가 전부 막힘).
+- VM B 6443, DGX 11434 가 안 열리면 **VMware NAT/방화벽 allowlist** 를 먼저 손본다(여기서 막히면 뒤가 전부 막힘).
 
 ---
 
@@ -212,7 +221,7 @@ wc -l ~/capstone/logs/vmb-audit.log ~/capstone/logs/vmb-falco.log   # ★ 0 이 
 ```yaml
 dgx:
   attacker_host: "211.170.162.109"     # VM D 는 미사용(스키마용)
-  defender_host: "211.170.162.111"     # ★ 방어 모델(모델망 도달 확인된 쪽)
+  defender_host: "211.170.162.110"     # ★ 방어 모델 (DGX #2)
   port: 11434
   attacker_model: "hf.co/.../Qwen3.8-27B-Uncensored-...-GGUF"
   defender_model: "qwen3.8:27b"

@@ -302,6 +302,32 @@ DB 얻고 더 어려운 호스트 목표를 안 쫓거나 DB 막히면 DB만 붙
 
 ---
 
+## 2026-10-31 — 방어 하네스 분리(VM D) 설계·런북
+
+VM B 한 대에 **대상 클러스터 + 방어 하네스**가 공존하던 걸, 방어 하네스를 **VM D 로 분리**하는
+설계·문서화 단계(코드 변경 없음 — 배포·네트워크·kubeconfig·로그 파이프라인 작업).
+
+- `ddc2ff1` **4-VM 토폴로지 + 마이그레이션 가이드** — `docs/diagrams/topology-4vm.svg`(VM D '신규'
+  배지, D↔B 관리망 신규 링크), `docs/migration-vm-d-defender.md`(이점·끊어지는 결합 3가지
+  (원격 kubectl·로그 pull·DGX)·Phase 체크리스트·config 변경표·롤백).
+- **VM D 셋업 런북** `docs/setup-vm-d.md` — VMware 생성→OS→Tailscale→네트워크→kubeconfig→코드→
+  로그 sync→config→스모크→systemd→VM C 전환→VM B 정리→e2e 까지 실전 순서.
+- **네트워크 단일 NIC 로 정정** — 최초 런북은 관리망(Host-only)+모델망(NAT) 2-NIC 를 가정했으나,
+  이 랩은 `192.168.16.0/24`(VMnet8 NAT) **한 망**이 VM↔VM + DGX egress 를 모두 처리함을 실측 확인
+  (2-NIC 로 붙였더니 두 인터페이스가 같은 서브넷 → 라우팅 split → `No route to host`). §0·§1·§3 을
+  단일 NIC(static `.131`, gw `.2`)로 수정.
+- **방어 DGX IP 확정** — 방어 모델 서빙을 `211.170.162.110`(HANDOVER DGX #2)으로 통일. 이전 세션에서
+  `.110` 다운으로 `.111` 로 임시 이전했던 것을 되돌림 → VM D 문서·구조도(topology/overview/vm-b)의
+  `.111` 을 전부 `.110` 으로 정정(과거 worklog/CHANGELOG 의 당시 기록은 보존).
+- **VM B 방어 로직 제거 지침** — 분리의 보안 이점(T1611 탈출 노드에서 방어자+admin 격리)은 VM B 의
+  `defense-harness`·`capstone-falco-tail` 를 내려야 완성. 단 리포의 `defender/` 코드는 VM D 가 쓰므로
+  삭제하지 않음(런북 §12).
+
+**그날 끝:** VM D 분리 설계·문서·런북 완비, 네트워크 현실(단일 NIC)·방어 DGX(.110) 반영. 다음: VM D
+실기동(네트워크→kubeconfig→로그 sync→스모크) 후 VM C `defender_url` 전환.
+
+---
+
 ## 남은 숙제 (루프가 아니라 '숫자'·확장)
 
 - **[다음주] 정보량 ablation 실험**: 공격자에게 주는 유도를 2채널로 단계 축소해 '최소 유도' 임계를
