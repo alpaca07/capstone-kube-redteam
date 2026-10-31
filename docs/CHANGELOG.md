@@ -326,8 +326,16 @@ VM B 한 대에 **대상 클러스터 + 방어 하네스**가 공존하던 걸, 
   죽어, VM D 세트에 `orchestrator/` 추가(`scripts/probe_defender.py` 가 `orchestrator.http_clients` 를
   import — VM D 는 실행 안 하고 코드만 필요). HANDOVER §10·런북 §6·migration 반영.
 
-**그날 끝:** VM D 분리 설계·문서·런북 완비, 네트워크 현실(단일 NIC)·방어 DGX(.110) 반영. 다음: VM D
-실기동(네트워크→kubeconfig→로그 sync→스모크) 후 VM C `defender_url` 전환.
+**실기동·검증(14:00~14:55)**: VM D 를 런북대로 끝까지 올림 — 네트워크(단일 NIC, ens34 NAT)→kubeconfig
+(§7 원격 조회·임퍼소네이션 OK)→코드(sparse 에 `orchestrator` 추가)→로그 sync(audit 2956줄; Falco 는
+`/etc/shadow` 트리거로 T1552.001 탐지되며 파이프 입증)→config(DGX `.110` 미가동이라 현재 서빙 중인
+`.111` 로 기동)→스모크(관측→LLM 43s→패치 라이브 적용)→systemd 3종 상주화→**§12 컷오버**(VM C
+`defender_url`→`.131`, VM B `defense-harness`·`capstone-falco-tail` 내림·defender sparse 제거)→
+**§13 e2e 1라운드 green**(revert 2s · 공격 deadend · 방어 patched 탐지4 health=True 43s · 검증 blocked).
+
+**그날 끝:** 방어 하네스가 **VM D 로 완전 분리·검증**됨 — 공격자의 호스트 탈출(T1611) 노드에서 방어자와
+그 admin kubeconfig 가 격리돼 '독립 관측자' 전제가 성립. DGX 방어는 `.110` 복구 시 `config.yaml`
+`defender_host` 한 줄 교체(현재 `.111`). 다음: 정보량 ablation(레시피→힌트→목표만).
 
 ---
 

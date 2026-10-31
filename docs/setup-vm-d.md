@@ -255,6 +255,11 @@ flags:
 ```
 > 나머지(`vmware`, `attack` 블록 등)는 `common/config.example.yaml` 기본값 그대로 둬도 방어 하네스
 > 동작엔 무관. 경로는 **절대경로**(Observer 가 `~` 확장 안 함).
+>
+> ⚠️ **DGX 방어 IP는 쓰기 전에 `curl http://<IP>:11434/api/tags` 로 서빙 확인.** 이 랩 기준 `.110`
+> 이 정상이지만, 다운이면 빈 응답/`Connection refused`(네트워크는 OK, 서비스만 없음 — `curl -v`로 구분)
+> → 그때 **현재 서빙 중인 DGX(예: `.111`)로 임시 교체**하고 `defender_model`이 그 서버 `/api/tags`에
+> 뜨는지 확인. 복구되면 `defender_host` 한 줄만 되돌림.
 
 ---
 
@@ -287,29 +292,57 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+Type=simple
+User=vm-d
 WorkingDirectory=/home/vm-d/capstone
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/bin/python3 -m defender.server --config config.yaml --port 8000
 Restart=on-failure
 RestartSec=5
-User=vm-d
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-**로그 sync 2종**(`docs/deploy/capstone-sync-audit.service`·`capstone-sync-falco.service` 를 VM D 경로로):
+**로그 sync 2종** — ⚠️ **audit 는 `KUBECONFIG` 기본값이 VM C 경로라 반드시 override**(안 하면 로그가
+안 쌓여 방어자가 조용히 NOOP). falco 는 `$HOME` 기반이라 vm-d 기본값과 일치하지만 명시한다.
+
+`/etc/systemd/system/capstone-sync-audit.service`:
 ```ini
-# capstone-sync-audit.service (요지)
-ExecStart=/usr/bin/env KUBECONFIG=/home/vm-d/.kube/vmb-admin.kubeconfig \
-  bash /home/vm-d/capstone/scripts/vmc-sync-audit.sh /home/vm-d/capstone/logs/vmb-audit.log
+[Unit]
+Description=Capstone 감사로그 동기 (VM B -> VM D)
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=vm-d
+WorkingDirectory=/home/vm-d/capstone
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=KUBECONFIG=/home/vm-d/.kube/vmb-admin.kubeconfig
+ExecStart=/usr/bin/bash scripts/vmc-sync-audit.sh /home/vm-d/capstone/logs/vmb-audit.log
 Restart=always
+RestartSec=5
+[Install]
+WantedBy=multi-user.target
 ```
+`/etc/systemd/system/capstone-sync-falco.service`:
 ```ini
-# capstone-sync-falco.service (요지)
-ExecStart=/usr/bin/env KUBECONFIG_VMB=/home/vm-d/.kube/vmb-admin.kubeconfig \
-  FALCO_LOCAL=/home/vm-d/capstone/logs/vmb-falco.log \
-  bash /home/vm-d/capstone/scripts/vmc-sync-falco.sh
+[Unit]
+Description=Capstone Falco 로그 동기 (VM B -> VM D)
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=vm-d
+WorkingDirectory=/home/vm-d/capstone
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=KUBECONFIG_VMB=/home/vm-d/.kube/vmb-admin.kubeconfig
+Environment=FALCO_LOCAL=/home/vm-d/capstone/logs/vmb-falco.log
+ExecStart=/usr/bin/bash scripts/vmc-sync-falco.sh
 Restart=always
+RestartSec=5
+[Install]
+WantedBy=multi-user.target
 ```
 적용:
 ```bash
