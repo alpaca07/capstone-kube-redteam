@@ -32,7 +32,11 @@
 3. Guest OS: Linux → Ubuntu 64-bit.
 4. VM 이름 `vm-d-defender`, 저장 위치 지정.
 5. Processors 2, Memory 4096 MB.
-6. Network: 일단 하나(나중에 조정). Disk: 새 가상디스크 30 GB, *Store as a single file*.
+6. Network type 기본(나중에 조정). **Disk**: *Create a new virtual disk* → 30 GB. 디스크 옵션:
+   - **Store virtual disk as a single file** 선택 **(권장)** — NTFS(Windows) 호스트는 단일 `.vmdk` 에 파일 크기 제한이 없고, I/O 가 조금 더 빠르며 파일 관리가 단순하다.
+   - *Split virtual disk into multiple files*(2 GB 조각)는 **FAT32/exFAT 처럼 큰 단일 파일을 못 담는 매체**에 VM 을 두거나 그런 곳으로 옮길 때만. 랩 호스트가 NTFS 면 쓸 이유 없음.
+   - *Allocate all disk space now*(사전할당·thick)는 체크하지 않음 — VM D 는 가벼워 **grow as needed(thin)** 로 공간 절약.
+   - 참고: 스냅샷은 단일/분할과 **무관하게** 델타 파일로 생기므로 이 선택이 스냅샷 동작엔 영향 없다.
 7. **Customize Hardware** 에서 네트워크 어댑터를 아래처럼:
    - **Network Adapter 1** = VM B 의 **관리망 VMnet**(Host-only) 과 같은 번호
    - **Add > Network Adapter 2** = VM B 의 **모델망 VMnet**(NAT) 과 같은 번호
