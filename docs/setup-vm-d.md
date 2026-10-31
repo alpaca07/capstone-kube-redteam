@@ -294,12 +294,19 @@ sed -i 's#defender_url:.*#defender_url: "http://192.168.16.131:8000"#' ~/capston
 sudo systemctl restart capstone-dashboard    # 오케스트레이터/대시보드 재시작
 ```
 
-**VM B** — 방어 하네스 내리기:
+**VM B** — 방어 하네스 내리기 **(분리의 보안 이점은 여기서 완성됨 — 안 내리면 탈출 노드에 방어자+admin 접근이 그대로 남아 분리 의미가 없다):**
 ```bash
 # (VM B)
-sudo systemctl disable --now defense-harness
-sudo systemctl disable --now capstone-falco-tail   # 방어자 전용 로컬 tail 이었으면(god-view 는 VM C 가 별도 sync)
+sudo systemctl disable --now defense-harness        # ① 실행 중지·부팅 비활성(필수)
+sudo systemctl disable --now capstone-falco-tail    # ② 방어자 전용 로컬 tail(god-view 는 VM C 가 별도 sync)
+git sparse-checkout set common k8s docs tests       # ③ 로컬 체크아웃에서 defender 코드 제거(위생)
+# ④ (선택 하드닝) 로컬 비root 방어자가 떠났으니 k3s admin kubeconfig 를 다시 600 으로 되돌려도 됨:
+#    sudo sed -i '/write-kubeconfig-mode/d' /etc/rancher/k3s/config.yaml && sudo systemctl restart k3s
+#    — 이후 VM C/VM D 는 각자 복사해 둔 vmb-admin.kubeconfig 로 붙으니 영향 없음
+#    — 단 privileged 호스트 탈출은 root 권한이라 600 도 읽음(완화일 뿐 차단은 아님)
 ```
+> ⚠️ 리포지토리의 `defender/` 는 **삭제하지 않는다** — VM D 가 받아 쓴다. VM B 에서 '없앤다'는 건
+> 그 VM 에서 **안 돌리고(서비스)·안 두는(체크아웃)** 것이지 코드 삭제가 아니다.
 
 ---
 
