@@ -1,3 +1,5 @@
+<!doctype html>
+<meta charset="utf-8">
 <title>택티컬 공수 콘솔</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -687,7 +689,7 @@ ROUTES.stats={html(){
   </div>
  </div>`;
 },mount(){
- chartBase();const grid=css('--border');
+ chartBase();if(!window.Chart)return;const grid=css('--border');
  CHARTS.push(new Chart(document.getElementById('cEvo'),{type:'line',data:{labels:EVO.rounds,datasets:[
    {label:'공격 성공률 %',data:EVO.attack,borderColor:css('--attack-strong'),backgroundColor:css('--attack-line'),fill:false,tension:.35,pointRadius:3,borderWidth:2.5},
    {label:'방어 차단율 %',data:EVO.defense,borderColor:css('--defense-strong'),backgroundColor:css('--defense-line'),fill:false,tension:.35,pointRadius:3,borderWidth:2.5}]},
@@ -728,7 +730,7 @@ ROUTES.runs={html(){
   </div>
  </div>`;
 },mount(){
- chartBase();const grid=css('--border');
+ chartBase();if(!window.Chart)return;const grid=css('--border');
  CHARTS.push(new Chart(document.getElementById('cAbl'),{type:'line',data:{labels:EVO.rounds,datasets:[
    {label:'탈옥 vs 정렬 — 공격 성공률',data:EVO.attack,borderColor:css('--attack-strong'),tension:.35,pointRadius:2,borderWidth:2.5},
    {label:'정렬 vs 정렬 — 공격 성공률',data:[70,55,44,36,30,27,24,22],borderColor:css('--system'),borderDash:[5,4],tension:.35,pointRadius:2,borderWidth:2}]},
@@ -848,7 +850,7 @@ ROUTES.report={html(){
   </details>
  </div>`;
 },mount(){
- chartBase();const grid=css('--border');
+ chartBase();if(!window.Chart)return;const grid=css('--border');
  CHARTS.push(new Chart(document.getElementById('cRep'),{type:'line',data:{labels:EVO.rounds,datasets:[
    {label:'공격 성공률 %',data:EVO.attack,borderColor:css('--attack-strong'),tension:.35,pointRadius:3,borderWidth:2.5},
    {label:'방어 차단율 %',data:EVO.defense,borderColor:css('--defense-strong'),tension:.35,pointRadius:3,borderWidth:2.5}]},
@@ -930,11 +932,16 @@ function recompute(){
 }
 
 async function poll(){
- try{
-  const res=await Promise.all([api('/api/status'),api('/api/run/status'),api('/api/rounds'),api('/api/episodes')]);
-  LIVE=res[0]; RUNSTATUS=res[1]; ROUNDS=Array.isArray(res[2])?res[2]:[]; EPISODES_DATA=Array.isArray(res[3])?res[3]:[];
-  ONLINE=true; _firstFail=true; recompute(); rerender();
- }catch(e){ if(ONLINE||_firstFail){ONLINE=false;_firstFail=false;rerender();} }
+ // 엔드포인트별 독립 갱신(allSettled): 하나가 죽어도(예: 구버전 서버의 /api/status 404)
+ // 나머지로 분석·교전탐색이 계속 갱신된다. 전부 실패할 때만 오프라인(목업)으로 떨어진다.
+ const [st,rs,rd,ep]=await Promise.allSettled([api('/api/status'),api('/api/run/status'),api('/api/rounds'),api('/api/episodes')]);
+ let any=false;
+ if(st.status==='fulfilled'){LIVE=st.value;any=true;}
+ if(rs.status==='fulfilled'){RUNSTATUS=rs.value;any=true;}
+ if(rd.status==='fulfilled'){ROUNDS=Array.isArray(rd.value)?rd.value:[];any=true;}
+ if(ep.status==='fulfilled'){EPISODES_DATA=Array.isArray(ep.value)?ep.value:[];any=true;}
+ if(any){ ONLINE=true; _firstFail=true; try{recompute();rerender();}catch(e){/* 렌더 실패가 폴링을 멈추면 안 됨 */} }
+ else if(ONLINE||_firstFail){ ONLINE=false; _firstFail=false; rerender(); }
 }
 function rerender(){
  renderCtx();
