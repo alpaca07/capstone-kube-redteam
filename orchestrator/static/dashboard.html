@@ -129,9 +129,9 @@ button{font-family:inherit}
 
 /* ---- loop stepper (0~8) ---- */
 .loop{display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px}
-.loop .step{flex:1 0 auto;min-width:92px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-sm);padding:9px 11px;position:relative}
+.loop .step{flex:1 0 auto;min-width:74px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-sm);padding:7px 10px;position:relative}
 .loop .step .n{font-size:10.5px;color:var(--fg-dim);font-weight:700;font-family:var(--mono)}
-.loop .step .l{font-size:12px;margin-top:3px;color:var(--fg-muted);font-weight:500}
+.loop .step .l{font-size:11px;margin-top:2px;color:var(--fg-muted);font-weight:500}
 .loop .step.done{border-color:var(--defense-line)}
 .loop .step.done .l{color:var(--fg)}
 .loop .step.now{background:var(--accent-bg);border-color:var(--accent)}
@@ -199,6 +199,7 @@ table.log tbody tr:hover{background:var(--surface-2)}
 .compare .truth{background:linear-gradient(180deg,rgba(148,163,184,.06),transparent)}
 .compare .dpanel{border-left:1px solid var(--border);background:linear-gradient(180deg,var(--defense-bg),transparent)}
 .compare h4{font-size:12.5px;margin-bottom:10px;display:flex;align-items:center;gap:7px}
+.compare h4 svg,.card-h h3 svg{width:15px;height:15px;flex:none}
 .mlist{display:flex;flex-direction:column;gap:6px}
 .mitem{display:flex;align-items:center;gap:9px;font-size:12.5px;padding:6px 9px;border-radius:var(--r-xs);background:var(--surface-2)}
 .mitem .tag{font-family:var(--mono);font-size:11px;color:var(--fg-muted)}
@@ -313,7 +314,7 @@ function icon(n){const p={
   chev:'<path d="m9 6 6 6-6 6"/>',
   clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'
 }[n]||'';
- return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>';}
+ return '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>';}
 
 /* ============ mock data ============ */
 let RUN={id:'run-1101-A',mode:'데모런',started:'2026-11-01 13:20',
@@ -504,7 +505,7 @@ ROUTES.live={html(){
   <div class="page-head"><div><h1>실시간 모니터</h1><div class="sub">단계·턴 예산·현재 상태는 /api/status 실시간 · 활동/명령은 라운드 단위(rounds.jsonl).</div></div>
    <span class="pill ${running?'p-live':'p-system'}"><span class="d" style="background:var(--${running?'go':'fg-dim'})"></span>${stat}</span></div>
 
-  <div class="card pad">${loopStepper(phase)}</div>
+  <div class="card"><div class="card-h"><h3>이 라운드 진행 단계</h3><span class="hint">0 초기화 → 5 종료 · 현재 단계 강조</span></div><div class="card-b">${loopStepper(phase)}</div></div>
 
   <div class="grid g-2">
    <div class="card">
@@ -947,8 +948,9 @@ function rerender(){
  renderCtx();
  const h=(location.hash||'#home').slice(1);
  const s=[ONLINE,LIVE.status,LIVE.episode,LIVE.round,LIVE.phase,LIVE.active,ROUNDS.length,EPISODES_DATA.length].join('|');
- if(liveViews[h]){ router(true); _sig=s; }
- else { if(s!==_sig){ _sig=s; router(true); } }
+ // 모든 뷰를 시그니처 변화 시에만 재렌더(라이브 뷰 포함) — 매 poll 통째 재빌드로 인한
+ // 스크롤 튐·깜빡임 제거. 턴 예산 바는 tickLive 가 1초마다 DOM 만 surgically 갱신한다.
+ if(s!==_sig){ _sig=s; router(true); }
 }
 function tickLive(){
  if((location.hash||'')!=='#live')return;
