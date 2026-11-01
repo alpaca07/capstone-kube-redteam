@@ -30,7 +30,7 @@ _RUN_LOG = _LOGS / "run.out"
 app = FastAPI(title="K8s 공수 공진화 대시보드")
 
 # ── 실험 프로세스 상태(단일 워커 전제: 한 번에 하나만) ──
-_run: dict = {"proc": None, "started": None, "params": None}
+_run: dict = {"proc": None, "started": None, "params": None, "id": None}
 
 
 def _read_jsonl(path: Path) -> list[dict]:
@@ -75,6 +75,18 @@ def rounds() -> JSONResponse:
 @app.get("/api/episodes")
 def episodes() -> JSONResponse:
     return JSONResponse(_read_jsonl(_LOGS / "episodes.jsonl"))
+
+
+@app.get("/api/runs")
+def runs_list() -> JSONResponse:
+    """실험 런 레지스트리 — run_start 가 runs.jsonl 에 append 한 기록. 최신순,
+    현재 실행 중인 런은 상태를 '진행 중'으로 반영."""
+    runs = _read_jsonl(_LOGS / "runs.jsonl")
+    active = _run.get("id") if _running() else None
+    for r in runs:
+        r["status"] = "진행 중" if r.get("id") == active else "완료"
+    runs.reverse()
+    return JSONResponse(runs)
 
 
 @app.get("/api/status")
@@ -124,9 +136,18 @@ def run_start(payload: dict = Body(default={})) -> JSONResponse:
     logf = open(_RUN_LOG, "w", encoding="utf-8")
     proc = subprocess.Popen(cmd, cwd=str(_ROOT), stdout=logf,
                             stderr=subprocess.STDOUT, env=os.environ.copy())
-    _run.update(proc=proc, started=time.time(),
+    run_id = "run-" + time.strftime("%m%d-%H%M%S")
+    started = time.time()
+    _run.update(proc=proc, started=started, id=run_id,
                 params={"episodes": eps, "max_rounds": mr, "time_limit": tl, "max_tokens": mt})
-    return JSONResponse({"ok": True, "pid": proc.pid, "params": _run["params"]})
+    try:  # 런 레지스트리에 기록(/api/runs 소스). fresh 여도 runs.jsonl 은 보존.
+        with (_LOGS / "runs.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"id": run_id, "started": started,
+                                "mode": str(payload.get("mode", "demo")),
+                                "params": _run["params"]}, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+    return JSONResponse({"ok": True, "pid": proc.pid, "id": run_id, "params": _run["params"]})
 
 
 @app.post("/api/run/stop")
