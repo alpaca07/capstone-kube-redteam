@@ -52,6 +52,16 @@ def _read_jsonl(path: Path) -> list[dict]:
     return out
 
 
+def _read_json(path: Path) -> dict:
+    """progress.json 같은 단일 JSON 객체를 안전하게 읽음(없거나 깨지면 빈 dict)."""
+    try:
+        with path.open(encoding="utf-8") as f:
+            obj = json.load(f)
+        return obj if isinstance(obj, dict) else {}
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
 def _running() -> bool:
     p = _run["proc"]
     return bool(p and p.poll() is None)
@@ -65,6 +75,26 @@ def rounds() -> JSONResponse:
 @app.get("/api/episodes")
 def episodes() -> JSONResponse:
     return JSONResponse(_read_jsonl(_LOGS / "episodes.jsonl"))
+
+
+@app.get("/api/status")
+def live_status() -> JSONResponse:
+    """진행 sink(progress.json) + 실행 여부를 합쳐 '지금 상태'를 반환 — 대시보드 라이브 소스.
+
+    stdout 테일(run.out, /api/run/status)과 달리 구조화된 현재 phase/round/활성 에이전트/
+    턴 시작시각을 준다 → 0~8 단계 표시기·턴 예산 바.
+    """
+    prog = _read_json(_LOGS / "progress.json") or {"status": "idle"}
+    running = _running()
+    started = _run["started"]
+    # 프로세스는 죽었는데 sink가 'running'에 멈춰 있으면(크래시) 상태 보정.
+    if not running and prog.get("status") == "running":
+        prog["status"] = "stopped"
+        prog["active"] = None
+        prog["turn_started"] = None
+    prog["running"] = running
+    prog["run_elapsed"] = (time.time() - started) if started else 0
+    return JSONResponse(prog)
 
 
 @app.post("/api/run")

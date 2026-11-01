@@ -94,6 +94,7 @@ class TurnSequencer:
                  snapshots: SnapshotManager, verifier: VerificationEngine,
                  logs: LogSource, registry: FlagRegistry, truth: TruthLog,
                  params: RunParams, sink: Optional[Callable[[dict], None]] = None,
+                 progress: Optional[Callable[[dict], None]] = None,
                  kill_switch: Optional[Callable[[], bool]] = None,
                  sleeper: Callable[[float], None] = time.sleep) -> None:
         self.attacker = attacker
@@ -105,19 +106,35 @@ class TurnSequencer:
         self.truth = truth
         self.params = params
         self.sink = sink
+        self.progress = progress          # 실시간 진행 sink(/api/status 소스) — 없으면 무시
         self.kill_switch = kill_switch
         self._sleep = sleeper              # 테스트에서 주입 가능(실제론 time.sleep)
 
     # ───────────── public ─────────────
     def run_experiment(self) -> list[EpisodeSummary]:
         """에피소드 여러 번 반복(통계용). 각 에피소드는 독립(baseline에서 시작)."""
-        return [self.run_episode(e) for e in range(1, self.params.episodes + 1)]
+        self._emit(status="running", total_episodes=self.params.episodes,
+                   max_rounds=self.params.max_rounds,
+                   time_limit_sec=self.params.time_limit_sec)
+        summaries = [self.run_episode(e) for e in range(1, self.params.episodes + 1)]
+        self._emit(status="done", phase=5, active=None, turn_started=None)
+        return summaries
 
     def _log(self, msg: str) -> None:
         """진행 로그 — 벽시계 시각(HH:MM:SS) 프리픽스. 장시간 실행 가시성용."""
         print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
+    def _emit(self, **fields) -> None:
+        """실시간 진행 sink 로 현재 상태 조각을 흘린다(없으면 무시). 모니터링 보조."""
+        if self.progress is not None:
+            try:
+                self.progress(fields)
+            except Exception:              # noqa: BLE001 — 모니터링 실패가 실험을 멈추면 안 됨
+                pass
+
     def run_episode(self, episode: int) -> EpisodeSummary:
+        self._emit(status="running", episode=episode, round=0, phase=0, active=None,
+                   turn_started=None, last_verdict=None, flags_reached=[])
         # 0. init — clean 베이스라인으로 리셋(이전 에피소드 오염 제거)
         if self.params.skip_revert:
             # vmrun revert 가 k3s exec 경로를 느리게 만드는 인프라 이슈 회피 — 라이브(이미 베이스라인
@@ -205,6 +222,7 @@ class TurnSequencer:
         start = AttackTurnStart(time_limit_sec=self.params.time_limit_sec,
                                 goal=self.params.goal, flag_format=self.params.flag_format,
                                 foothold=foothold, max_tokens=self.params.max_tokens)
+        self._emit(round=rnd, phase=1, active="attacker", turn_started=time.time())
         self._log(f"[ep{episode} R{rnd}] 1. 공격 턴…")
         _t = time.time()
         attack: AttackTurnResult = self._call(
@@ -221,6 +239,7 @@ class TurnSequencer:
         if flag_found:
             # 2. 방어 턴 (공격정보 0). A2: 공격후 VM 스냅샷 불필요 — verify 가 '패치된 라이브'에
             #    공격 대본을 재생(POST-only)할 뿐 리셋하지 않으므로 stun 유발 스냅샷이 없다.
+            self._emit(phase=2, active="defender", turn_started=time.time())
             self._log(f"[ep{episode} R{rnd}] 2. 방어 턴(관측→추론→패치)…")
             _t = time.time()
             defense = self._call(
@@ -236,6 +255,7 @@ class TurnSequencer:
             #    누적된 방어를 상대한다(공진화). 에피소드 경계 리셋만 시퀀서 init 이 담당.
             script = attack.replay_script
             if script is not None and script.steps:
+                self._emit(phase=3, active=None, turn_started=time.time())
                 self._log(f"[ep{episode} R{rnd}] 3. 검증(POST 재생: 패치된 라이브에 공격 재생)…")
                 _t = time.time()
                 verification = self._call(
@@ -266,6 +286,9 @@ class TurnSequencer:
         scorer.score_round(round=rnd, attack_result=attack,
                            defense_result=defense, verification=verification)
         self._log(f"[ep{episode} R{rnd}] 6. 채점 완료 (라운드 총 {time.time() - t0:.0f}s)")
+        self._emit(phase=4, active=None, turn_started=None,
+                   last_verdict=verification.verdict.value,
+                   flags_reached=sorted(self.truth.flags_up_to(episode, rnd)))
 
         return RoundOutcome(round=rnd, verdict=verification.verdict,
                             defense_succeeded=verification.defense_succeeded(),
