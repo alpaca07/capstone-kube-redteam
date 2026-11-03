@@ -73,6 +73,21 @@ kubectl -n internal rollout restart deploy/admin-dashboard
 # 보상통제(병행): A2 는 catalog-api egress NP 로도 내부 피벗 차단. A3 탈출은 Falco 탐지 + PSA.
 ```
 
+## god-view 채점 (AppLogSource — 배선 완료)
+
+- **달성(achievement)**: 경로 불문 — 공격자가 보고한 FLAG 문자열을 `registry.match_value` 가 ④와
+  대조(SQLi 지름길이든 기존 체인이든 동일). 추가 배선 불필요.
+- **탐지(detection)**: 앱 레벨 공격은 감사로그·Falco 사각 → 취약 서비스가 민감 요청마다 JSON
+  감사 로그(`after_request` 훅: ts+path+query+url)를 stdout 에 찍고, `scripts/vmc-sync-applog.sh` 가
+  VM C 로 당기면 `orchestrator/app_log_source.py` 의 `AppLogSource` 가 페이로드 악성 여부로 판정:
+  `WEB_SQLI`(union/tautology) · `WEB_SSRF`(내부/file URL) · `WEB_CMDI`(셸 메타문자) ·
+  `WEB_CREDLEAK`(/debug/config). `CompositeLogSource` 가 Audit+Falco+App 을 합쳐 truth 에 편입 →
+  `scorer` 가 TP/FP/FN·MTTD 산출. 하드닝 버전도 '시도'는 로깅(탐지≠차단 유지).
+- flag 정의: `orchestrator/flags.py` 비-digit `web-*` FlagSpec(선형 깊이 ①~④ 불변).
+- config: `observability.app_log_path`. **남은 것(방어자 측)**: 방어자가 이 웹 공격을 '보고'해
+  `patch_app` 을 걸려면 **방어 하네스(VM D)도 앱 로그를 수집**해야 함. 그 전까진 web 기법이
+  god-view truth 엔 있으나 방어자 보고가 없어 FN 으로 잡힘(의도된 중간 상태) → 다음 작업.
+
 ## 리셋 반영 (TODO — 채점 단계와 함께)
 
 - 신규/수정 ConfigMap(`catalog-api-code`·`order-api-code`·`admin-dashboard-code`)과 스키마(`role` 컬럼)는

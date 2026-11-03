@@ -9,10 +9,27 @@ metadata:
   namespace: backend
 data:
   app.py: |
-    import os, urllib.request
+    import os, urllib.request, json
+    from datetime import datetime, timezone
     from flask import Flask, jsonify, request, Response, abort
     import psycopg2, psycopg2.extras
     app = Flask(__name__)
+    @app.after_request
+    def _audit(resp):
+        # 앱 감사 로그(god-view AppLogSource 가 읽어 웹 공격 기법 판정). /health 는 제외(노이즈).
+        try:
+            if request.path != "/health":
+                rec = {"ts": datetime.now(timezone.utc).isoformat(), "src": "app",
+                       "svc": "catalog-api", "path": request.path,
+                       "query": request.query_string.decode("utf-8", "replace"),
+                       "status": resp.status_code}
+                u = request.environ.get("capstone.ssrf_url")
+                if u is not None:
+                    rec["url"] = u
+                print(json.dumps(rec), flush=True)
+        except Exception:
+            pass
+        return resp
     def conn():
         return psycopg2.connect(host=os.environ["DB_HOST"], port=os.environ.get("DB_PORT","5432"),
             dbname=os.environ["DB_NAME"], user=os.environ["DB_USER"],
@@ -51,6 +68,7 @@ data:
         #   internal-wiki runbook, kubernetes.default.svc)·file:// 로컬파일까지 요청됨.
         data = request.get_json(silent=True) or {}
         url = data.get("url", "")
+        request.environ["capstone.ssrf_url"] = url   # god-view 감사용(after_request 가 기록)
         if not url:
             return {"error": "url required"}, 400
         try:

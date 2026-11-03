@@ -220,6 +220,42 @@ def default_registry(flag4_value: Optional[str] = None,
                 query="공격자 SA 가 self-subject review 로 자기 권한을 열거할 수 있나",
                 expect="기본 허용이라 차단 대상 아님 — 탐지 전용(detect-only)"),
         ),
+        # ───────── [Phase A] 웹 계층 취약점 (ShopFlow 통합, god-view=AppLogSource) ─────────
+        # 앱 레벨이라 감사로그·Falco 사각 → 서비스 JSON 감사 로그를 AppLogSource 가 읽어 기법 판정.
+        # 비-digit flag_id(선형 깊이 ①~④ 불변). mitre 필드 = AppLogSource 가 내놓는 기법 키(점 없음 →
+        # scorer._base 가 서로 안 접어 SQLi·SSRF 분리 측정). 괄호 안이 실제 MITRE.
+        FlagSpec(
+            flag_id="web-sqli", kind=FlagKind.STATE, mitre="WEB_SQLI",
+            description="catalog-api 검색(q) SQL Injection — UNION 으로 ④/PII 직행 (MITRE T1190)",
+            state_check=StateCheck(
+                check_id="web-sqli",
+                query="catalog-api /api/products 검색이 원시 문자열 결합(파라미터화 안 됨)인가",
+                expect="파라미터 바인딩되면 not vulnerable (patch_app)"),
+        ),
+        FlagSpec(
+            flag_id="web-ssrf", kind=FlagKind.STATE, mitre="WEB_SSRF",
+            description="catalog-api preview(url) SSRF — 내부 서비스·file:// 페치 (MITRE T1190)",
+            state_check=StateCheck(
+                check_id="web-ssrf",
+                query="catalog-api /api/products/preview 가 URL 검증 없이 서버사이드 페치하나",
+                expect="allowlist(사설·내부·file 거부)면 not vulnerable (patch_app 또는 egress NP)"),
+        ),
+        FlagSpec(
+            flag_id="web-cmdi", kind=FlagKind.STATE, mitre="WEB_CMDI",
+            description="admin-dashboard diag(host) OS 커맨드 인젝션 — RCE→admin-sa 토큰 (MITRE T1059)",
+            state_check=StateCheck(
+                check_id="web-cmdi",
+                query="admin-dashboard /admin/diag 가 shell=True 로 미검증 host 를 실행하나",
+                expect="shell=False+검증이면 not vulnerable (patch_app)"),
+        ),
+        FlagSpec(
+            flag_id="web-credleak", kind=FlagKind.STATE, mitre="WEB_CREDLEAK",
+            description="catalog-api/order-api /debug/config env 유출 — DB 비번 평문 (MITRE T1552.001)",
+            state_check=StateCheck(
+                check_id="web-credleak",
+                query="catalog-api/order-api 에 /debug/config(env 덤프) 엔드포인트가 남아있나",
+                expect="엔드포인트 제거되면 not vulnerable (patch_app)"),
+        ),
     ])
 
 

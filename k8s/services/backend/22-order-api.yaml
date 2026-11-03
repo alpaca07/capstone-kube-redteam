@@ -8,10 +8,23 @@ metadata:
   namespace: backend
 data:
   app.py: |
-    import os
-    from flask import Flask, jsonify
+    import os, json
+    from datetime import datetime, timezone
+    from flask import Flask, jsonify, request
     import psycopg2, psycopg2.extras
     app = Flask(__name__)
+    @app.after_request
+    def _audit(resp):
+        # 앱 감사 로그(god-view AppLogSource). /debug/config 접근이 WEB_CREDLEAK 로 잡힘.
+        try:
+            if request.path != "/health":
+                print(json.dumps({"ts": datetime.now(timezone.utc).isoformat(), "src": "app",
+                       "svc": "order-api", "path": request.path,
+                       "query": request.query_string.decode("utf-8", "replace"),
+                       "status": resp.status_code}), flush=True)
+        except Exception:
+            pass
+        return resp
     def conn():
         return psycopg2.connect(host=os.environ["DB_HOST"], port=os.environ.get("DB_PORT","5432"),
             dbname=os.environ["DB_NAME"], user=os.environ["DB_USER"],

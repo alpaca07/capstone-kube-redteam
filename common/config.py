@@ -97,6 +97,9 @@ class ObservabilityConfig(BaseModel):
     # VM C가 god-view로 직접 읽는 로그 경로(관리망으로 마운트/동기 전제).
     audit_log_path: str = "/var/lib/rancher/k3s/server/logs/audit.log"
     falco_log_path: str = "/var/log/falco/events.txt"   # Falco file_output 설정 필요
+    # [Phase A] 취약 서비스 파드 stdout(JSON 앱 감사 로그) 동기 파일 — AppLogSource 가 읽음.
+    # vmc-sync-applog.sh 가 kubectl logs 로 생성(catalog/order/admin).
+    app_log_path: str = "/var/log/capstone/app-requests.log"
 
 
 # ───────────────────────── 루트 ─────────────────────────

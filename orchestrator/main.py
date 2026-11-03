@@ -28,6 +28,7 @@ from orchestrator.flags import default_registry  # noqa: E402
 from orchestrator.govc_snapshot import GovcSnapshotManager  # noqa: E402
 from orchestrator.http_clients import HttpAttackerClient, HttpDefenderClient  # noqa: E402
 from orchestrator.log_source import AuditFalcoLogSource, file_line_reader  # noqa: E402
+from orchestrator.app_log_source import AppLogSource, CompositeLogSource  # noqa: E402
 from orchestrator.progress import ProgressSink  # noqa: E402
 from orchestrator.scorer import jsonl_file_sink  # noqa: E402
 from orchestrator.sequencer import RunParams, TurnSequencer  # noqa: E402
@@ -100,8 +101,12 @@ def build_sequencer(cfg: Config, *, flag4_value: Optional[str] = None,
         baseline_name=cfg.vmware.baseline_snapshot)
     registry = default_registry(flag4_value, host_flag_value)
     verifier = VerificationEngine(attacker, defender, baseline, registry)
-    logs = AuditFalcoLogSource(file_line_reader(cfg.observability.audit_log_path),
-                               file_line_reader(cfg.observability.falco_log_path))
+    logs = CompositeLogSource(
+        AuditFalcoLogSource(file_line_reader(cfg.observability.audit_log_path),
+                            file_line_reader(cfg.observability.falco_log_path)),
+        # [Phase A] 앱 레벨 웹 공격(SQLi·SSRF·cmdi·cred-leak) — 서비스 JSON 감사 로그 기반.
+        AppLogSource(file_line_reader(cfg.observability.app_log_path)),
+    )
     truth = TruthLog()
     if params is None:
         params = RunParams(

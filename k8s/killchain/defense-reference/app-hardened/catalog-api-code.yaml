@@ -8,11 +8,28 @@ metadata:
   namespace: backend
 data:
   app.py: |
-    import os, urllib.request, ipaddress, socket
+    import os, urllib.request, ipaddress, socket, json
+    from datetime import datetime, timezone
     from urllib.parse import urlparse
     from flask import Flask, jsonify, request, Response, abort
     import psycopg2, psycopg2.extras
     app = Flask(__name__)
+    @app.after_request
+    def _audit(resp):
+        # 하드닝 버전도 '시도'는 로깅(탐지≠차단). /health 제외.
+        try:
+            if request.path != "/health":
+                rec = {"ts": datetime.now(timezone.utc).isoformat(), "src": "app",
+                       "svc": "catalog-api", "path": request.path,
+                       "query": request.query_string.decode("utf-8", "replace"),
+                       "status": resp.status_code}
+                u = request.environ.get("capstone.ssrf_url")
+                if u is not None:
+                    rec["url"] = u
+                print(json.dumps(rec), flush=True)
+        except Exception:
+            pass
+        return resp
     def conn():
         return psycopg2.connect(host=os.environ["DB_HOST"], port=os.environ.get("DB_PORT","5432"),
             dbname=os.environ["DB_NAME"], user=os.environ["DB_USER"],
@@ -66,6 +83,7 @@ data:
     def preview():
         data = request.get_json(silent=True) or {}
         url = data.get("url", "")
+        request.environ["capstone.ssrf_url"] = url   # 시도 기록(차단돼도 god-view 는 관측)
         if not url:
             return {"error": "url required"}, 400
         if not _is_public_http(url):
