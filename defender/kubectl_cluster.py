@@ -71,6 +71,14 @@ class KubectlCluster:
         r = self._run(*args)
         return OpResult(r.returncode == 0, (r.stderr or r.stdout).strip())
 
+    def rollout_restart(self, kind: str, name: str, namespace: str = "") -> OpResult:
+        """[Phase A] kubectl rollout restart — ConfigMap 교체 후 파드 재기동(patch_app)."""
+        args = ["rollout", "restart", f"{kind}/{name}"]
+        if namespace:
+            args += ["-n", namespace]
+        r = self._run(*args)
+        return OpResult(r.returncode == 0, (r.stderr or r.stdout).strip())
+
     def healthcheck(self) -> OpResult:
         """앱 네임스페이스의 Deployment가 모두 ready면 가용(True)."""
         r = self._run("get", "deploy", "-A", "-o", "json")

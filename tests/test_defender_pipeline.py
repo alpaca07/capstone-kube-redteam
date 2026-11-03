@@ -59,6 +59,10 @@ class _FakeCluster:
     def healthcheck(self):
         return OpResult(self.healthy, "ok" if self.healthy else "service down")
 
+    def rollout_restart(self, kind, name, namespace=""):
+        self.calls.append(("rollout_restart", False, f"{kind}/{name}"))
+        return OpResult(True, "")
+
 
 # ───────────── Triager ─────────────
 def test_triage_valid():
@@ -170,6 +174,32 @@ def test_patcher_applies_pod_security():
     assert out.patch_applied and out.healthcheck_passed
     assert any(c[0] == "apply" and "pod-security.kubernetes.io/enforce" in c[2]
                for c in cluster.calls if c[1] is False)            # 실제 적용된 매니페스트에 PSA 라벨
+
+
+# ───────────── render/patcher: [Phase A] patch_app ─────────────
+def test_render_patch_app():
+    op = render_op(PatchStep(action="patch_app", target="catalog-api"))
+    assert op is not None and op.kind == "patch_app"
+    assert op.svc == "catalog-api" and op.restart_ns == "backend"
+
+
+def test_render_patch_app_unknown_service():
+    assert render_op(PatchStep(action="patch_app", target="nope")) is None
+
+
+def test_patcher_patch_app_applies_and_restarts():
+    hd = str(_ROOT / "k8s" / "killchain" / "defense-reference" / "app-hardened")
+    cluster = _FakeCluster(healthy=True)
+    out = Patcher(cluster, hardened_dir=hd).apply_plan([PatchStep(action="patch_app", target="catalog-api")])
+    assert out.patch_applied and out.healthcheck_passed
+    assert any(c[0] == "rollout_restart" for c in cluster.calls)       # 재기동 호출됨
+    assert any(c[0] == "apply" and c[1] is False for c in cluster.calls)  # 하드닝 CM 실제 적용
+
+
+def test_patcher_patch_app_needs_hardened_dir():
+    # hardened_dir 없으면 dry-run 실패 → 세트 미적용(원자적)
+    out = Patcher(_FakeCluster()).apply_plan([PatchStep(action="patch_app", target="catalog-api")])
+    assert not out.patch_applied
 
 
 def _run() -> int:

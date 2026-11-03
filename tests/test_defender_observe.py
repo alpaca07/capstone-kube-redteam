@@ -121,8 +121,33 @@ def test_quiet_and_prompt_dict():
     obs = Observer(_reader([_audit_line()]), _reader([_falco_line()]))
     rep = filter_observations(obs.collect(since_ts=0.0))
     d = rep.to_prompt_dict()
-    assert set(d.keys()) == {"window_sec", "audit", "falco"}
+    assert set(d.keys()) == {"window_sec", "audit", "falco", "app"}
     assert d["audit"][0]["resource"] == "secrets" and d["falco"][0]["rule"]
+
+
+def _app_line(svc="catalog-api", path="/api/products",
+              query="q=%27%20UNION%20SELECT%201%20FROM%20internal_secrets--%20",
+              url=None, ts="2026-10-11T14:56:03.500000+00:00"):
+    rec = {"ts": ts, "src": "app", "svc": svc, "path": path, "query": query, "status": 200}
+    if url is not None:
+        rec["url"] = url
+    return json.dumps(rec)
+
+
+def test_filter_app_classifies_web_attacks():
+    obs = Observer(_reader([]), _reader([]), _reader([
+        _app_line(),                                                   # SQLi
+        _app_line(path="/api/products/preview", query="",
+                  url="http://admin-dashboard.internal.svc.cluster.local:8080/internal/secret/x"),  # SSRF
+        _app_line(path="/api/products", query="q=%EB%AC%B4%EC%84%A0"),  # 정상 검색 → 제외
+        _app_line(svc="admin-dashboard", path="/admin/diag", query="host=127.0.0.1%3Bcat%20x"),  # cmdi
+    ]))
+    rep = filter_observations(obs.collect(since_ts=0.0))
+    techs = {h.technique for h in rep.app_highlights}
+    assert {"WEB_SQLI", "WEB_SSRF", "WEB_CMDI"} <= techs
+    assert rep.total_app == 3                                          # 정상 검색 제외
+    d = rep.to_prompt_dict()
+    assert any(x["technique"] == "WEB_SQLI" and x["svc"] == "catalog-api" for x in d["app"])
 
 
 def _run() -> int:

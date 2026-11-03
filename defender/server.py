@@ -36,9 +36,15 @@ try:
 except ImportError:                    # pragma: no cover
     Request = None  # type: ignore
 
+# 레포 루트(= defender/ 의 한 단계 위) — patch_app 하드닝 매니페스트 경로 계산용.
+_ROOT = Path(__file__).resolve().parent.parent
+_APP_HARDENED_DIR = _ROOT / "k8s" / "killchain" / "defense-reference" / "app-hardened"
+
 
 def _patch_kind(action: str) -> str:
     a = action.lower()
+    if "app" in a:                      # [Phase A] patch_app → 앱 코드(ConfigMap) 교체
+        return "config"
     if "network" in a or "netpol" in a:
         return "networkpolicy"
     if "rbac" in a or "role" in a:
@@ -162,10 +168,11 @@ def create_harness(cfg, *, prompt: Optional[str] = None, cluster=None, llm=None)
                            timeout=req_timeout,            # 콜드스타트/느린 모델이 120초 넘겨도 안 끊김
                            max_tokens=cfg.dgx.max_tokens)
     observer = Observer(_file_line_reader(cfg.observability.audit_log_path),
-                        _file_line_reader(cfg.observability.falco_log_path))
+                        _file_line_reader(cfg.observability.falco_log_path),
+                        app_reader=_file_line_reader(cfg.observability.app_log_path))
     return DefenseHarness(observer=observer, triager=Triager(llm, prompt or _load_prompt()),
-                          patcher=Patcher(cluster), state_handler=StateQueryHandler(cluster),
-                          cluster=cluster)
+                          patcher=Patcher(cluster, hardened_dir=str(_APP_HARDENED_DIR)),
+                          state_handler=StateQueryHandler(cluster), cluster=cluster)
 
 
 def create_app(harness: DefenseHarness):
