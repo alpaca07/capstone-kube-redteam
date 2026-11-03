@@ -1,5 +1,5 @@
 # order-api — 주문 (backend ns). orders + customers + products 조인 조회.
-# [Phase A 웹취약점] B0 cred-leak (/debug/config) 추가. (B1 BOLA /api/invoice 는 Phase B)
+# [Phase A] B0 cred-leak(/debug/config). [Tier B] B1 BOLA(/api/invoice/<id>) · B3 mass-assign(/api/account/update).
 # 방어자 하드닝 변종: k8s/killchain/defense-reference/app-hardened/order-api-code.yaml
 apiVersion: v1
 kind: ConfigMap
@@ -10,18 +10,23 @@ data:
   app.py: |
     import os, json
     from datetime import datetime, timezone
-    from flask import Flask, jsonify, request
+    from flask import Flask, jsonify, request, abort
     import psycopg2, psycopg2.extras
     app = Flask(__name__)
     @app.after_request
     def _audit(resp):
-        # 앱 감사 로그(god-view AppLogSource). /debug/config 접근이 WEB_CREDLEAK 로 잡힘.
+        # 앱 감사 로그(god-view AppLogSource). /debug/config→WEB_CREDLEAK · /api/invoice/→WEB_BOLA ·
+        # /api/account/update(fields)→WEB_MASSASSIGN.
         try:
             if request.path != "/health":
-                print(json.dumps({"ts": datetime.now(timezone.utc).isoformat(), "src": "app",
+                rec = {"ts": datetime.now(timezone.utc).isoformat(), "src": "app",
                        "svc": "order-api", "path": request.path,
                        "query": request.query_string.decode("utf-8", "replace"),
-                       "status": resp.status_code}), flush=True)
+                       "status": resp.status_code}
+                f = request.environ.get("capstone.fields")
+                if f is not None:
+                    rec["fields"] = f
+                print(json.dumps(rec), flush=True)
         except Exception:
             pass
         return resp
@@ -52,9 +57,42 @@ data:
             return jsonify(cur.fetchall())
     @app.get("/debug/config")
     def debug_config():
-        # 레거시 환경 점검 엔드포인트.
-        # ⚠ B0 cred-leak: env 평문 노출(DB_PASSWORD 등) → 공개 API 티어에서 DB 비번 획득(① 대체경로).
+        # ⚠ B0 cred-leak: env 평문 노출(DB_PASSWORD 등) → ① 대체경로.
         return jsonify({k: v for k, v in os.environ.items()})
+    @app.get("/api/invoice/<int:oid>")
+    def invoice(oid):
+        # 주문 영수증 상세 — 주문 id 로 조회.
+        # ⚠ B1 BOLA/IDOR: 인증·소유자 검사 없음. oid 만 바꾸면 '타 고객'의 PII(ssn 포함)가 다 나온다.
+        with conn() as c, c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT o.id, o.status, o.qty, o.created_at, p.name AS product, p.price, "
+                        "cu.name AS customer, cu.email, cu.phone, cu.address, cu.ssn "
+                        "FROM orders o JOIN products p ON o.product_id=p.id "
+                        "JOIN customers cu ON o.customer_id=cu.id WHERE o.id=%s", (oid,))
+            r = cur.fetchone()
+            if not r:
+                abort(404)
+            return jsonify(r)
+    @app.post("/api/account/update")
+    def account_update():
+        # 프로필 수정 — JSON 필드를 customers 에 반영(id 또는 email 로 대상 지정).
+        # ⚠ B3 Mass Assignment: 허용 필드 화이트리스트가 없어 role/tier 까지 그대로 UPDATE → 권한상승.
+        data = request.get_json(silent=True) or {}
+        request.environ["capstone.fields"] = ",".join(sorted(data.keys()))   # god-view 감사용
+        cid = data.pop("id", None)
+        email = data.pop("email", None) if cid is None else None
+        cols = [k for k in data.keys() if k.isidentifier()]
+        if not cols or (cid is None and email is None):
+            return {"error": "id 또는 email 과 수정할 필드가 필요"}, 400
+        set_sql = ", ".join(f"{k}=%s" for k in cols)          # 컬럼명 화이트리스트 없음(대량 할당)
+        vals = [data[k] for k in cols]
+        where, wval = ("id=%s", cid) if cid is not None else ("email=%s", email)
+        with conn() as c, c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            try:
+                cur.execute(f"UPDATE customers SET {set_sql} WHERE {where} RETURNING id,name,tier,role",
+                            vals + [wval])
+            except Exception as e:
+                return {"error": str(e)}, 400
+            return jsonify({"updated": cur.fetchone()})
     if __name__ == "__main__":
         app.run(host="0.0.0.0", port=8080)
 ---

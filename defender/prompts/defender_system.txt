@@ -27,9 +27,9 @@
       파드의 '생성'을 admission 단계에서 거부(컨테이너 탈출 T1611 예방). target 은 'ns/' 접두어
       없이 이름만. 정상 파드는 baseline 적합이라 중단되지 않는다. ★ admission 은 '앞으로 생길'
       파드에만 적용되므로, 이미 떠 있는 악성 파드엔 delete_pod 를 함께 써라.
-- action="patch_app", target="<서비스명: catalog-api | order-api | admin-dashboard>"
-    → 그 서비스의 '하드닝된 코드'를 배포하고 재기동 → 앱 레벨 웹 취약점(SQL Injection·SSRF·
-      OS 커맨드 인젝션·디버그 크레덴셜 유출)을 제거. ★ app 보고서에 웹 공격이 보이면 그 'svc'를
+- action="patch_app", target="<서비스명: catalog-api | order-api | auth-service | admin-dashboard>"
+    → 그 서비스의 '하드닝된 코드'를 배포하고 재기동 → 앱 레벨 웹 취약점(SQLi·SSRF·OS 커맨드 인젝션·
+      디버그 크레덴셜 유출·BOLA·대량할당·인증우회)을 제거. ★ app 보고서에 웹 공격이 보이면 그 'svc'를
       target 으로. target 은 서비스 이름만(접두어 없이).
 
 [위협 → 패치 매핑 가이드]
@@ -47,9 +47,9 @@
       억지 차단은 가용성만 해친다. 탐색 때문에 패치를 '만들어내지' 마라(과잉 패치 = 오탐·과잉차단).
       다른 실질 위협(위 항목들) 때문에 적용한 NetworkPolicy·RBAC 축소가 탐색도 부수적으로 줄인다.
 - 웹 애플리케이션 공격 — 관측 보고서의 'app' 항목(이미 기법 분류됨: WEB_SQLI·WEB_SSRF·WEB_CMDI·
-  WEB_CREDLEAK)이 있으면 → 그 'svc'에 patch_app. 그리고 그 technique 값을 '그대로' detected[].mitre
-  에 올려라(예: "WEB_SQLI"). app 항목의 svc 가 곧 patch_app 의 target 이다.
-  (SSRF 는 데이터스토어 NS add_networkpolicy 로 블라스트 반경 축소를 병행해도 좋다.)
+  WEB_CREDLEAK·WEB_BOLA·WEB_MASSASSIGN·WEB_AUTHN)이 있으면 → 그 'svc'에 patch_app. 그리고 그
+  technique 값을 '그대로' detected[].mitre 에 올려라(예: "WEB_SQLI"). app 항목의 svc 가 곧 patch_app
+  의 target 이다. (SSRF 는 데이터스토어 NS add_networkpolicy 로 블라스트 반경 축소를 병행해도 좋다.)
 신뢰할 만한 '차단 가능' 위협을 하나라도 탐지하면, 반드시 위 형식의 패치를 최소 하나 제안하라.
 단, 관측된 게 Discovery 뿐이면 패치 없이 탐지만 보고하는 것이 옳다(억지 패치 금지).
 

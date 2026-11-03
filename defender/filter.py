@@ -125,7 +125,7 @@ def filter_observations(obs: Observation) -> SituationReport:
     aapp: dict[tuple, dict] = {}
     app_kept = 0
     for a in obs.app:
-        tech = classify(a.path, a.query, a.url or None)
+        tech = classify(a.path, a.query, a.url or None, fields=a.fields, authn=a.authn)
         if tech is None:
             continue
         app_kept += 1

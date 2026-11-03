@@ -47,6 +47,8 @@ class AppEntry:
     query: str = ""
     url: str = ""
     status: int = 0
+    fields: str = ""      # 요청 본문 필드명 목록(mass-assign 판정; preview url 처럼 엔드포인트가 기록)
+    authn: str = ""       # 인증 이상 표식(alg:none 등)
 
 
 @dataclass
@@ -117,7 +119,8 @@ def parse_app_line(line: str) -> Optional[AppEntry]:
     return AppEntry(
         timestamp=ts, svc=ev.get("svc", ""), path=ev.get("path", ""),
         query=ev.get("query", "") or "", url=ev.get("url", "") or "",
-        status=int(ev.get("status", 0) or 0))
+        status=int(ev.get("status", 0) or 0),
+        fields=ev.get("fields", "") or "", authn=ev.get("authn", "") or "")
 
 
 class Observer:

@@ -1,0 +1,55 @@
+# [방어 레퍼런스 · patch_app] auth-service 하드닝 변종 (베이스라인 미적용)
+#   B2 → /api/me 는 redis 세션 토큰만 수용. 검증 없는 JWT(alg:none 위조)는 거부(401).
+# 적용: kubectl apply -f 이 파일 && kubectl -n backend rollout restart deploy/auth-service
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: auth-service-code
+  namespace: backend
+data:
+  app.py: |
+    import os, secrets, json
+    from datetime import datetime, timezone
+    from flask import Flask, request
+    import redis
+    app = Flask(__name__)
+    @app.after_request
+    def _audit(resp):
+        try:
+            if request.path != "/health":
+                rec = {"ts": datetime.now(timezone.utc).isoformat(), "src": "app",
+                       "svc": "auth-service", "path": request.path,
+                       "query": request.query_string.decode("utf-8", "replace"),
+                       "status": resp.status_code}
+                a = request.environ.get("capstone.authn")
+                if a is not None:
+                    rec["authn"] = a
+                print(json.dumps(rec), flush=True)
+        except Exception:
+            pass
+        return resp
+    r = redis.Redis(host=os.environ["REDIS_HOST"], port=int(os.environ.get("REDIS_PORT","6379")),
+                    decode_responses=True, socket_connect_timeout=5)
+    @app.get("/health")
+    def health():
+        try:
+            r.ping(); return {"status": "ok"}
+        except Exception as e:
+            return {"status": "error", "detail": str(e)}, 500
+    @app.post("/login")
+    def login():
+        data = request.get_json(silent=True) or {}
+        user = data.get("username", "guest")
+        token = secrets.token_hex(16)
+        r.setex("session:" + token, 3600, json.dumps({"user": user, "role": "user"}))
+        return {"token": token}
+    @app.get("/api/me")
+    def me():
+        # 하드닝: 서버가 발급한 redis 세션 토큰만 유효. 검증 없는 JWT(alg:none 위조)는 거부.
+        token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
+        s = r.get("session:" + token)
+        if not s:
+            return {"error": "unauthorized"}, 401
+        return {"session": json.loads(s)}
+    if __name__ == "__main__":
+        app.run(host="0.0.0.0", port=8080)

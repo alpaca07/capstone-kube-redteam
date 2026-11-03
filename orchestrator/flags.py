@@ -256,6 +256,31 @@ def default_registry(flag4_value: Optional[str] = None,
                 query="catalog-api/order-api 에 /debug/config(env 덤프) 엔드포인트가 남아있나",
                 expect="엔드포인트 제거되면 not vulnerable (patch_app)"),
         ),
+        # ── [Phase A·Tier B] 웹 계층 확장 ──
+        FlagSpec(
+            flag_id="web-bola", kind=FlagKind.STATE, mitre="WEB_BOLA",
+            description="order-api /api/invoice/<id> BOLA/IDOR — 인증 없이 타 고객 PII 열거 (MITRE T1190/T1213)",
+            state_check=StateCheck(
+                check_id="web-bola",
+                query="order-api /api/invoice/<id> 가 인증·소유자 검사 없이 PII 를 반환하나",
+                expect="인증 요구 + 최소 필드면 not vulnerable (patch_app)"),
+        ),
+        FlagSpec(
+            flag_id="web-massassign", kind=FlagKind.STATE, mitre="WEB_MASSASSIGN",
+            description="order-api /api/account/update 대량 할당 — role/tier 자기상향 (MITRE T1190)",
+            state_check=StateCheck(
+                check_id="web-massassign",
+                query="order-api /api/account/update 가 role/tier 등 권한 필드를 그대로 UPDATE 하나",
+                expect="필드 allowlist 면 not vulnerable (patch_app)"),
+        ),
+        FlagSpec(
+            flag_id="web-authn", kind=FlagKind.STATE, mitre="WEB_AUTHN",
+            description="auth-service /api/me 가 alg:none 위조 JWT 수용 — 인증 우회·권한상승 (MITRE T1078)",
+            state_check=StateCheck(
+                check_id="web-authn",
+                query="auth-service /api/me 가 서명 없는(alg:none) JWT 를 유효 세션으로 수용하나",
+                expect="redis 세션 토큰만 수용하면 not vulnerable (patch_app)"),
+        ),
     ])
 
 

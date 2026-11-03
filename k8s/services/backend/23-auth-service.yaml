@@ -1,4 +1,6 @@
 # auth-service — 로그인/토큰 (backend ns). redis에 세션 저장.
+# [Tier B] B2 Broken Auth: /api/me 가 서명 검증 없이 JWT 를 수용(alg:none 위조 토큰 → 인증 우회·권한상승).
+# 방어자 하드닝 변종: k8s/killchain/defense-reference/app-hardened/auth-service-code.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -6,12 +8,44 @@ metadata:
   namespace: backend
 data:
   app.py: |
-    import os, secrets, json
+    import os, secrets, json, base64
+    from datetime import datetime, timezone
     from flask import Flask, request
     import redis
     app = Flask(__name__)
+    @app.after_request
+    def _audit(resp):
+        # 앱 감사 로그(god-view AppLogSource). /api/me 가 alg:none 위조 토큰을 수용하면 authn=none_alg → WEB_AUTHN.
+        try:
+            if request.path != "/health":
+                rec = {"ts": datetime.now(timezone.utc).isoformat(), "src": "app",
+                       "svc": "auth-service", "path": request.path,
+                       "query": request.query_string.decode("utf-8", "replace"),
+                       "status": resp.status_code}
+                a = request.environ.get("capstone.authn")
+                if a is not None:
+                    rec["authn"] = a
+                print(json.dumps(rec), flush=True)
+        except Exception:
+            pass
+        return resp
     r = redis.Redis(host=os.environ["REDIS_HOST"], port=int(os.environ.get("REDIS_PORT","6379")),
                     decode_responses=True, socket_connect_timeout=5)
+    def _b64(s):
+        return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+    def _jwt_noverify(token):
+        # ⚠ B2: 서명 검증 없이 JWT 페이로드를 신뢰. alg:none(또는 빈 서명)이면 위조 토큰.
+        parts = token.split(".")
+        if len(parts) < 2:
+            return None, False
+        try:
+            header = json.loads(_b64(parts[0]))
+            payload = json.loads(_b64(parts[1]))
+        except Exception:
+            return None, False
+        alg = str(header.get("alg", "")).lower()
+        sig = parts[2] if len(parts) > 2 else ""
+        return payload, (alg in ("none", "") or sig == "")
     @app.get("/health")
     def health():
         try:
@@ -23,15 +57,20 @@ data:
         data = request.get_json(silent=True) or {}
         user = data.get("username", "guest")
         token = secrets.token_hex(16)
-        r.setex("session:" + token, 3600, json.dumps({"user": user}))
+        r.setex("session:" + token, 3600, json.dumps({"user": user, "role": "user"}))
         return {"token": token}
     @app.get("/api/me")
     def me():
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
+        token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
         s = r.get("session:" + token)
-        if not s:
-            return {"error": "unauthorized"}, 401
-        return {"session": json.loads(s)}
+        if s:
+            return {"session": json.loads(s)}
+        # redis 세션이 아니면 JWT 로 간주해 '검증 없이' 수용(레거시 토큰 호환 명목).
+        payload, unsigned = _jwt_noverify(token)
+        if payload is not None and unsigned:
+            request.environ["capstone.authn"] = "none_alg"   # god-view 감사용(위조 수용)
+            return {"session": payload, "note": "legacy-token"}
+        return {"error": "unauthorized"}, 401
     if __name__ == "__main__":
         app.run(host="0.0.0.0", port=8080)
 ---

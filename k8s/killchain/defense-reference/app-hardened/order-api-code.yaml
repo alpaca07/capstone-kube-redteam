@@ -1,5 +1,5 @@
 # [방어 레퍼런스 · patch_app] order-api 하드닝 변종 (베이스라인 미적용)
-#   B0 → /debug/config 제거 (env 평문 노출 차단). (B1 BOLA 하드닝은 Phase B에서 추가)
+#   B0 → /debug/config 제거 · B1 BOLA → invoice 인증 요구 + PII 최소화 · B3 → account/update 필드 allowlist
 # 적용: kubectl apply -f 이 파일 && kubectl -n backend rollout restart deploy/order-api
 apiVersion: v1
 kind: ConfigMap
@@ -10,17 +10,23 @@ data:
   app.py: |
     import os, json
     from datetime import datetime, timezone
-    from flask import Flask, jsonify, request
+    from flask import Flask, jsonify, request, abort
     import psycopg2, psycopg2.extras
     app = Flask(__name__)
+    _ALLOWED_PROFILE = {"name", "phone", "address"}   # 하드닝: 수정 허용 필드 화이트리스트
     @app.after_request
     def _audit(resp):
+        # 하드닝도 '시도'는 로깅(탐지≠차단).
         try:
             if request.path != "/health":
-                print(json.dumps({"ts": datetime.now(timezone.utc).isoformat(), "src": "app",
+                rec = {"ts": datetime.now(timezone.utc).isoformat(), "src": "app",
                        "svc": "order-api", "path": request.path,
                        "query": request.query_string.decode("utf-8", "replace"),
-                       "status": resp.status_code}), flush=True)
+                       "status": resp.status_code}
+                f = request.environ.get("capstone.fields")
+                if f is not None:
+                    rec["fields"] = f
+                print(json.dumps(rec), flush=True)
         except Exception:
             pass
         return resp
@@ -49,6 +55,38 @@ data:
                         "FROM orders o JOIN products p ON o.product_id=p.id "
                         "WHERE o.customer_id=%s ORDER BY o.id", (cid,))
             return jsonify(cur.fetchall())
-    # 하드닝: /debug/config 제거 (B0 cred-leak 차단)
+    # 하드닝: /debug/config 제거 (B0 차단)
+    @app.get("/api/invoice/<int:oid>")
+    def invoice(oid):
+        # 하드닝: 인증 헤더 요구 + PII(이메일/전화/주소/주민번호) 미반환 → BOLA 로 PII 유출 불가
+        if not request.headers.get("Authorization", "").strip():
+            return {"error": "unauthorized"}, 401
+        with conn() as c, c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT o.id, o.status, o.qty, o.created_at, p.name AS product, p.price "
+                        "FROM orders o JOIN products p ON o.product_id=p.id WHERE o.id=%s", (oid,))
+            r = cur.fetchone()
+            if not r:
+                abort(404)
+            return jsonify(r)
+    @app.post("/api/account/update")
+    def account_update():
+        # 하드닝: 수정 허용 필드 화이트리스트(name/phone/address)만 반영 → role/tier 자기상향 불가
+        data = request.get_json(silent=True) or {}
+        request.environ["capstone.fields"] = ",".join(sorted(data.keys()))
+        cid = data.get("id")
+        email = data.get("email") if cid is None else None
+        cols = [k for k in data.keys() if k in _ALLOWED_PROFILE]
+        if not cols or (cid is None and email is None):
+            return {"error": "id 또는 email 과 허용된 수정 필드가 필요"}, 400
+        set_sql = ", ".join(f"{k}=%s" for k in cols)
+        vals = [data[k] for k in cols]
+        where, wval = ("id=%s", cid) if cid is not None else ("email=%s", email)
+        with conn() as c, c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            try:
+                cur.execute(f"UPDATE customers SET {set_sql} WHERE {where} RETURNING id,name,tier,role",
+                            vals + [wval])
+            except Exception as e:
+                return {"error": str(e)}, 400
+            return jsonify({"updated": cur.fetchone()})
     if __name__ == "__main__":
         app.run(host="0.0.0.0", port=8080)

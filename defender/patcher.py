@@ -21,7 +21,8 @@ from .triage import PatchStep
 _DNS1123 = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 
 # [Phase A] patch_app 대상 서비스 → 재기동할 deployment 네임스페이스.
-_APP_SVC_NS = {"catalog-api": "backend", "order-api": "backend", "admin-dashboard": "internal"}
+_APP_SVC_NS = {"catalog-api": "backend", "order-api": "backend",
+               "auth-service": "backend", "admin-dashboard": "internal"}
 
 
 @dataclass
