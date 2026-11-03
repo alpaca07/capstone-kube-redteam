@@ -1,0 +1,42 @@
+# DVWA (Damn Vulnerable Web Application) — PHP/MariaDB 훈련용 취약 웹앱
+#   난이도 슬라이더(Low/Medium/High/Impossible) → 실험 난이도 변수로 활용 가능.
+#   SQLi · XSS · Command Injection · File Inclusion · Upload · CSRF · Brute Force ...
+#   web + db 를 한 파드(두 컨테이너)로 → 127.0.0.1 로 상호 접속(Service 하나).
+#   접속: http://<VM B IP>:30081  (admin / password → 좌측 Setup → Create/Reset DB)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dvwa
+  namespace: targets
+  labels: { app: dvwa, app.kubernetes.io/part-of: capstone-benchmark }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: dvwa } }
+  template:
+    metadata:
+      labels: { app: dvwa, app.kubernetes.io/part-of: capstone-benchmark }
+    spec:
+      containers:
+        - name: web
+          image: ghcr.io/digininja/dvwa:latest
+          ports: [{ containerPort: 80 }]
+          env:
+            - { name: DB_SERVER, value: "127.0.0.1" }   # 같은 파드라 localhost
+        - name: db
+          image: docker.io/library/mariadb:10
+          env:
+            - { name: MYSQL_ROOT_PASSWORD, value: "dvwa" }
+            - { name: MYSQL_DATABASE,     value: "dvwa" }
+            - { name: MYSQL_USER,         value: "dvwa" }
+            - { name: MYSQL_PASSWORD,     value: "p@ssw0rd" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dvwa
+  namespace: targets
+  labels: { app: dvwa }
+spec:
+  type: NodePort
+  selector: { app: dvwa }
+  ports: [{ port: 80, targetPort: 80, nodePort: 30081 }]

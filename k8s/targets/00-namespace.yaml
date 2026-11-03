@@ -1,0 +1,11 @@
+# 벤치마크 타깃 네임스페이스 (통제 벤치마크 레이어)
+#   ShopFlow(frontend/backend/database/internal) = 현실적 '은닉' 타깃
+#       → 취약점이 운영 실수처럼 묻혀 있어, 공격자가 약한 고리를 '정찰'로 찾아야 함.
+#   targets ns = 취약점이 라벨링된 '통제 벤치마크' 타깃 (DVWA/Juice Shop/WebGoat/...)
+#       → "AI 추론 공수가 정상 측정되는가"를 보는 통제군. ShopFlow 킬체인과 분리.
+# 두 레이어를 분리해 둬야 리셋·teardown·관측 귀속이 깔끔하고, 발표에서 의도가 선명함.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: targets
+  labels: { app.kubernetes.io/part-of: capstone-benchmark, tier: benchmark }
