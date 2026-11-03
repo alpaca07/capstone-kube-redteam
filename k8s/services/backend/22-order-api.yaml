@@ -1,4 +1,6 @@
 # order-api — 주문 (backend ns). orders + customers + products 조인 조회.
+# [Phase A 웹취약점] B0 cred-leak (/debug/config) 추가. (B1 BOLA /api/invoice 는 Phase B)
+# 방어자 하드닝 변종: k8s/killchain/defense-reference/app-hardened/order-api-code.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -35,6 +37,11 @@ data:
                         "FROM orders o JOIN products p ON o.product_id=p.id "
                         "WHERE o.customer_id=%s ORDER BY o.id", (cid,))
             return jsonify(cur.fetchall())
+    @app.get("/debug/config")
+    def debug_config():
+        # 레거시 환경 점검 엔드포인트.
+        # ⚠ B0 cred-leak: env 평문 노출(DB_PASSWORD 등) → 공개 API 티어에서 DB 비번 획득(① 대체경로).
+        return jsonify({k: v for k, v in os.environ.items()})
     if __name__ == "__main__":
         app.run(host="0.0.0.0", port=8080)
 ---

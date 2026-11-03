@@ -1,5 +1,7 @@
 # admin-dashboard — 사내 관리자 콘솔 (internal ns, 비공개/ClusterIP).
 # 고객 PII 전체·주문·통계 조회. 3단계에서 이 파드 SA가 과권한(②)을 받게 됨.
+# [Phase A 웹취약점] A3 OS 커맨드 인젝션 (/admin/diag) 추가 — 내부 도달 시 RCE→admin-sa 토큰 탈취→T1610/T1611.
+# 방어자 하드닝 변종: k8s/killchain/defense-reference/app-hardened/admin-dashboard-code.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -7,8 +9,8 @@ metadata:
   namespace: internal
 data:
   app.py: |
-    import os
-    from flask import Flask, jsonify, Response
+    import os, subprocess
+    from flask import Flask, jsonify, request, Response
     import psycopg2, psycopg2.extras
     app = Flask(__name__)
     def conn():
@@ -68,6 +70,19 @@ data:
         with conn() as c, c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("SELECT id,name,email,phone,address,ssn,tier FROM customers ORDER BY id")
             return jsonify(cur.fetchall())
+    @app.get("/admin/diag")
+    def diag():
+        # 운영 진단 — 대상 호스트 연결 점검(ping).
+        # ⚠ A3 OS 커맨드 인젝션: shell=True + host 미검증. 예:
+        #   /admin/diag?host=127.0.0.1;cat /var/run/secrets/kubernetes.io/serviceaccount/token
+        #   이 파드엔 과권한 admin-sa 토큰이 마운트돼 있어 RCE→토큰탈취→T1610/T1611(컨테이너 탈출)로 이어짐.
+        host = request.args.get("host", "127.0.0.1")
+        try:
+            out = subprocess.run("ping -c1 -W1 " + host, shell=True,
+                                 capture_output=True, text=True, timeout=10)
+            return Response(out.stdout + out.stderr, mimetype="text/plain")
+        except Exception as e:
+            return {"error": str(e)}, 500
     @app.get("/internal/secret/<ns>/<name>")
     def internal_secret(ns, name):
         # 내부 운영 디버그 — 마운트된 플랫폼 SA 토큰으로 k8s Secret 조회(confused deputy).
@@ -110,16 +125,16 @@ spec:
         - name: admin-dashboard
           image: python:3.12-slim
           command: ["/bin/sh", "-c"]
-          args: ["pip install --no-cache-dir flask==3.0.3 psycopg2-binary==2.9.9 && python /app/app.py"]
+          args: ["apt-get update >/dev/null 2>&1; apt-get install -y iputils-ping >/dev/null 2>&1; pip install --no-cache-dir flask==3.0.3 psycopg2-binary==2.9.9 && python /app/app.py"]
           ports: [{ containerPort: 8080 }]
           envFrom:
             - secretRef: { name: db-connection }
           volumeMounts: [{ name: code, mountPath: /app }]
           readinessProbe:
             httpGet: { path: /health, port: 8080 }
-            initialDelaySeconds: 30
+            initialDelaySeconds: 40
             periodSeconds: 10
-            failureThreshold: 6
+            failureThreshold: 8
       volumes:
         - name: code
           configMap: { name: admin-dashboard-code }

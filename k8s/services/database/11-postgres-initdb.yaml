@@ -13,6 +13,7 @@ data:
     CREATE TABLE IF NOT EXISTS customers (
       id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL,
       phone TEXT, address TEXT, ssn TEXT, tier TEXT DEFAULT 'standard',
+      role TEXT DEFAULT 'user',           -- Phase A 권한 축: 권한상승(B2 JWT·B3 mass-assign) 대상. 평상시 전원 'user'.
       created_at TIMESTAMP DEFAULT now()
     );
     CREATE TABLE IF NOT EXISTS products (

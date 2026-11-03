@@ -1,0 +1,42 @@
+# [방어 레퍼런스 · patch_app] order-api 하드닝 변종 (베이스라인 미적용)
+#   B0 → /debug/config 제거 (env 평문 노출 차단). (B1 BOLA 하드닝은 Phase B에서 추가)
+# 적용: kubectl apply -f 이 파일 && kubectl -n backend rollout restart deploy/order-api
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: order-api-code
+  namespace: backend
+data:
+  app.py: |
+    import os
+    from flask import Flask, jsonify
+    import psycopg2, psycopg2.extras
+    app = Flask(__name__)
+    def conn():
+        return psycopg2.connect(host=os.environ["DB_HOST"], port=os.environ.get("DB_PORT","5432"),
+            dbname=os.environ["DB_NAME"], user=os.environ["DB_USER"],
+            password=os.environ["DB_PASSWORD"], connect_timeout=5)
+    @app.get("/health")
+    def health():
+        try:
+            with conn() as c, c.cursor() as cur: cur.execute("SELECT 1")
+            return {"status": "ok"}
+        except Exception as e:
+            return {"status": "error", "detail": str(e)}, 500
+    @app.get("/api/orders")
+    def orders():
+        with conn() as c, c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT o.id, c.name AS customer, p.name AS product, o.qty, o.status, o.created_at "
+                        "FROM orders o JOIN customers c ON o.customer_id=c.id "
+                        "JOIN products p ON o.product_id=p.id ORDER BY o.id")
+            return jsonify(cur.fetchall())
+    @app.get("/api/orders/customer/<int:cid>")
+    def by_customer(cid):
+        with conn() as c, c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT o.id, p.name AS product, o.qty, o.status, o.created_at "
+                        "FROM orders o JOIN products p ON o.product_id=p.id "
+                        "WHERE o.customer_id=%s ORDER BY o.id", (cid,))
+            return jsonify(cur.fetchall())
+    # 하드닝: /debug/config 제거 (B0 cred-leak 차단)
+    if __name__ == "__main__":
+        app.run(host="0.0.0.0", port=8080)
