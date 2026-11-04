@@ -83,8 +83,20 @@ class FlagCheck(BaseModel):
     obtained: bool = False
 
 
+def make_step_id(round_no: int, step: int) -> str:
+    """스텝의 안정적 식별자 = "{round}.{step}".
+
+    탐색 그래프가 에피소드 스코프라 에피소드는 그래프 쪽에서 암시되므로
+    id 자체엔 round와 턴 내 seq(step)만 담는다. fact 노드가 이 문자열을
+    source_step_ids로 들고, 나중에 (에피소드의) replay_script[round].steps[step]
+    원본으로 역추적한다. 포맷은 여기 한 곳에서만 정의한다.
+    """
+    return f"{round_no}.{step}"
+
+
 class Step(BaseModel):
     step: int
+    step_id: str = ""                  # make_step_id(round, step) — fact 노드가 가리키는 포인터
     command: Command
     inputs: dict[str, InputRef] = Field(default_factory=dict)
     produces: dict[str, ProducesRef] = Field(default_factory=dict)

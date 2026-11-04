@@ -17,7 +17,7 @@ from typing import Optional, Protocol, runtime_checkable
 
 from common.replay_schema import (
     Command, Extract, ExtractMethod, FlagCheck, InputSource, ReplayScript, Step,
-    StepResultRec, classify_determinism, hash_normalized,
+    StepResultRec, classify_determinism, hash_normalized, make_step_id,
 )
 
 from .actions import AttackAction
@@ -46,6 +46,7 @@ class Observation:
     tool: str
     exit_code: int
     success: bool
+    step_id: str = ""      # "{round}.{step}" — fact 자동링크가 어느 스텝 결과인지 집어갈 때 사용
     stdout: str = ""
     stderr: str = ""
     blocked: bool = False
@@ -171,6 +172,7 @@ class ActionExecutor:
     def execute(self, action: AttackAction, *, foothold: Optional[dict] = None) -> Observation:
         self._step += 1
         n = self._step
+        sid = make_step_id(self.script.round, n)   # "{round}.{step}" — 대본·Observation 공통 식별자
         resolved = resolve_args(action.args, action.inputs, self._values, foothold)
         # ★ 대본에는 '템플릿'(원본 {name} 포함)을 기록 — 리플레이가 만료 토큰 대신
         #    재생 중 새 값으로 재치환할 수 있어야 하므로. 실제 실행은 resolved로.
@@ -181,10 +183,10 @@ class ActionExecutor:
         sc = check_scope(cmd_str, self.scope)
         if not sc.allowed:
             self.script.steps.append(Step(
-                step=n, command=command, inputs=action.inputs, produces=action.produces,
+                step=n, step_id=sid, command=command, inputs=action.inputs, produces=action.produces,
                 result=StepResultRec(exit_code=-1, success=False,
                                      stdout_excerpt=f"[BLOCKED] {sc.reason}")))
-            return Observation(step=n, tool=action.tool, exit_code=-1, success=False,
+            return Observation(step=n, step_id=sid, tool=action.tool, exit_code=-1, success=False,
                                blocked=True, block_reason=sc.reason, stderr=sc.reason)
 
         # 실행
@@ -210,10 +212,10 @@ class ActionExecutor:
         flag_check = FlagCheck(flag_id=self.flag_value_id, obtained=True) if flag_found else None
         det = classify_determinism(command, action.inputs)
         self.script.steps.append(Step(
-            step=n, command=command, inputs=action.inputs, produces=action.produces,
+            step=n, step_id=sid, command=command, inputs=action.inputs, produces=action.produces,
             result=rec, flag_check=flag_check, determinism=det))
 
-        return Observation(step=n, tool=action.tool, exit_code=res.exit_code, success=success,
+        return Observation(step=n, step_id=sid, tool=action.tool, exit_code=res.exit_code, success=success,
                            stdout=res.stdout[:_OBS_STDOUT], stderr=res.stderr[:_EXCERPT],
                            flag_found=flag_found)
 

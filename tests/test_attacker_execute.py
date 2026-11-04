@@ -142,6 +142,24 @@ def test_kubectl_exec_runner_wraps_cmd():
         == ["psql", "postgresql://u:p@postgres.database.svc.cluster.local/db"]
 
 
+def test_step_id_populated_and_survives_roundtrip():
+    # step_id = "{round}.{step}" — fact 노드가 source_step_ids로 가리키는 포인터.
+    # 실행 경로(정상)·차단 경로(BLOCKED) 둘 다 채워지고, Observation·Step 값이 일치하며,
+    # VM C로 가는 JSON 직렬화 왕복에도 보존돼야 한다.
+    from common.replay_schema import ReplayScript
+    runner = _FakeRunner(by_tool={"kubectl": CommandResult(0, "ok\n")})
+    ex = ActionExecutor(runner, scope_policy=default_policy(denied_hosts=["10.99.0.1"]),
+                        session_id="s", episode=7, round=3)
+    o1 = ex.execute(AttackAction(thought="t", tool="kubectl", args=["get", "po"]))
+    o2 = ex.execute(AttackAction(thought="t", tool="curl", args=["http://10.99.0.1/"]))  # 차단 경로
+    assert o1.step_id == "3.1" and o2.step_id == "3.2"
+    assert o2.blocked  # 차단돼도 step_id는 채워짐
+    assert [s.step_id for s in ex.script.steps] == ["3.1", "3.2"]
+    assert ex.script.steps[0].step_id == o1.step_id  # Step과 Observation 일치
+    rt = ReplayScript.model_validate_json(ex.script.model_dump_json())
+    assert [s.step_id for s in rt.steps] == ["3.1", "3.2"]
+
+
 def _run() -> int:
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]
