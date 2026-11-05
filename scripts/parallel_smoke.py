@@ -185,19 +185,25 @@ def main() -> int:
         flag_format="FLAG{...}", time_limit_sec=int(args.time_limit),
         foothold=Foothold(attack_endpoint="10.0.0.5:8080"))
 
-    # ── 그래프 백엔드 ──
+    # ── 그래프 백엔드 (탐색 + 자산, 짝) ──
     if args.graph == "neo4j":
         if not args.neo4j_pass:
             print("\n[오류] --graph neo4j 는 --neo4j-pass 가 필요합니다.")
             return 2
-        from attacker.graph_neo4j import connect
+        from attacker.graph_neo4j import connect, Neo4jGraph  # noqa: F401
+        from attacker.assets_neo4j import Neo4jAssetGraph
         graph = connect(args.neo4j_uri, args.neo4j_user, args.neo4j_pass,
                         database=args.neo4j_db, episode=1)
         graph.reset_episode()                 # episode=1 묵은 노드 비우고 시작
-        print(f"# 그래프     : neo4j({args.neo4j_uri}) — 영속(끝나고 Browser로 확인)\n")
+        asset_graph = Neo4jAssetGraph(graph._driver, episode=1, database=args.neo4j_db)
+        asset_graph.ensure_schema()
+        asset_graph.reset_episode()
+        print(f"# 그래프     : neo4j({args.neo4j_uri}) — 탐색+자산 영속(끝나고 Browser로 확인)\n")
     else:
+        from attacker.assets_fake import InMemoryAssetGraph
         graph = InMemoryGraph(episode=1)
-        print("# 그래프     : memory(인메모리)\n")
+        asset_graph = InMemoryAssetGraph(episode=1)
+        print("# 그래프     : memory(인메모리, 탐색+자산)\n")
 
     rnd = AttackRound(attacker_llm=attacker_llm, planner_llm=planner_llm,
                       runner=runner, scope_policy=default_policy(),
@@ -206,7 +212,7 @@ def main() -> int:
     print("── 라운드 시작 ──")
     t0 = time.time()
     try:
-        res = rnd.run(start, episode=1, round=1, graph=graph)
+        res = rnd.run(start, episode=1, round=1, graph=graph, asset_graph=asset_graph)
     except Exception as e:  # noqa: BLE001
         import traceback
         traceback.print_exc()
@@ -238,6 +244,18 @@ def main() -> int:
             rep = f" (보고 {occ}회)" if occ and occ > 1 else ""
             print(f"   - ({fd.payload.get('severity','')}) {fd.payload.get('summary','')} "
                   f"[{fd.payload.get('technique','')}]{rep}")
+
+    # 자산 그래프(기계 포집)
+    try:
+        assets = asset_graph.assets(limit=1000)
+        unid = asset_graph.unidentified(limit=1000)
+        print(f"\n  [자산] {len(assets)}개 (미식별 {len(unid)}개 — CPE 식별은 KG 단계)")
+        for a in assets[:8]:
+            tag = f" [cpe]" if a.identified else ""
+            port = f":{a.attrs.get('port')}" if a.attrs.get("port") else ""
+            print(f"   - ({a.kind}) {a.name}{port}{tag}")
+    except Exception as e:  # noqa: BLE001
+        print(f"  [자산 조회 실패] {e}")
 
     # 판정: 스텝이 돌고 사실이 쌓였으면 플러밍 OK
     ok = (res.replay_script is not None and len(res.replay_script.steps) > 0 and len(facts) > 0)

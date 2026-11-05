@@ -226,6 +226,19 @@ class Neo4jGraph(ExplorationGraph):
                          "SET n.state='open', n.owner='' RETURN n.id AS id", id=intent_id)
         return bool(rows)
 
+    def anchor_to(self, node_id: int, asset_ids: list[int]) -> None:
+        if not asset_ids:
+            return
+        # anchors 속성에 새 id만 추가 + 자산 노드에 ANCHORED_TO 엣지(존재하는 자산만)
+        self._run(
+            "MATCH (n:Explore {episode:$episode, id:$id}) "
+            "SET n.anchors = coalesce(n.anchors, []) + "
+            "    [x IN $aids WHERE NOT x IN coalesce(n.anchors, [])] "
+            "WITH n UNWIND $aids AS aid "
+            "MATCH (a:Asset {episode:$episode, id:aid}) "
+            "MERGE (n)-[:ANCHORED_TO]->(a)",
+            id=node_id, aids=list(asset_ids))
+
     # ── 읽기 ──
     def get_node(self, node_id: int) -> Optional[Node]:
         rows = self._run(_GET, id=node_id)

@@ -65,6 +65,7 @@ class AttackHarness:
         self.planner_llm = planner_llm       # 정렬 모델(플래너 전용). parallel에서만 필요
         self.round_cfg = round_cfg           # RoundConfig(system_prompt 포함). parallel에서만
         self._graph = None                   # 에피소드 스코프 탐색 그래프(라운드 넘어 지속)
+        self._asset_graph = None             # 에피소드 스코프 자산 그래프(짝)
         self._graph_episode: Optional[int] = None
         self._graph_backend = graph_backend  # memory | neo4j
         self._neo4j_driver = neo4j_driver    # neo4j 백엔드일 때 공유 드라이버
@@ -89,6 +90,18 @@ class AttackHarness:
         from .graph_fake import InMemoryGraph
         return InMemoryGraph(episode=episode)
 
+    def _new_episode_asset_graph(self, episode: int):
+        """에피소드 스코프 자산 그래프(탐색 그래프와 짝). 백엔드 동일."""
+        if self._graph_backend == "neo4j":
+            from .assets_neo4j import Neo4jAssetGraph
+            ag = Neo4jAssetGraph(self._neo4j_driver, episode=episode,
+                                 database=self._neo4j_database)
+            ag.ensure_schema()
+            ag.reset_episode()
+            return ag
+        from .assets_fake import InMemoryAssetGraph
+        return InMemoryAssetGraph(episode=episode)
+
     def _attack_turn_parallel(self, start: AttackTurnStart, *, episode: int,
                               round: int) -> AttackTurnResult:
         from .round_engine import AttackRound
@@ -96,12 +109,14 @@ class AttackHarness:
         # (단일 경로의 리셋 조건과 동일 사상 — 상주 하네스의 런 간 기억 유출 방지)
         if episode != self._graph_episode or round <= 1 or self._graph is None:
             self._graph = self._new_episode_graph(episode)
+            self._asset_graph = self._new_episode_asset_graph(episode)
             self._graph_episode = episode
         try:
             rnd = AttackRound(
                 attacker_llm=self.llm, planner_llm=self.planner_llm,
                 runner=self.runner, scope_policy=self.scope, cfg=self.round_cfg)
-            return rnd.run(start, episode=episode, round=round, graph=self._graph)
+            return rnd.run(start, episode=episode, round=round, graph=self._graph,
+                           asset_graph=self._asset_graph)
         except Exception as e:                   # noqa: BLE001 — 하네스 오류는 ERROR로
             import traceback
             traceback.print_exc()

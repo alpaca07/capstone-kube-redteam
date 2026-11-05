@@ -22,6 +22,7 @@ from common.llm_json import LLMJsonError, extract_and_load
 from common.messages import AttackEndReason
 from common.replay_schema import make_step_id
 
+from .asset_extract import extract_assets
 from .graph import ExplorationGraph, IntentState, Node
 from .history import AttackHistory
 from .react_loop import ReActLoop
@@ -144,10 +145,12 @@ class IntentRunner:
     """워커 풀에 주입하는 run_intent 콜러블. run_intent(graph, wctx, intent)->IntentOutcome."""
 
     def __init__(self, llm, cfg: IntentRunnerConfig, *, settle_llm=None,
+                 asset_graph=None,
                  log: Optional[Callable[[str], None]] = None) -> None:
         self.llm = llm                      # 탈옥 모델(ReAct 행동 + 기본 정착)
         self.settle_llm = settle_llm or llm
         self.cfg = cfg
+        self.asset_graph = asset_graph      # 자산 그래프(있으면 관측 자산 기계 포집·앵커)
         self.log = log or (lambda m: None)
 
     def __call__(self, graph: ExplorationGraph, wctx, intent: Node) -> IntentOutcome:
@@ -169,15 +172,46 @@ class IntentRunner:
         round_no = wctx.lane.script.round
         source_step_ids = [make_step_id(round_no, e.step) for e in history.entries]
 
-        self._settle(graph, intent, history, source_step_ids, tag=tag)
+        # 자산 기계 포집(하이브리드 D 1단계) — 관측 자산을 미식별로 쌓고 의도를 거기 앵커
+        asset_ids = self._capture_assets(graph, intent, history, tag=tag)
+
+        self._settle(graph, intent, history, source_step_ids, tag=tag, asset_ids=asset_ids)
 
         # 종료사유 → 의도 정착 상태. TIMEOUT만 EXHAUSTED(부분결과 보존), 나머지는 DONE.
         state = (IntentState.EXHAUSTED if result.end_reason == AttackEndReason.TIMEOUT
                  else IntentState.DONE)
         return IntentOutcome(state, reason=result.end_reason.value)
 
+    def _capture_assets(self, graph: ExplorationGraph, intent: Node,
+                        history: AttackHistory, *, tag: str = "") -> list[int]:
+        """히스토리(명령+출력)에서 관측 자산을 기계적으로 뽑아 자산 그래프에 쓰고,
+        이 의도를 그 자산들에 ANCHORED_TO로 앵커. 자산 그래프 없으면 건너뜀."""
+        if self.asset_graph is None:
+            return []
+        texts = []
+        for e in history.entries:
+            texts.append(e.tool + " " + " ".join(str(a) for a in e.args))
+            if e.stdout_excerpt:
+                texts.append(e.stdout_excerpt)
+        try:
+            obs = extract_assets(texts, intent_target=str(intent.payload.get("target", "")))
+            ids = [self.asset_graph.add_asset(o["kind"], o["name"], confidence="observed",
+                                              attrs=o.get("attrs"))
+                   for o in obs]
+            if ids:
+                graph.anchor_to(intent.id, ids)       # 의도 → 관측 자산
+            if obs:
+                self.log(f"{tag} ⟟ 자산 {len(obs)}개 포집: "
+                         + ", ".join(o["name"] for o in obs[:4])
+                         + ("…" if len(obs) > 4 else ""))
+            return ids
+        except Exception as e:  # noqa: BLE001 — 자산 포집 실패는 비치명
+            self.log(f"{tag} 자산 포집 실패({type(e).__name__})")
+            return []
+
     def _settle(self, graph: ExplorationGraph, intent: Node, history: AttackHistory,
-                source_step_ids: list[str], *, tag: str = "") -> None:
+                source_step_ids: list[str], *, tag: str = "",
+                asset_ids: Optional[list[int]] = None) -> None:
         """정착 호출(방식 B): 결론을 fact/finding으로 그래프에 쓴다. 실패해도 의도는 안 잃고
         히스토리 요약을 폴백 fact로 남긴다."""
         technique = str(intent.payload.get("technique", "")).strip()
@@ -207,7 +241,9 @@ class IntentRunner:
             # 같은 기법의 중복 침해는 그래프에서 하나로 병합(채점은 기법 조인이라 중복=노이즈).
             # 기법이 없으면 dedup 안 함(섣불리 다른 침해를 합치지 않게).
             dkey = fpayload.get("technique") or None
-            graph.add_finding(fpayload, proved_by=fact_ids, dedup_key=dkey)
+            fid = graph.add_finding(fpayload, proved_by=fact_ids, dedup_key=dkey)
+            if asset_ids:                     # 침해도 관측 자산에 앵커
+                graph.anchor_to(fid, asset_ids)
 
         # 정착 결과 한 줄 — '의도대로 결론을 냈는지' 가시화
         first = facts[0].summary if facts else ""

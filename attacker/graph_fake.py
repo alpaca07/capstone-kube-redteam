@@ -142,6 +142,15 @@ class InMemoryGraph(ExplorationGraph):
             n.owner = ""
             return True
 
+    def anchor_to(self, node_id: int, asset_ids: list[int]) -> None:
+        with self._lock:
+            n = self._nodes.get(node_id)
+            if n is None:
+                return
+            for aid in asset_ids:
+                if aid not in n.anchors:
+                    n.anchors.append(aid)
+
     # ── 읽기 ──
     def _copy(self, n: Node) -> Node:
         """호출자에게 내부 노드의 사본을 준다(바깥 변이가 저장소를 안 건드리게)."""

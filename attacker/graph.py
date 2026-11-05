@@ -143,6 +143,12 @@ class ExplorationGraph(Protocol):
         """blocked 등으로 중단된 intent를 다시 open으로(재claim 가능)."""
         ...
 
+    def anchor_to(self, node_id: int, asset_ids: list[int]) -> None:
+        """탐색 노드(의도·발견)를 자산 그래프 노드에 ANCHORED_TO로 잇는다.
+        node.anchors에 asset id를 채운다 — '이 의도/침해는 이 자산을 건드렸다'.
+        (지금은 name 매칭 앵커, CPE 기반 매칭은 KG 단계에서)"""
+        ...
+
     # ── 읽기 ──
     def get_node(self, node_id: int) -> Optional[Node]:
         ...
