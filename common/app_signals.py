@@ -86,12 +86,35 @@ def map_app_event(ev: dict) -> Optional[str]:
     """JSON 감사 로그 1줄(dict) → 기법. god-view AppLogSource 용(src!=app 이면 None)."""
     if ev.get("src") != "app":
         return None
+    if ev.get("event"):   # crown_exfil 등 '요청 로그'가 아닌 자백 줄은 기법 분류 대상 아님
+        return None
     return classify(ev.get("path", ""), ev.get("query", "") or "", ev.get("url"),
                     fields=ev.get("fields"), authn=ev.get("authn"))
+
+
+# ───────────── 크라운 반출 자백(플래그리스 최종 침해 판정) ─────────────
+# 취약 서비스가 민감 데이터를 실제로 읽어 응답에 실을 때 찍는 자백 줄의 target 키.
+# 기법(web_*)과 '별개 축' — 기법=시도, 크라운=실제 침해 달성.
+CROWN_INTERNAL_SECRETS = "internal_secrets"   # ④ 목표물(과거 값기반 FLAG 자리)
+CROWN_CUSTOMERS_PII = "customers_pii"          # 고객 PII(이름·이메일·전화·주소·주민번호)
+CROWN_TARGETS = (CROWN_INTERNAL_SECRETS, CROWN_CUSTOMERS_PII)
+
+
+def crown_target(ev: dict) -> Optional[str]:
+    """crown_exfil 자백 줄 → 반출된 크라운 자산 키. 자백 줄이 아니면 None.
+
+    심판(god-view)이 '값 대조'가 아니라 '접근 흔적'으로 최종 침해를 판정하는 통로.
+    """
+    if ev.get("src") == "app" and ev.get("event") == "crown_exfil":
+        t = ev.get("target")
+        if isinstance(t, str) and t in CROWN_TARGETS:
+            return t
+    return None
 
 
 __all__ = [
     "WEB_SQLI", "WEB_SSRF", "WEB_CMDI", "WEB_CREDLEAK",
     "WEB_BOLA", "WEB_MASSASSIGN", "WEB_AUTHN", "WEB_TECHNIQUES",
     "is_internal_or_file", "classify", "map_app_event",
+    "CROWN_INTERNAL_SECRETS", "CROWN_CUSTOMERS_PII", "CROWN_TARGETS", "crown_target",
 ]

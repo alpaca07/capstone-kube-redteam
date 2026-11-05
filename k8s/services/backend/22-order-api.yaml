@@ -27,9 +27,31 @@ data:
                 if f is not None:
                     rec["fields"] = f
                 print(json.dumps(rec), flush=True)
+                cr = request.environ.get("capstone.crown")
+                if cr is not None:
+                    print(json.dumps({"ts": rec["ts"], "src": "app", "svc": rec["svc"],
+                                      "event": "crown_exfil", "target": cr,
+                                      "via": request.path, "status": resp.status_code}),
+                          flush=True)
         except Exception:
             pass
         return resp
+    def _crown_of(cur):
+        # 크라운 반출 자백(god-view): 실행된 실제 쿼리가 민감 데이터를 읽어 행을 돌려줬나.
+        # 플래그 문자열이 아니라 '접근 흔적'으로 판정 — internal_secrets 접근(정상 앱은 미접근) 또는
+        # PII 컬럼(ssn/email/phone/address) 반환. invoice(BOLA) 에서만 호출(account_update 오탐 방지).
+        try:
+            q = (cur.query or b"").decode("utf-8", "replace").lower()
+            n = cur.rowcount
+        except Exception:
+            return None
+        if not n or n <= 0:
+            return None
+        if "internal_secrets" in q:
+            return "internal_secrets"
+        if any(col in q for col in ("ssn", "email", "phone", "address")):
+            return "customers_pii"
+        return None
     def conn():
         return psycopg2.connect(host=os.environ["DB_HOST"], port=os.environ.get("DB_PORT","5432"),
             dbname=os.environ["DB_NAME"], user=os.environ["DB_USER"],
@@ -68,6 +90,7 @@ data:
                         "cu.name AS customer, cu.email, cu.phone, cu.address, cu.ssn "
                         "FROM orders o JOIN products p ON o.product_id=p.id "
                         "JOIN customers cu ON o.customer_id=cu.id WHERE o.id=%s", (oid,))
+            request.environ["capstone.crown"] = _crown_of(cur)   # 자백: PII(ssn 등) 반환됐나(BOLA)
             r = cur.fetchone()
             if not r:
                 abort(404)

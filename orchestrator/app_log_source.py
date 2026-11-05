@@ -13,7 +13,9 @@ from __future__ import annotations
 import json
 from typing import Optional
 
-from common.app_signals import WEB_CMDI, WEB_CREDLEAK, WEB_SQLI, WEB_SSRF, map_app_event
+from common.app_signals import (
+    CROWN_TARGETS, WEB_CMDI, WEB_CREDLEAK, WEB_SQLI, WEB_SSRF,
+    crown_target, map_app_event)
 from common.k8s_logs import parse_rfc3339
 
 from .log_source import LineReader
@@ -51,6 +53,25 @@ class AppLogSource:
                 out.add(t)
         return out
 
+    def crowns_in_window(self, *, since_ts: float, until_ts: float) -> set[str]:
+        """시간창 내 '크라운 반출 자백'으로 실제 침해된 크라운 자산 키 집합.
+
+        기법 집합(techniques_in_window)과 '별개 축' — 기법=시도, 크라운=실제 달성.
+        조건표 평가기(app_access 통로)가 이 집합으로 '목표 자산이 실제 빠졌나'를 판정한다.
+        """
+        out: set[str] = set()
+        for line in self.reader():
+            ev = _loads(line)
+            if ev is None:
+                continue
+            ts = app_ts(ev)
+            if ts is None or not (since_ts <= ts <= until_ts):
+                continue
+            c = crown_target(ev)
+            if c:
+                out.add(c)
+        return out
+
 
 class CompositeLogSource:
     """여러 LogSource 를 합쳐 기법 집합을 합집합(Audit+Falco+App). LogSource Protocol 충족."""
@@ -67,5 +88,6 @@ class CompositeLogSource:
 
 __all__ = [
     "WEB_SQLI", "WEB_SSRF", "WEB_CMDI", "WEB_CREDLEAK",
+    "CROWN_TARGETS", "crown_target",
     "map_app_event", "app_ts", "AppLogSource", "CompositeLogSource",
 ]
