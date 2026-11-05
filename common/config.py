@@ -64,6 +64,13 @@ class AttackConfig(BaseModel):
     exec_kubeconfig: str = ""                       # frontend exec 전용 kubeconfig 경로(VM A)
     exec_namespace: str = "frontend"                # 발판 파드 네임스페이스
     exec_pod: str = "deploy/attacker-foothold"      # kubectl exec 대상(deploy/… 또는 파드 이름)
+    # ── 병렬 워커(ARTEX식) 설정 ──
+    # mode="single"(기본): 단일 ReAct 루프. mode="parallel": 플래너(정렬 모델)+워커 N(탈옥).
+    mode: str = "single"                            # single | parallel
+    n_workers: int = 2                              # 병렬 워커 수(탈옥 모델 1개 공유 → 2~3 권장)
+    intent_budget_sec: float = 120.0               # 의도 하나당 ReAct 시간 예산
+    intent_max_steps: int = 20                     # 의도 하나당 최대 스텝
+    max_waves: int = 6                              # 라운드당 플래너 웨이브 상한
 
 
 class VmwareConfig(BaseModel):

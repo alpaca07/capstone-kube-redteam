@@ -45,7 +45,8 @@ class AttackHarness:
 
     def __init__(self, *, llm, runner: CommandRunner, scope_policy: ScopePolicy,
                  system_prompt: str, flag_value_id: str = "4", session_id: str = "vmA",
-                 max_steps: int = 40, step_timeout: float = 60.0) -> None:
+                 max_steps: int = 40, step_timeout: float = 60.0,
+                 mode: str = "single", planner_llm=None, round_cfg=None) -> None:
         self.llm = llm
         self.runner = runner
         self.scope = scope_policy
@@ -57,9 +58,42 @@ class AttackHarness:
         self._episode: Optional[int] = None
         self._prior_summary = ""             # 라운드 간 기억(에피소드 내에서만 누적)
         self._round_digests: list[str] = []  # 라운드별 요약 누적(최근 N라운드)
+        # ── 병렬 워커 모드 ──
+        self.mode = mode                     # single | parallel
+        self.planner_llm = planner_llm       # 정렬 모델(플래너 전용). parallel에서만 필요
+        self.round_cfg = round_cfg           # RoundConfig(system_prompt 포함). parallel에서만
+        self._graph = None                   # 에피소드 스코프 탐색 그래프(라운드 넘어 지속)
+        self._graph_episode: Optional[int] = None
 
     # ── attack_turn_start → attack_turn_result (공격 모드) ──
     def attack_turn(self, start: AttackTurnStart, *, episode: int, round: int) -> AttackTurnResult:
+        if self.mode == "parallel" and self.planner_llm is not None:
+            return self._attack_turn_parallel(start, episode=episode, round=round)
+        return self._attack_turn_single(start, episode=episode, round=round)
+
+    # ── 병렬 워커 턴(ARTEX식: 플래너+워커 N) ──
+    def _attack_turn_parallel(self, start: AttackTurnStart, *, episode: int,
+                              round: int) -> AttackTurnResult:
+        from .graph_fake import InMemoryGraph    # Neo4j 어댑터 전까진 인메모리
+        from .round_engine import AttackRound
+        # 그래프는 에피소드 스코프: 새 에피소드이거나 에피소드 첫 라운드(R1)면 새로.
+        # (단일 경로의 리셋 조건과 동일 사상 — 상주 하네스의 런 간 기억 유출 방지)
+        if episode != self._graph_episode or round <= 1 or self._graph is None:
+            self._graph = InMemoryGraph(episode=episode)
+            self._graph_episode = episode
+        try:
+            rnd = AttackRound(
+                attacker_llm=self.llm, planner_llm=self.planner_llm,
+                runner=self.runner, scope_policy=self.scope, cfg=self.round_cfg)
+            return rnd.run(start, episode=episode, round=round, graph=self._graph)
+        except Exception as e:                   # noqa: BLE001 — 하네스 오류는 ERROR로
+            import traceback
+            traceback.print_exc()
+            return AttackTurnResult(end_reason=AttackEndReason.ERROR,
+                                    attack_summary=f"하네스 오류(parallel): {type(e).__name__}: {e}")
+
+    # ── 단일 ReAct 턴(기존 경로) ──
+    def _attack_turn_single(self, start: AttackTurnStart, *, episode: int, round: int) -> AttackTurnResult:
         # 라운드 간 기억 리셋: 새 에피소드이거나 '에피소드 첫 라운드(R1)'면 초기화.
         # 하네스는 systemd로 상주 → 매 런이 episode=1 로 들어오므로 'episode 바뀜'만
         # 보면 이전 런의 요약("이미 FLAG 획득")이 새어 즉시 give_up 됨. R1=에피소드
@@ -160,12 +194,35 @@ def create_harness(cfg, *, prompt: Optional[str] = None, runner=None, llm=None) 
             runner = SubprocessRunner(default_timeout=step_to, cwd=work_dir)
     # ★ 자기 하네스 경로(소스·설정)를 스코프로 보호 — 절대경로로 접근해도 차단(가짜 플래그 원천 차단).
     repo_root = str(Path(__file__).resolve().parent.parent)
+    sys_prompt = prompt or _load_prompt()
+    session_id = cfg.vmware.target_vm_name or "vmA"
+
+    # ── 병렬 워커 모드: 플래너(정렬 모델) LLM + RoundConfig 조립 ──
+    mode = getattr(cfg.attack, "mode", "single")
+    planner_llm = None
+    round_cfg = None
+    if mode == "parallel":
+        from .round_engine import RoundConfig
+        req_timeout = cfg.dgx.request_timeout_sec or float(cfg.experiment.time_limit_sec)
+        # 플래너=정렬 모델(방어용과 같은 서빙, defender_base_url). 추론 모델이라 토큰 넉넉히.
+        planner_llm = OllamaClient(cfg.dgx.defender_base_url, cfg.dgx.defender_model,
+                                   temperature=cfg.dgx.temperature, timeout=req_timeout,
+                                   max_tokens=None)
+        round_cfg = RoundConfig(
+            system_prompt=sys_prompt, session_id=session_id, flag_value_id="4",
+            step_timeout=step_to, n_workers=cfg.attack.n_workers,
+            intent_budget_sec=cfg.attack.intent_budget_sec,
+            intent_max_steps=cfg.attack.intent_max_steps,
+            react_max_tokens=cfg.dgx.max_tokens, planner_max_tokens=3000,
+            max_waves=cfg.attack.max_waves)
+
     return AttackHarness(
         llm=llm, runner=runner,
         scope_policy=default_policy(protected_paths=[repo_root]),
-        system_prompt=prompt or _load_prompt(),
-        flag_value_id="4", session_id=cfg.vmware.target_vm_name or "vmA",
-        step_timeout=step_to)
+        system_prompt=sys_prompt,
+        flag_value_id="4", session_id=session_id,
+        step_timeout=step_to,
+        mode=mode, planner_llm=planner_llm, round_cfg=round_cfg)
 
 
 def create_app(harness: AttackHarness):
@@ -201,7 +258,10 @@ def main(argv: Optional[list] = None) -> int:
     cfg = load_config(args.config)
     app = create_app(create_harness(cfg))
     import uvicorn
-    print(f"[*] 공격 하네스 서버 {args.host}:{args.port}  attacker_model={cfg.dgx.attacker_model}")
+    mode = getattr(cfg.attack, "mode", "single")
+    extra = (f"  mode=parallel workers={cfg.attack.n_workers} "
+             f"planner={cfg.dgx.defender_model}") if mode == "parallel" else "  mode=single"
+    print(f"[*] 공격 하네스 서버 {args.host}:{args.port}  attacker_model={cfg.dgx.attacker_model}{extra}")
     uvicorn.run(app, host=args.host, port=args.port)
     return 0
 

@@ -38,6 +38,15 @@ attack:
   exec_kubeconfig: "/home/vm-a/foothold.kubeconfig"   # frontend exec 전용(secret-read 없음)
   exec_namespace: "frontend"
   exec_pod: "deploy/attacker-foothold"
+  # ── 병렬 워커(ARTEX식) ──
+  # single(기본): 단일 ReAct 루프. parallel: 플래너(정렬 모델, dgx.defender_*)가 의도를
+  # 뿌리고 워커 N개(탈옥 모델, dgx.attacker_*)가 claim해 ReAct·정착. 탈옥 모델 1개를
+  # 워커들이 공유하므로 n_workers는 2~3 권장(그 이상은 decode 경합만 커짐).
+  mode: "single"               # single | parallel
+  n_workers: 2
+  intent_budget_sec: 120       # 의도 하나당 ReAct 시간 예산
+  intent_max_steps: 20
+  max_waves: 6                 # 라운드당 플래너 웨이브 상한
 
 # ===== VMware 스냅샷 제어 =====
 # Workstation 권장: method=agent. 이유 — vmrun 스냅샷은 SSH로 되지만 revert 후 VM '재개'는
