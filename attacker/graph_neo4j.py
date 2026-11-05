@@ -239,14 +239,19 @@ class Neo4jGraph(ExplorationGraph):
         return [_node_from_props(r["props"]) for r in self._run(_RUNNING)]
 
 
+def connect_driver(uri: str, user: str, password: str):
+    """neo4j 드라이버만 만든다(지연 import). 하네스가 한 드라이버를 에피소드마다 재사용."""
+    from neo4j import GraphDatabase          # noqa: PLC0415 — 지연 import(미설치 환경 보호)
+    return GraphDatabase.driver(uri, auth=(user, password))
+
+
 def connect(uri: str, user: str, password: str, *, database: Optional[str] = None,
             episode: int = 0):
-    """neo4j 드라이버를 지연 import해 Neo4jGraph를 만든다(실 연결). 드라이버 필요."""
-    from neo4j import GraphDatabase          # noqa: PLC0415 — 지연 import(미설치 환경 보호)
-    driver = GraphDatabase.driver(uri, auth=(user, password))
+    """드라이버 생성 + Neo4jGraph + 스키마까지(단발 사용·계약 테스트용)."""
+    driver = connect_driver(uri, user, password)
     g = Neo4jGraph(driver, episode=episode, database=database)
     g.ensure_schema()
     return g
 
 
-__all__ = ["Neo4jGraph", "connect", "_node_from_props", "_base_props"]
+__all__ = ["Neo4jGraph", "connect", "connect_driver", "_node_from_props", "_base_props"]

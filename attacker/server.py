@@ -46,7 +46,9 @@ class AttackHarness:
     def __init__(self, *, llm, runner: CommandRunner, scope_policy: ScopePolicy,
                  system_prompt: str, flag_value_id: str = "4", session_id: str = "vmA",
                  max_steps: int = 40, step_timeout: float = 60.0,
-                 mode: str = "single", planner_llm=None, round_cfg=None) -> None:
+                 mode: str = "single", planner_llm=None, round_cfg=None,
+                 graph_backend: str = "memory", neo4j_driver=None,
+                 neo4j_database=None) -> None:
         self.llm = llm
         self.runner = runner
         self.scope = scope_policy
@@ -64,6 +66,9 @@ class AttackHarness:
         self.round_cfg = round_cfg           # RoundConfig(system_prompt 포함). parallel에서만
         self._graph = None                   # 에피소드 스코프 탐색 그래프(라운드 넘어 지속)
         self._graph_episode: Optional[int] = None
+        self._graph_backend = graph_backend  # memory | neo4j
+        self._neo4j_driver = neo4j_driver    # neo4j 백엔드일 때 공유 드라이버
+        self._neo4j_database = neo4j_database
 
     # ── attack_turn_start → attack_turn_result (공격 모드) ──
     def attack_turn(self, start: AttackTurnStart, *, episode: int, round: int) -> AttackTurnResult:
@@ -72,14 +77,25 @@ class AttackHarness:
         return self._attack_turn_single(start, episode=episode, round=round)
 
     # ── 병렬 워커 턴(ARTEX식: 플래너+워커 N) ──
+    def _new_episode_graph(self, episode: int):
+        """에피소드 스코프 탐색 그래프 생성(백엔드별). neo4j는 공유 드라이버로 episode별
+        Neo4jGraph를 만들고 그 episode만 reset(새 에피소드 시작=깨끗한 상태)."""
+        if self._graph_backend == "neo4j":
+            from .graph_neo4j import Neo4jGraph
+            g = Neo4jGraph(self._neo4j_driver, episode=episode,
+                           database=self._neo4j_database)
+            g.reset_episode()                # 이 episode 번호의 묵은 노드 제거(KG는 보존)
+            return g
+        from .graph_fake import InMemoryGraph
+        return InMemoryGraph(episode=episode)
+
     def _attack_turn_parallel(self, start: AttackTurnStart, *, episode: int,
                               round: int) -> AttackTurnResult:
-        from .graph_fake import InMemoryGraph    # Neo4j 어댑터 전까진 인메모리
         from .round_engine import AttackRound
         # 그래프는 에피소드 스코프: 새 에피소드이거나 에피소드 첫 라운드(R1)면 새로.
         # (단일 경로의 리셋 조건과 동일 사상 — 상주 하네스의 런 간 기억 유출 방지)
         if episode != self._graph_episode or round <= 1 or self._graph is None:
-            self._graph = InMemoryGraph(episode=episode)
+            self._graph = self._new_episode_graph(episode)
             self._graph_episode = episode
         try:
             rnd = AttackRound(
@@ -201,6 +217,9 @@ def create_harness(cfg, *, prompt: Optional[str] = None, runner=None, llm=None) 
     mode = getattr(cfg.attack, "mode", "single")
     planner_llm = None
     round_cfg = None
+    graph_backend = "memory"
+    neo4j_driver = None
+    neo4j_database = None
     if mode == "parallel":
         from .round_engine import RoundConfig
         req_timeout = cfg.dgx.request_timeout_sec or float(cfg.experiment.time_limit_sec)
@@ -215,6 +234,13 @@ def create_harness(cfg, *, prompt: Optional[str] = None, runner=None, llm=None) 
             intent_max_steps=cfg.attack.intent_max_steps,
             react_max_tokens=cfg.dgx.max_tokens, planner_max_tokens=3000,
             max_waves=cfg.attack.max_waves)
+        # 탐색 그래프 백엔드: memory(기본) | neo4j(영속·에피소드 넘어 지속)
+        graph_backend = getattr(cfg.attack, "graph_backend", "memory")
+        if graph_backend == "neo4j":
+            from .graph_neo4j import Neo4jGraph, connect_driver
+            neo4j_driver = connect_driver(cfg.neo4j.uri, cfg.neo4j.user, cfg.neo4j.password)
+            neo4j_database = cfg.neo4j.database
+            Neo4jGraph(neo4j_driver, episode=0, database=neo4j_database).ensure_schema()
 
     return AttackHarness(
         llm=llm, runner=runner,
@@ -222,7 +248,9 @@ def create_harness(cfg, *, prompt: Optional[str] = None, runner=None, llm=None) 
         system_prompt=sys_prompt,
         flag_value_id="4", session_id=session_id,
         step_timeout=step_to,
-        mode=mode, planner_llm=planner_llm, round_cfg=round_cfg)
+        mode=mode, planner_llm=planner_llm, round_cfg=round_cfg,
+        graph_backend=graph_backend, neo4j_driver=neo4j_driver,
+        neo4j_database=neo4j_database)
 
 
 def create_app(harness: AttackHarness):

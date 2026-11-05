@@ -141,6 +141,51 @@ def test_parallel_harness_error_absorbed():
     assert res.end_reason in (AttackEndReason.DEADEND, AttackEndReason.TIMEOUT)
 
 
+# ── neo4j 백엔드 라우팅: _new_episode_graph가 Neo4jGraph를 만들고 reset 호출 ──
+class _FakeSession:
+    def __init__(self, log):
+        self.log = log
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def run(self, q, **p):
+        self.log.append(q)
+        return []
+
+
+class _FakeDriver:
+    def __init__(self):
+        self.queries = []
+
+    def session(self, database=None):
+        return _FakeSession(self.queries)
+
+
+def test_neo4j_backend_dispatch_and_reset():
+    drv = _FakeDriver()
+    h = AttackHarness(
+        llm=_WorkLLM(), runner=_R(), scope_policy=default_policy(),
+        system_prompt="s", mode="parallel", planner_llm=_PlanLLM(),
+        round_cfg=RoundConfig(system_prompt="s"),
+        graph_backend="neo4j", neo4j_driver=drv)
+    g = h._new_episode_graph(7)
+    from attacker.graph_neo4j import Neo4jGraph
+    assert isinstance(g, Neo4jGraph) and g._episode == 7
+    # 새 에피소드 그래프 생성 시 reset_episode(DETACH DELETE)가 돌아야(묵은 노드 제거)
+    assert any("DETACH DELETE" in q for q in drv.queries)
+
+
+def test_memory_backend_default_dispatch():
+    h = _harness("parallel")                 # graph_backend 기본 memory
+    g = h._new_episode_graph(3)
+    from attacker.graph_fake import InMemoryGraph
+    assert isinstance(g, InMemoryGraph)
+
+
 def _run() -> int:
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

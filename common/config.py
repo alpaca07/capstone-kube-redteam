@@ -71,6 +71,7 @@ class AttackConfig(BaseModel):
     intent_budget_sec: float = 120.0               # 의도 하나당 ReAct 시간 예산
     intent_max_steps: int = 20                     # 의도 하나당 최대 스텝
     max_waves: int = 6                              # 라운드당 플래너 웨이브 상한
+    graph_backend: str = "memory"                   # memory | neo4j (탐색 그래프 저장소)
 
 
 class VmwareConfig(BaseModel):
@@ -113,6 +114,17 @@ class ObservabilityConfig(BaseModel):
 
 
 # ───────────────────────── 루트 ─────────────────────────
+class Neo4jConfig(BaseModel):
+    """병렬 워커 탐색 그래프 영속화용 Neo4j(attack.graph_backend=neo4j일 때만).
+
+    VM-A 로컬 Neo4j 권장(확정 배포). database는 Community면 보통 'neo4j' 하나뿐이라 생략 가능.
+    """
+    uri: str = "bolt://127.0.0.1:7687"
+    user: str = "neo4j"
+    password: str = ""
+    database: Optional[str] = None
+
+
 class Config(BaseModel):
     dgx: DgxConfig
     network: NetworkConfig
@@ -122,6 +134,7 @@ class Config(BaseModel):
     flags: FlagsConfig = Field(default_factory=FlagsConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     attack: AttackConfig = Field(default_factory=AttackConfig)
+    neo4j: Neo4jConfig = Field(default_factory=Neo4jConfig)
 
 
 # ───────────────────────── 로더 ─────────────────────────

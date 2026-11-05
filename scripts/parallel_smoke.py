@@ -126,6 +126,13 @@ def main() -> int:
     ap.add_argument("--namespace", default="frontend", help="exec 모드: 발판 파드 네임스페이스")
     ap.add_argument("--pod", default="deploy/attacker-foothold", help="exec 모드: 발판 파드")
     ap.add_argument("--step-timeout", type=float, default=15.0, help="단일 명령 실행 타임아웃(초)")
+    # ── 그래프 백엔드 ──
+    ap.add_argument("--graph", choices=["memory", "neo4j"], default="memory",
+                    help="memory(기본,인메모리) / neo4j(실 DB 영속 — 끝나고 Neo4j Browser로 확인)")
+    ap.add_argument("--neo4j-uri", default="bolt://127.0.0.1:7687")
+    ap.add_argument("--neo4j-user", default="neo4j")
+    ap.add_argument("--neo4j-pass", default="")
+    ap.add_argument("--neo4j-db", default=None)
     args = ap.parse_args()
 
     atk_base = normalize_base(args.attacker)
@@ -178,7 +185,20 @@ def main() -> int:
         flag_format="FLAG{...}", time_limit_sec=int(args.time_limit),
         foothold=Foothold(attack_endpoint="10.0.0.5:8080"))
 
-    graph = InMemoryGraph(episode=1)
+    # ── 그래프 백엔드 ──
+    if args.graph == "neo4j":
+        if not args.neo4j_pass:
+            print("\n[오류] --graph neo4j 는 --neo4j-pass 가 필요합니다.")
+            return 2
+        from attacker.graph_neo4j import connect
+        graph = connect(args.neo4j_uri, args.neo4j_user, args.neo4j_pass,
+                        database=args.neo4j_db, episode=1)
+        graph.reset_episode()                 # episode=1 묵은 노드 비우고 시작
+        print(f"# 그래프     : neo4j({args.neo4j_uri}) — 영속(끝나고 Browser로 확인)\n")
+    else:
+        graph = InMemoryGraph(episode=1)
+        print("# 그래프     : memory(인메모리)\n")
+
     rnd = AttackRound(attacker_llm=attacker_llm, planner_llm=planner_llm,
                       runner=runner, scope_policy=default_policy(),
                       cfg=cfg, log=lambda m: print("  " + m, flush=True))
