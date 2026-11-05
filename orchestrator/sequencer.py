@@ -235,9 +235,11 @@ class TurnSequencer:
                   f"대본={len(attack.replay_script.steps) if attack.replay_script else 0}스텝 "
                   f"({time.time() - _t:.0f}s)")
 
-        # ── 게이팅: 공격이 플래그를 획득했을 때만 방어+검증(값비싼 스냅샷·재생)을 돌린다.
-        #    미획득이면 2·3·4~5를 전부 생략하고 바로 다음 라운드로(히스토리는 하네스가 자동 이월).
-        flag_found = bool(attack.flags_obtained) or attack.end_reason == AttackEndReason.FLAG
+        # ── 게이팅: 공격이 크라운(최종 침해)에 도달했을 때만 방어+검증(값비싼 재생)을 돌린다.
+        #    공격자 보고가 아니라 god-view 접근기록(공격 창의 crowns)으로 판단 — 판정과 동일 기준.
+        #    미도달이면 2·3·4~5를 전부 생략하고 다음 라운드로(히스토리는 하네스가 자동 이월).
+        attack_crowns = self.logs.crowns_in_window(since_ts=_t, until_ts=time.time())
+        flag_found = bool(self.objectives.reached_goals({"crown": {"asset": attack_crowns}}))
 
         if flag_found:
             # 2. 방어 턴 (공격정보 0). A2: 공격후 VM 스냅샷 불필요 — verify 가 '패치된 라이브'에

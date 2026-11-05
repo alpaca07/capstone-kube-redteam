@@ -256,8 +256,14 @@ def _gating_seq(results, *, n_consec=2, max_rounds=10):
     captured: list[dict] = []
     params = RunParams(episodes=1, max_rounds=max_rounds, n_consecutive_defense=n_consec,
                        baseline_snapshot="clean-baseline", attack_endpoint="10.0.0.5")
+    # 게이팅이 접근기록(crowns) 기반이므로 공격 결과(flags_obtained)에 맞춰 공격창 crown 을 심는다.
+    # seq logs 는 라운드당 crown 을 2회 조회(게이팅 + _build_truth)하므로 각 라운드값을 2번 넣는다.
+    cw: list[set] = []
+    for r in results:
+        c = {CROWN_INTERNAL_SECRETS} if r.flags_obtained else set()
+        cw += [set(c), set(c)]
     seq = TurnSequencer(attacker=attacker, defender=defender, snapshots=snaps, verifier=verifier,
-                        logs=FakeLogSource(constant=set()), registry=registry,
+                        logs=FakeLogSource(constant=set(), crown_windows=cw), registry=registry,
                         objectives=objectives, truth=TruthLog(),
                         params=params, sink=captured.append)
     return seq, {"attacker": attacker, "defender": defender, "snaps": snaps, "captured": captured}
