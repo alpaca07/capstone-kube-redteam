@@ -153,6 +153,31 @@ class ExplorationGraph(Protocol):
         ...
 
 
+# ───────────── 발견 병합(공유) — 인메모리·Neo4j가 같은 의미를 쓰도록 ─────────────
+SEVERITY_RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+
+
+def max_severity(a: str, b: str) -> str:
+    """두 심각도 중 높은 것. 모르는 값(빈 문자열 등)은 0위."""
+    ra, rb = SEVERITY_RANK.get(a, 0), SEVERITY_RANK.get(b, 0)
+    return a if ra >= rb else b
+
+
+def merge_finding_payload(existing: dict, incoming: dict) -> dict:
+    """같은 침해(같은 dedup_key)가 중복 보고될 때 payload 병합 규칙.
+    심각도=최댓값 · occurrences=총 보고횟수 · reports=서로 다른 요약 보존(정보 손실 없음)."""
+    out = dict(existing)
+    out["severity"] = max_severity(existing.get("severity", ""), incoming.get("severity", ""))
+    out["occurrences"] = int(existing.get("occurrences", 1)) + 1
+    reports = list(existing.get("reports") or [existing.get("summary", "")])
+    s = str(incoming.get("summary", "")).strip()
+    if s and s not in reports:
+        reports.append(s)
+    out["reports"] = reports
+    return out
+
+
 __all__ = [
     "NodeKind", "IntentState", "Rel", "Node", "Edge", "ExplorationGraph",
+    "SEVERITY_RANK", "max_severity", "merge_finding_payload",
 ]

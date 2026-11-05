@@ -14,15 +14,10 @@ from typing import Optional
 
 from .graph import (
     Edge, ExplorationGraph, IntentState, Node, NodeKind, Rel,
+    max_severity, merge_finding_payload,
 )
 
-_SEV_RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}
-
-
-def _max_severity(a: str, b: str) -> str:
-    """두 심각도 중 높은 것. 모르는 값은 0위(빈 문자열 등)."""
-    ra, rb = _SEV_RANK.get(a, 0), _SEV_RANK.get(b, 0)
-    return a if ra >= rb else b
+_max_severity = max_severity        # 하위호환 별칭(기존 테스트 import 유지)
 
 
 class InMemoryGraph(ExplorationGraph):
@@ -77,16 +72,7 @@ class InMemoryGraph(ExplorationGraph):
             if dedup_key and dedup_key in self._finding_by_key:
                 nid = self._finding_by_key[dedup_key]
                 n = self._nodes[nid]
-                # 심각도=최댓값
-                n.payload["severity"] = _max_severity(
-                    n.payload.get("severity", ""), payload.get("severity", ""))
-                # occurrences = 총 보고 횟수(요약이 같아도 증가)
-                n.payload["occurrences"] = int(n.payload.get("occurrences", 1)) + 1
-                # reports = 서로 다른 요약만 보존(중복 제거)
-                reports = n.payload.setdefault("reports", [n.payload.get("summary", "")])
-                s = str(payload.get("summary", "")).strip()
-                if s and s not in reports:
-                    reports.append(s)
+                n.payload = merge_finding_payload(n.payload, payload)   # 공유 병합 규칙
                 for src in (proved_by or []):       # 근거 엣지는 계속 누적
                     self._link(src, Rel.PROVES, nid)
                 return nid
