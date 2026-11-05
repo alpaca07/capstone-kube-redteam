@@ -1,0 +1,146 @@
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>병렬 워커 공격 하네스</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* 레이아웃: 단일 다크 테마(기존 VM 구성도 시리즈), 세로 스택 — 제목 → 런타임 구조도 → 의도 상태머신 → 범례 */
+  :root{
+    color-scheme: dark;
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2128;
+    --fg:#e6edf3; --muted:#8b949e; --border:#30363d;
+    --atk:#f26d6d; --atk-bg:#2a1416;          /* 공격 = 빨강 */
+    --tgt:#58a6ff; --tgt-bg:#0d2744;          /* 대상·방어 = 파랑 */
+    --sys:#8b949e; --sys-bg:#1c2128;          /* 시스템 = 회색 */
+    --accent:#ff6b6b;                          /* 강조(취약점·직렬화 지점) = 빨강 강조 */
+    --sans:"IBM Plex Sans KR", system-ui, sans-serif;
+    --mono:"IBM Plex Mono", ui-monospace, monospace;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg); color:var(--fg); font-family:var(--sans); line-height:1.6;
+       padding-left:max(16px,env(safe-area-inset-left,0px));
+       padding-right:max(16px,env(safe-area-inset-right,0px));
+       padding-block:28px}
+  .wrap{max-width:980px; margin:0 auto; display:flex; flex-direction:column; gap:26px}
+  header h1{font-size:1.5rem; font-weight:700; margin:0 0 4px; text-wrap:balance}
+  header p{margin:0; color:var(--muted); font-size:.95rem}
+  .eyebrow{font-family:var(--mono); font-size:.72rem; letter-spacing:.12em; text-transform:uppercase;
+           color:var(--atk); font-weight:500; margin-bottom:6px}
+  section{background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:18px 18px 20px}
+  section > h2{font-size:1.02rem; font-weight:600; margin:0 0 2px}
+  section > .sub{color:var(--muted); font-size:.85rem; margin:0 0 14px}
+  .diagram{overflow-x:auto}
+  .mermaid{min-width:560px}
+  /* 핵심 3줄 */
+  .key{display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin-top:4px}
+  .key div{background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:12px 14px}
+  .key b{display:block; font-size:.82rem; color:var(--accent); font-weight:600; margin-bottom:3px}
+  .key span{font-size:.88rem; color:var(--fg)}
+  .key code{font-family:var(--mono); font-size:.82rem; color:var(--muted)}
+  /* 범례 */
+  .legend{display:flex; flex-wrap:wrap; gap:16px; align-items:center}
+  .legend .item{display:flex; align-items:center; gap:8px; font-size:.86rem; color:var(--fg)}
+  .swatch{width:16px; height:16px; border-radius:5px; border:1.5px solid}
+  .sw-atk{background:var(--atk-bg); border-color:var(--atk)}
+  .sw-atk-strong{background:#3a1618; border-color:var(--accent); border-width:3px}
+  .sw-tgt{background:var(--tgt-bg); border-color:var(--tgt)}
+  .sw-sys{background:var(--sys-bg); border-color:var(--sys)}
+  .note{font-size:.84rem; color:var(--muted)}
+  .note b{color:var(--fg); font-weight:600}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">공격 하네스 · 런타임 구조</div>
+    <h1>병렬 워커 공격 하네스</h1>
+    <p>플래너가 의도를 만들고 워커 여러 개가 집어가 추론 — 단, 실제 실행은 한 줄로 모아 결정론 재생을 지킨다.</p>
+  </header>
+
+  <section>
+    <h2>런타임 구조</h2>
+    <p class="sub">추론은 병렬(워커 N·탈옥 모델), 실행은 직렬(단일 레인). 탐색 그래프가 공유 상태.</p>
+    <div class="diagram">
+<pre class="mermaid">
+%%{init: {'theme':'dark','themeVariables':{'fontFamily':'IBM Plex Sans KR, sans-serif','fontSize':'13px','lineColor':'#7d8590'},'flowchart':{'htmlLabels':true,'curve':'basis','nodeSpacing':38,'rankSpacing':46}}}%%
+flowchart TB
+  subgraph VMA["VM A · 공격 하네스"]
+    direction TB
+    PL["플래너 · 유일 의도 생성자<br/><small>정렬 모델</small>"]
+    FR[["frontier<br/>열린 intent 큐"]]
+    subgraph WP["워커 풀 (N=2~3 · 탈옥 모델)"]
+      direction LR
+      W1["워커 1<br/>ReAct 추론"]
+      W2["워커 2<br/>ReAct 추론"]
+      W3["워커 3<br/>ReAct 추론"]
+    end
+    EX["단일 실행 레인<br/>execute_action · 직렬<br/><small>step_id 전역순서</small>"]
+    GR[("탐색 그래프 · Neo4j<br/>intent / fact / finding")]
+    RS["replay_script<br/><small>선형 steps · 전역순서</small>"]
+  end
+  VMB["대상 클러스터<br/>VM B"]
+  VC["VM C · 심판<br/><small>대본 재생 · 채점</small>"]
+
+  PL -- "의도 생성" --> FR
+  GR -. "fact/finding 사건 (이벤트 구동)" .-> PL
+  FR -- "claim: open→running" --> WP
+  WP -- "행동 제안" --> EX
+  EX -- "명령 1건씩" --> VMB
+  VMB -. "관측" .-> WP
+  WP -- "fact/finding · yields" --> GR
+  EX -- "step 기록" --> RS
+  RS --> VC
+
+  classDef atk fill:#2a1416,stroke:#f26d6d,stroke-width:1.5px,color:#ffd7d9;
+  classDef atkStrong fill:#3a1618,stroke:#ff6b6b,stroke-width:3px,color:#ffe2e2;
+  classDef tgt fill:#0d2744,stroke:#58a6ff,stroke-width:1.5px,color:#cfe6ff;
+  classDef sys fill:#1c2128,stroke:#8b949e,stroke-width:1.5px,color:#e6edf3;
+  class PL,W1,W2,W3 atk;
+  class EX atkStrong;
+  class VMB tgt;
+  class FR,GR,RS,VC sys;
+  style VMA fill:#13171d,stroke:#5a2a2c,stroke-width:1.5px,color:#f0a0a0;
+  style WP fill:#1a1012,stroke:#8a3a3c,stroke-width:1px,color:#f0b0b0;
+</pre>
+    </div>
+  </section>
+
+  <section>
+    <h2>intent 상태머신</h2>
+    <p class="sub">의도는 소유자·상태를 가진 1급 노드. frontier에서 열리고, 워커가 집어 돌리고, 결과에 따라 닫힌다.</p>
+    <div class="diagram">
+<pre class="mermaid">
+%%{init: {'theme':'dark','themeVariables':{'fontFamily':'IBM Plex Sans KR, sans-serif','fontSize':'13px','lineColor':'#7d8590'}}}%%
+stateDiagram-v2
+  [*] --> open: 플래너 생성
+  open --> running: 워커 claim
+  running --> done: 결론 (yields fact/finding)
+  running --> blocked: 모델·툴 실패
+  running --> exhausted: 시간 T 소진 (부분결과 보존)
+  running --> stopped: 플래너 중단 (목표달성·중복)
+  blocked --> open: 재투입
+  done --> [*]
+  exhausted --> [*]
+  stopped --> [*]
+</pre>
+    </div>
+    <p class="note" style="margin-top:12px"><b>claim은 원자적 전이</b>여야 한다 — 두 워커가 같은 의도를 집지 않도록 <code style="font-family:var(--mono)">open→running</code>을 조건부 쓰기(한 번에 하나만 성공)로. 단일 프로세스라 프로세스 락 또는 Neo4j 조건부 갱신이면 충분.</p>
+  </section>
+
+  <section>
+    <h2>핵심 3가지</h2>
+    <div class="key">
+      <div><b>추론 병렬 / 실행 직렬</b><span>워커 N개는 동시에 생각하되, 모든 <code>execute_action</code>은 단일 레인으로 모아 하나씩. 재생 결정론 보존.</span></div>
+      <div><b>step_id = 전역 실행 순서</b><span><code>{round}.{seq}</code>의 seq가 모든 워커를 아우르는 단일 증가값 = replay_script의 선형 순서. 이미 깔아둔 토대.</span></div>
+      <div><b>공유는 그래프로만</b><span>워커끼리 직접 값 전달 없음. 발견은 fact로 그래프에 쌓고, 플래너·다른 워커는 그래프를 읽어 조율.</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>범례</h2>
+    <div class="legend">
+      <div class="item"><span class="swatch sw-atk"></span>공격 (탈옥 모델·추론)</div>
+      <div class="item"><span class="swatch sw-atk-strong"></span>직렬화 지점 (단일 실행 레인)</div>
+      <div class="item"><span class="swatch sw-tgt"></span>대상 클러스터</div>
+      <div class="item"><span class="swatch sw-sys"></span>시스템 (큐·그래프·대본·심판)</div>
+    </div>
+    <p class="note" style="margin-top:12px">실선 = 능동 흐름(생성·호출·기록), 점선 = 되돌아오는 관측·사건. 플래너만 정렬 모델에 태워 탈옥 모델(워커 공용) 경합을 던다.</p>
+  </section>
+</div>
