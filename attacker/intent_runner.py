@@ -40,8 +40,12 @@ Output ONLY a JSON object, no prose:
 "evidence": "<command + the key output line that supports it>", \
 "confidence": "observed|inferred"}], \
 "finding": {"summary": "<the breach, if one was achieved>", "severity": "<low|medium|high|critical>", \
-"evidence": "<what proves it>"}}
-Set "finding" to null unless this direction actually achieved a concrete compromise."""
+"evidence": "<what proves it>", "technique": "<MITRE id of what was ACHIEVED>"}}
+Set "finding" to null unless this direction actually achieved a concrete compromise. \
+The finding's "technique" MUST describe what was ACHIEVED, not how you searched — e.g. \
+retrieving credentials is T1552 (Unsecured Credentials) even if you found them while \
+enumerating services; using stolen creds is T1078; reading data from a DB is T1213/T1005. \
+Pick the technique of the compromise itself."""
 
 
 @dataclass
@@ -69,15 +73,19 @@ class FindingDraft:
     summary: str
     severity: str = ""
     evidence: str = ""
+    technique: str = ""                     # LLM이 낸 '달성한 것'의 기법(의도 기법과 다를 수 있음)
 
-    def to_payload(self, technique: str = "") -> dict:
+    def to_payload(self, fallback_technique: str = "") -> dict:
         p: dict = {"summary": self.summary}
         if self.severity:
             p["severity"] = self.severity
         if self.evidence:
             p["evidence"] = self.evidence
-        if technique:                       # 채점 조인 열쇠(공격보고 기법ID ↔ 심판 조건표)
-            p["technique"] = technique
+        # 채점 조인 열쇠(공격보고 기법ID ↔ 심판 조건표): '달성한 것' 기준이 맞으므로
+        # 발견 자신의 기법을 우선, 없을 때만 의도 기법으로 폴백.
+        tech = self.technique or fallback_technique
+        if tech:
+            p["technique"] = tech
         return p
 
 
@@ -104,7 +112,8 @@ def parse_settlement(text: str) -> tuple[list[FactDraft], Optional[FindingDraft]
         finding = FindingDraft(
             summary=str(f["summary"]).strip(),
             severity=str(f.get("severity", "")).strip(),
-            evidence=str(f.get("evidence", "")).strip())
+            evidence=str(f.get("evidence", "")).strip(),
+            technique=str(f.get("technique", "")).strip())
     return facts, finding
 
 
@@ -193,7 +202,9 @@ class IntentRunner:
         fact_ids = [graph.add_fact(fd.to_payload(source_step_ids), intent_id=intent.id)
                     for fd in facts]
         if finding is not None:
-            graph.add_finding(finding.to_payload(technique), proved_by=fact_ids)
+            # 발견 자신의 기법(달성한 것) 우선, 없으면 의도 기법으로 폴백
+            graph.add_finding(finding.to_payload(fallback_technique=technique),
+                              proved_by=fact_ids)
 
         # 정착 결과 한 줄 — '의도대로 결론을 냈는지' 가시화
         first = facts[0].summary if facts else ""

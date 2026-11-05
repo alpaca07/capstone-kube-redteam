@@ -109,7 +109,31 @@ def test_run_one_intent_writes_fact_linked():
 
 
 # ── finding이 나오면 finding 노드 + PROVES 엣지 + 기법 태그 ──
-def test_run_intent_writes_finding_with_technique():
+def test_finding_own_technique_wins_over_intent():
+    # 실 런 사례: 의도는 T1046(서비스 탐색)인데 실제 달성은 크레덴셜 탈취(T1552).
+    # finding이 자기 기법을 내면 그게 이겨야(채점 조인이 '달성한 것' 기준이라).
+    g = InMemoryGraph()
+    iid = g.add_intent({"summary": "enumerate services", "technique": "T1046"})
+    g.claim_next("w")
+    intent = g.get_node(iid)
+    settle = ('{"facts":[{"summary":"admin dashboard exposes db creds"}],'
+              '"finding":{"summary":"retrieved postgres credentials","severity":"high",'
+              '"evidence":"decoded secret","technique":"T1552"}}')
+    llm = _ScriptLLM([_ACT_GET], settle)
+    lane = _lane()
+    from attacker.exec_lane import WorkerContext
+    runner = IntentRunner(llm, IntentRunnerConfig(system_prompt="s", round_goal="g"))
+    runner(g, WorkerContext(lane, "w"), intent)
+
+    findings = [n for n in [g.get_node(i) for i in range(1, 20) if g.get_node(i)]
+                if n.kind == NodeKind.FINDING]
+    assert len(findings) == 1
+    assert findings[0].payload["technique"] == "T1552"   # 의도의 T1046 아니라 달성한 T1552
+    assert findings[0].payload["severity"] == "high"
+
+
+def test_finding_technique_falls_back_to_intent_when_absent():
+    # 정착이 finding에 technique를 안 주면 의도 기법으로 폴백
     g = InMemoryGraph()
     iid = g.add_intent({"summary": "dump PII", "technique": "T1078"})
     g.claim_next("w")
@@ -127,7 +151,7 @@ def test_run_intent_writes_finding_with_technique():
     assert len(findings) == 1
     f = findings[0]
     assert f.payload["severity"] == "critical"
-    assert f.payload["technique"] == "T1078"          # 의도 기법이 finding으로 전파(채점 조인)
+    assert f.payload["technique"] == "T1078"          # finding 기법 없음 → 의도 기법 폴백
     # fact → PROVES → finding
     fact = g.recent_facts()[0]
     proves = g.edges_from(fact.id, Rel.PROVES)
