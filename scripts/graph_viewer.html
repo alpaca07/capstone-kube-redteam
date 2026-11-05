@@ -1,0 +1,259 @@
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>탐색 그래프 뷰어</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+<style>
+  /* 레이아웃: 단일 다크(VM 구성도 시리즈). 상단 바 → 그래프 캔버스 + 우측 상세패널, 하단 범례 */
+  :root{
+    color-scheme: dark;
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2128; --fg:#e6edf3; --muted:#8b949e; --border:#30363d;
+    --intent:#f26d6d; --intent-bg:#2a1416;      /* 의도 = 공격 빨강 */
+    --fact:#8b949e;   --fact-bg:#1c2128;         /* 사실 = 시스템 회색 */
+    --finding:#ff5c5c;--finding-bg:#3a1416;      /* 발견(침해) = 빨강 강조 */
+    --goal:#58a6ff;   --goal-bg:#0d2744;         /* 목표·대상 = 파랑 */
+    --sans:"IBM Plex Sans KR", system-ui, sans-serif;
+    --mono:"IBM Plex Mono", ui-monospace, monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0; background:var(--bg); color:var(--fg); font-family:var(--sans);
+       display:flex; flex-direction:column;
+       padding-left:max(0px,env(safe-area-inset-left,0px));
+       padding-right:max(0px,env(safe-area-inset-right,0px))}
+  header{padding:14px max(16px,env(safe-area-inset-left,0px)) 10px; border-bottom:1px solid var(--border);
+         display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center}
+  .eyebrow{font-family:var(--mono); font-size:.68rem; letter-spacing:.12em; text-transform:uppercase;
+           color:var(--intent); font-weight:500}
+  h1{font-size:1.1rem; font-weight:700; margin:0}
+  .meta{color:var(--muted); font-size:.82rem; font-family:var(--mono)}
+  .controls{margin-left:auto; display:flex; gap:8px; flex-wrap:wrap}
+  button{font-family:var(--sans); font-size:.82rem; font-weight:500; cursor:pointer;
+         background:var(--panel2); color:var(--fg); border:1px solid var(--border);
+         border-radius:8px; padding:7px 12px}
+  button:hover{border-color:var(--intent)}
+  button.active{background:var(--intent-bg); border-color:var(--intent); color:#ffd7d9}
+  main{flex:1; min-height:0; display:flex}
+  #cy{flex:1; min-width:0; background:
+        radial-gradient(circle at 20% 20%, #11161d 0, var(--bg) 60%)}
+  aside{width:320px; max-width:46vw; border-left:1px solid var(--border); background:var(--panel);
+        overflow:auto; padding:14px max(14px,env(safe-area-inset-right,0px)) 20px 14px}
+  aside h2{font-size:.9rem; margin:0 0 4px}
+  aside .hint{color:var(--muted); font-size:.82rem; margin:0 0 12px}
+  .kv{display:flex; flex-direction:column; gap:10px}
+  .kv .row{background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:9px 11px}
+  .kv .k{font-family:var(--mono); font-size:.68rem; letter-spacing:.06em; text-transform:uppercase;
+         color:var(--muted); margin-bottom:3px}
+  .kv .v{font-size:.88rem; word-break:break-word; white-space:pre-wrap}
+  .chip{display:inline-block; font-family:var(--mono); font-size:.72rem; padding:1px 7px; border-radius:999px;
+        border:1px solid var(--border); background:var(--bg)}
+  .legend{display:flex; flex-wrap:wrap; gap:14px 18px; align-items:center;
+          padding:10px max(16px,env(safe-area-inset-left,0px));
+          border-top:1px solid var(--border); background:var(--panel); font-size:.82rem}
+  .legend .item{display:flex; align-items:center; gap:7px}
+  .sw{width:14px; height:14px; border-radius:4px; border:1.5px solid}
+  .legend .edge{color:var(--muted); font-family:var(--mono); font-size:.74rem}
+  /* 붙여넣기 모달 */
+  .modal{position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center;
+         padding:20px; z-index:20}
+  .modal.open{display:flex}
+  .card{background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:18px;
+        width:min(640px,100%); max-height:86vh; display:flex; flex-direction:column; gap:12px}
+  .card h3{margin:0; font-size:1rem}
+  .card p{margin:0; color:var(--muted); font-size:.84rem}
+  textarea{flex:1; min-height:240px; resize:vertical; background:var(--bg); color:var(--fg);
+           border:1px solid var(--border); border-radius:8px; padding:10px; font-family:var(--mono);
+           font-size:.8rem; line-height:1.5}
+  .card .err{color:var(--finding); font-size:.82rem; min-height:1.2em}
+  .card .actions{display:flex; gap:8px; justify-content:flex-end}
+  @media (max-width:720px){ aside{position:fixed; right:0; top:0; bottom:0; width:86vw;
+    transform:translateX(100%); transition:transform .2s; z-index:15} aside.show{transform:none} }
+</style>
+
+<header>
+  <div>
+    <div class="eyebrow">ARTEX식 탐색 그래프</div>
+    <h1>탐색 그래프 뷰어</h1>
+  </div>
+  <span class="meta" id="meta">—</span>
+  <div class="controls">
+    <button id="btn-cose" class="active">물리 배치</button>
+    <button id="btn-bf">계층 배치</button>
+    <button id="btn-fit">맞춤</button>
+    <button id="btn-paste">JSON 붙여넣기</button>
+  </div>
+</header>
+
+<main>
+  <div id="cy"></div>
+  <aside id="aside">
+    <h2>노드 상세</h2>
+    <p class="hint">노드를 클릭하면 payload가 여기 나옵니다.</p>
+    <div class="kv" id="detail"></div>
+  </aside>
+</main>
+
+<div class="legend">
+  <div class="item"><span class="sw" style="background:var(--intent-bg);border-color:var(--intent)"></span>의도 (공격 방향)</div>
+  <div class="item"><span class="sw" style="background:var(--fact-bg);border-color:var(--fact)"></span>사실 (관측·결론)</div>
+  <div class="item"><span class="sw" style="background:var(--finding-bg);border-color:var(--finding);border-width:3px"></span>발견 (침해 주장)</div>
+  <div class="item"><span class="sw" style="background:var(--goal-bg);border-color:var(--goal)"></span>목표 (크라운)</div>
+  <span class="edge">→ YIELDS 의도가 사실을 낳음 · PROVES 사실이 침해 입증 · SPAWNS 하위의도 · DERIVED_FROM 파생</span>
+</div>
+
+<div class="modal" id="modal">
+  <div class="card">
+    <h3>그래프 JSON 붙여넣기</h3>
+    <p>VM A에서 <code style="font-family:var(--mono)">python3 scripts/export_graph.py --neo4j-pass 'password' --stdout</code> 출력을 그대로 붙여넣으세요.</p>
+    <textarea id="json-input" placeholder='{"episode":1,"nodes":[...],"edges":[...]}'></textarea>
+    <div class="err" id="err"></div>
+    <div class="actions">
+      <button id="btn-cancel">취소</button>
+      <button id="btn-render" class="active">그리기</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── 예시 데이터(실제 런 기반) — 당신 export JSON을 붙여넣으면 교체됩니다 ──
+const EXAMPLE = {
+  episode: 1, example: true,
+  nodes: [
+    {id:0, kind:"goal", state:"", payload:{summary:"고객 PII 읽기 — database NS postgres의 customers 테이블"}},
+    {id:1, kind:"intent", state:"done", payload:{summary:"노출 서비스·엔드포인트 열거", target:"foothold", technique:"T1046"}},
+    {id:2, kind:"intent", state:"done", payload:{summary:"발판 환경의 기본/오설정 크레덴셜 확인", target:"K8s API", technique:"T1078"}},
+    {id:3, kind:"intent", state:"exhausted", payload:{summary:"database NS 시크릿을 SA 토큰으로 조회", target:"K8s API", technique:"T1552"}},
+    {id:4, kind:"intent", state:"done", payload:{summary:"admin-dashboard에서 크레덴셜 추출 후 postgres 접속", target:"admin-dashboard / postgres", technique:"T1552.007"}},
+    {id:10, kind:"fact", state:"confirmed", payload:{summary:"admin-dashboard 엔드포인트가 DB 크레덴셜(시크릿) 노출", confidence:"observed", source_step_ids:["1.15","1.18","1.21"]}},
+    {id:11, kind:"fact", state:"confirmed", payload:{summary:"PostgreSQL 비밀번호 디코딩: appuser/devpassword123", confidence:"observed", source_step_ids:["1.22","1.25"]}},
+    {id:12, kind:"fact", state:"confirmed", payload:{summary:"postgres:5432 직접 접속 거부 (NetworkPolicy)", confidence:"observed", source_step_ids:["1.28","1.31"]}},
+    {id:13, kind:"fact", state:"confirmed", payload:{summary:"K8s API 직접 접근 차단(인증 없음) · database 시크릿 403", confidence:"observed", source_step_ids:["1.14","1.17"]}},
+    {id:20, kind:"finding", state:"claimed", payload:{summary:"admin-dashboard에서 postgres 크레덴셜 탈취", severity:"critical", technique:"T1552", occurrences:4, evidence:"decoded secret appuser/devpassword123"}}
+  ],
+  edges: [
+    {src:0, rel:"SPAWNS", dst:1},{src:0, rel:"SPAWNS", dst:2},{src:0, rel:"SPAWNS", dst:3},{src:0, rel:"SPAWNS", dst:4},
+    {src:1, rel:"YIELDS", dst:10},{src:2, rel:"YIELDS", dst:11},{src:3, rel:"YIELDS", dst:13},{src:4, rel:"YIELDS", dst:12},
+    {src:4, rel:"YIELDS", dst:10},
+    {src:10, rel:"PROVES", dst:20},{src:11, rel:"PROVES", dst:20}
+  ]
+};
+
+const KIND = {
+  intent:{c:"#f26d6d", bg:"#2a1416", shape:"round-rectangle", label:"의도"},
+  fact:{c:"#8b949e", bg:"#1c2128", shape:"ellipse", label:"사실"},
+  finding:{c:"#ff5c5c", bg:"#3a1416", shape:"diamond", label:"발견"},
+  goal:{c:"#58a6ff", bg:"#0d2744", shape:"hexagon", label:"목표"},
+  hint:{c:"#8b949e", bg:"#1c2128", shape:"ellipse", label:"단서"}
+};
+
+function short(s, n){ s = s||""; return s.length>n ? s.slice(0,n)+"…" : s; }
+
+function toElements(data){
+  const els = [];
+  for(const n of (data.nodes||[])){
+    const k = KIND[n.kind] ? n.kind : "fact";
+    const sum = (n.payload && n.payload.summary) || n.kind;
+    els.push({ data:{
+      id:"n"+n.id, raw:n, kind:k,
+      label: short(sum, 46),
+      tech: (n.payload && n.payload.technique) || ""
+    }});
+  }
+  const ids = new Set(els.map(e=>e.data.id));
+  for(const e of (data.edges||[])){
+    const s="n"+e.src, t="n"+e.dst;
+    if(ids.has(s) && ids.has(t)) els.push({ data:{ id:s+"_"+e.rel+"_"+t, source:s, target:t, rel:e.rel }});
+  }
+  return els;
+}
+
+const cyStyle = [
+  { selector:"node", style:{
+    "background-color":"data(_bg)", "border-color":"data(_c)", "border-width":2,
+    "shape":"data(_shape)", "label":"data(label)", "color":"#e6edf3",
+    "font-family":"IBM Plex Sans KR, sans-serif", "font-size":11, "text-wrap":"wrap",
+    "text-max-width":130, "text-valign":"center", "text-halign":"center",
+    "width":"label", "height":"label", "padding":"12px", "text-margin-y":0 }},
+  { selector:'node[kind="finding"]', style:{ "border-width":4 }},
+  { selector:"node:selected", style:{ "border-color":"#ffffff", "border-width":3 }},
+  { selector:"edge", style:{
+    "width":1.6, "line-color":"#4d5560", "target-arrow-color":"#4d5560",
+    "target-arrow-shape":"triangle", "curve-style":"bezier",
+    "label":"data(rel)", "font-family":"IBM Plex Mono, monospace", "font-size":8,
+    "color":"#7d8590", "text-background-color":"#0d1117", "text-background-opacity":1,
+    "text-background-padding":2 }},
+  { selector:'edge[rel="PROVES"]', style:{ "line-color":"#ff5c5c", "target-arrow-color":"#ff5c5c", "width":2.4 }},
+  { selector:'edge[rel="YIELDS"]', style:{ "line-color":"#5a6b7a", "target-arrow-color":"#5a6b7a" }}
+];
+
+let cy;
+function render(data){
+  const els = toElements(data);
+  // 색/모양을 data로 주입(스타일이 data()를 참조)
+  for(const e of els){ if(e.data.kind){ const k=KIND[e.data.kind]; e.data._c=k.c; e.data._bg=k.bg; e.data._shape=k.shape; } }
+  if(cy) cy.destroy();
+  cy = cytoscape({ container:document.getElementById("cy"), elements:els, style:cyStyle,
+    layout: curLayout(), minZoom:0.2, maxZoom:3, wheelSensitivity:0.3 });
+  cy.on("tap","node", ev=> showDetail(ev.target.data("raw")));
+  cy.on("tap", ev=>{ if(ev.target===cy) hideAside(); });
+  const nn=(data.nodes||[]).length, ne=(data.edges||[]).length;
+  document.getElementById("meta").textContent =
+    `episode ${data.episode ?? "?"} · 노드 ${nn} · 엣지 ${ne}` + (data.example ? "  (예시)" : "");
+}
+
+let layoutName="cose";
+function curLayout(){
+  if(layoutName==="breadthfirst")
+    return { name:"breadthfirst", directed:true, spacingFactor:1.25, padding:30, animate:false };
+  return { name:"cose", animate:false, padding:30, nodeRepulsion:9000, idealEdgeLength:90, nodeOverlap:16 };
+}
+
+function showDetail(n){
+  const d = document.getElementById("detail");
+  const p = n.payload||{};
+  const kindLabel = (KIND[n.kind]||{}).label || n.kind;
+  const rows = [];
+  rows.push(["종류", `<span class="chip">${kindLabel}</span>` + (n.state?` <span class="chip">${n.state}</span>`:"") ]);
+  if(p.summary) rows.push(["요약", esc(p.summary)]);
+  if(p.technique) rows.push(["기법", `<span class="chip">${esc(p.technique)}</span>`]);
+  if(p.severity) rows.push(["심각도", `<span class="chip">${esc(p.severity)}</span>` + (p.occurrences?` 보고 ${p.occurrences}회`:"")]);
+  if(p.target) rows.push(["대상", esc(p.target)]);
+  if(p.why) rows.push(["이유", esc(p.why)]);
+  if(p.evidence) rows.push(["근거", esc(p.evidence)]);
+  if(p.detail) rows.push(["상세", esc(p.detail)]);
+  if(p.confidence) rows.push(["신뢰", esc(p.confidence)]);
+  if(p.source_step_ids) rows.push(["원본 스텝", esc((p.source_step_ids||[]).join(", "))]);
+  if(p.reports && p.reports.length>1) rows.push(["보고들", esc(p.reports.join("\n"))]);
+  d.innerHTML = `<div class="row"><div class="k">node #${n.id}</div></div>` +
+    rows.map(([k,v])=>`<div class="row"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+  document.getElementById("aside").classList.add("show");
+}
+function esc(s){ return String(s).replace(/[&<>]/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[m])); }
+function hideAside(){ document.getElementById("aside").classList.remove("show"); }
+
+// ── 컨트롤 ──
+function setLayout(name){
+  layoutName=name;
+  document.getElementById("btn-cose").classList.toggle("active", name==="cose");
+  document.getElementById("btn-bf").classList.toggle("active", name==="breadthfirst");
+  if(cy){ cy.layout(curLayout()).run(); cy.fit(undefined,40); }
+}
+document.getElementById("btn-cose").onclick = ()=>setLayout("cose");
+document.getElementById("btn-bf").onclick = ()=>setLayout("breadthfirst");
+document.getElementById("btn-fit").onclick = ()=>cy && cy.fit(undefined,40);
+
+const modal=document.getElementById("modal");
+document.getElementById("btn-paste").onclick = ()=>{ modal.classList.add("open"); document.getElementById("err").textContent=""; };
+document.getElementById("btn-cancel").onclick = ()=> modal.classList.remove("open");
+document.getElementById("btn-render").onclick = ()=>{
+  const txt = document.getElementById("json-input").value.trim();
+  if(!txt){ document.getElementById("err").textContent="JSON을 붙여넣으세요."; return; }
+  let data;
+  try{ data = JSON.parse(txt); }catch(e){ document.getElementById("err").textContent="JSON 파싱 실패: "+e.message; return; }
+  if(!data.nodes || !Array.isArray(data.nodes)){ document.getElementById("err").textContent="'nodes' 배열이 없습니다. export_graph.py 출력인지 확인."; return; }
+  modal.classList.remove("open");
+  render(data);
+  try{ cy.fit(undefined,40); }catch(e){}
+};
+
+render(EXAMPLE);
+</script>
