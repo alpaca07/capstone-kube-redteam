@@ -85,6 +85,15 @@ class CompositeLogSource:
             out |= s.techniques_in_window(since_ts=since_ts, until_ts=until_ts)
         return out
 
+    def crowns_in_window(self, *, since_ts: float, until_ts: float) -> set[str]:
+        """하위 소스 중 크라운 자백을 아는 통로(AppLogSource)만 합집합. 없는 통로는 건너뜀."""
+        out: set[str] = set()
+        for s in self.sources:
+            fn = getattr(s, "crowns_in_window", None)
+            if fn is not None:
+                out |= fn(since_ts=since_ts, until_ts=until_ts)
+        return out
+
 
 __all__ = [
     "WEB_SQLI", "WEB_SSRF", "WEB_CMDI", "WEB_CREDLEAK",

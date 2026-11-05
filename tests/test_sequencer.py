@@ -22,8 +22,10 @@ from orchestrator.fakes import (  # noqa: E402
     FakeAttackerClient, FakeDefenderClient, FakeLogSource, FakeBaseline,
 )
 from orchestrator.flags import default_registry  # noqa: E402
+from orchestrator.objectives import default_objectives  # noqa: E402
 from orchestrator.sequencer import RunParams, TurnSequencer  # noqa: E402
 from orchestrator.truth_log import TruthLog  # noqa: E402
+from common.app_signals import CROWN_INTERNAL_SECRETS  # noqa: E402
 from orchestrator.verifier import VerificationEngine  # noqa: E402
 
 PRE, POST = ReplayPhase.PRE, ReplayPhase.POST
@@ -65,17 +67,23 @@ def _make(*, post_success: bool, n_consec: int = 2, max_rounds: int = 10,
     defender = FakeDefenderClient(defense_result=_defense_result(),
                                   vulnerable_by_check={"1": False, "2": False, "3": False})
     snaps = FakeBaseline(existing=["clean-baseline"])
-    registry = default_registry("FLAG{win}")
-    verifier = VerificationEngine(attacker, defender, snaps, registry)
-    logs = FakeLogSource(constant={"T1078"})
+    registry = default_registry()
+    objectives = default_objectives()
+    # verify 재생창 crown: post_success=True → 재생 후에도 크라운 빠짐(FAKE_PATCH) / False → 안 빠짐(BLOCKED)
+    verifier_logs = FakeLogSource(
+        crown_constant=({CROWN_INTERNAL_SECRETS} if post_success else set()))
+    verifier = VerificationEngine(attacker, defender, snaps, registry,
+                                  logs=verifier_logs, objectives=objectives)
+    # _build_truth 공격창: 공격이 ④(internal_secrets) 획득했다고 기록(기법 T1078 도 관측)
+    logs = FakeLogSource(constant={"T1078"}, crown_constant={CROWN_INTERNAL_SECRETS})
     truth = TruthLog()
     captured: list[dict] = []
     params = RunParams(episodes=episodes, max_rounds=max_rounds, n_consecutive_defense=n_consec,
                        baseline_snapshot="clean-baseline", attack_endpoint="10.0.0.5",
                        skip_revert=skip_revert)
     seq = TurnSequencer(attacker=attacker, defender=defender, snapshots=snaps, verifier=verifier,
-                        logs=logs, registry=registry, truth=truth, params=params,
-                        sink=captured.append, kill_switch=kill)
+                        logs=logs, registry=registry, objectives=objectives, truth=truth,
+                        params=params, sink=captured.append, kill_switch=kill)
     return seq, {"attacker": attacker, "defender": defender, "snaps": snaps,
                  "truth": truth, "captured": captured}
 
@@ -121,8 +129,8 @@ def test_godview_truth_and_detection():
     seq, ctx = _make(post_success=False, n_consec=99, max_rounds=1)
     seq.run_episode(1)
     entry = ctx["truth"].entries(1)[0]
-    assert entry.techniques() == {"T1213", "T1078"}                 # ④값대조 + 로그관측
-    assert set(entry.flags_reached) == {"2", "4"}
+    assert entry.techniques() == {"T1213", "T1078"}                 # 크라운(T1213) + 로그관측(T1078)
+    assert set(entry.flags_reached) == {"2", "crown-secrets"}
     det = ctx["captured"][0]["detection_cum"]
     assert det["tp"] == 1 and det["fn"] == 1                         # T1078 맞춤 / T1213 놓침
 
@@ -179,13 +187,16 @@ def test_not_ready_after_revert_aborts_episode():
         attack_result=_attack_result())
     dead = _DeadDefender()
     snaps = FakeBaseline(existing=["clean-baseline"])
-    registry = default_registry("FLAG{win}")
-    verifier = VerificationEngine(attacker, dead, snaps, registry)
+    registry = default_registry()
+    objectives = default_objectives()
+    verifier = VerificationEngine(attacker, dead, snaps, registry,
+                                  logs=FakeLogSource(), objectives=objectives)
     params = RunParams(episodes=1, max_rounds=5, baseline_snapshot="clean-baseline",
                        attack_endpoint="10.0.0.5", ready_timeout_sec=0.0)
     seq = TurnSequencer(attacker=attacker, defender=dead, snapshots=snaps, verifier=verifier,
                         logs=FakeLogSource(constant={"T1078"}), registry=registry,
-                        truth=TruthLog(), params=params, sleeper=lambda s: None)
+                        objectives=objectives, truth=TruthLog(), params=params,
+                        sleeper=lambda s: None)
     s = seq.run_episode(1)
     assert s.end_reason == "aborted"
     assert s.rounds == 0
@@ -238,13 +249,16 @@ def _gating_seq(results, *, n_consec=2, max_rounds=10):
     defender = FakeDefenderClient(defense_result=_defense_result(),
                                   vulnerable_by_check={"1": False, "2": False, "3": False})
     snaps = FakeBaseline(existing=["clean-baseline"])
-    registry = default_registry("FLAG{win}")
-    verifier = VerificationEngine(attacker, defender, snaps, registry)
+    registry = default_registry()
+    objectives = default_objectives()
+    verifier = VerificationEngine(attacker, defender, snaps, registry,
+                                  logs=FakeLogSource(), objectives=objectives)
     captured: list[dict] = []
     params = RunParams(episodes=1, max_rounds=max_rounds, n_consecutive_defense=n_consec,
                        baseline_snapshot="clean-baseline", attack_endpoint="10.0.0.5")
     seq = TurnSequencer(attacker=attacker, defender=defender, snapshots=snaps, verifier=verifier,
-                        logs=FakeLogSource(constant=set()), registry=registry, truth=TruthLog(),
+                        logs=FakeLogSource(constant=set()), registry=registry,
+                        objectives=objectives, truth=TruthLog(),
                         params=params, sink=captured.append)
     return seq, {"attacker": attacker, "defender": defender, "snaps": snaps, "captured": captured}
 

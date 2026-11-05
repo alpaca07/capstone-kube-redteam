@@ -20,6 +20,7 @@
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
@@ -30,6 +31,8 @@ from common.replay_schema import ReplayScript
 from .baseline import ClusterReset
 from .clients import AttackerClient, DefenderClient
 from .flags import FlagRegistry
+from .logs import LogSource
+from .objectives import ObjectiveRegistry
 
 
 class Verdict(str, Enum):
@@ -58,16 +61,24 @@ class VerificationResult:
 
 
 class VerificationEngine:
-    """의존성을 주입받아(이음새) POST 재생으로 방어 효과를 판정한다.
+    """의존성을 주입받아(이음새) POST 재생 후 '접근기록(크라운 자백)'으로 방어 효과를 판정한다.
 
-    attacker : 리플레이 재생 위임(VM A가 결정론 재생 엔진 보유) — verify 가 쓰는 유일한 의존.
-    defender·baseline·flags : 예약(향후 상태기반 검증·리셋 연동용). 현재 POST-only 판정엔 미사용
-      — 리셋은 시퀀서 init·BaselineManager 담당, 상태검증은 §8 #6 탐지 채점용.
+    플래그리스: 재생이 실제 클러스터에 공격을 다시 날리면, 취약 서비스·DB 가 민감 데이터를
+    실제로 또 내보낼 때 crown 자백이 남는다. 심판은 그 '재생 창'의 crowns 를 읽어 판정한다
+    (공격자 재생 결과의 success 를 믿지 않음 — god-view 접근기록이 진실).
+
+    attacker  : 리플레이 재생 위임(VM A 가 결정론 재생 엔진 보유).
+    logs      : god-view 로그 소스(crowns_in_window) — 재생 창의 크라운 반출 관측(app+db 합집합).
+    objectives: 크라운 목표 조건표 — 반출 집합 → 어느 목표 재도달인지.
+    defender·baseline·flags : 예약(리셋·상태검증 연동용, verify 미사용).
     """
 
     def __init__(self, attacker: AttackerClient, defender: DefenderClient,
-                 baseline: ClusterReset, flags: FlagRegistry) -> None:
+                 baseline: ClusterReset, flags: FlagRegistry, *,
+                 logs: LogSource, objectives: ObjectiveRegistry) -> None:
         self.attacker = attacker
+        self.logs = logs
+        self.objectives = objectives
         self.defender = defender      # 예약
         self.baseline = baseline      # 예약(verify 는 리셋 안 함 — 방어 누적 유지)
         self.flags = flags            # 예약
@@ -75,65 +86,31 @@ class VerificationEngine:
     # ───────────── public 인터페이스 ─────────────
     def verify(self, script: ReplayScript, *, episode: int, round: int,
                target: Optional[str] = None) -> VerificationResult:
-        """패치된 라이브 클러스터에 공격 대본을 재생해 방어 효과를 판정(POST-only).
+        """패치된 라이브 클러스터에 공격 대본을 재생하고, 재생 창의 크라운 자백으로 판정(POST-only).
 
-        상태 조작(리셋) 없음 → 방어 패치가 라운드 간 누적된다(에피소드 경계 리셋은 시퀀서 담당).
+        재생 후에도 크라운이 또 빠지면 가짜 패치(FAKE_PATCH), 안 빠지면 진짜 차단(BLOCKED).
+        재생이 한 스텝도 안 돌면 판정 보류(INCONCLUSIVE). 상태 리셋 없음(방어 누적).
         """
+        t_pre = time.time()
         post = self.attacker.replay(
             ReplayRequest(replay_script=script, phase=ReplayPhase.POST, target=target),
             episode=episode, round=round)
+        t_post = time.time()
         if not post.steps_result:
             # 재생이 한 스텝도 안 돌아감(재생 불능·오류) → 차단으로 오인하지 않게 판정 보류.
             return VerificationResult(
                 verdict=Verdict.INCONCLUSIVE, method="replay", post=post,
                 detail="POST 재생 결과 비어 있음(재생 불능) → 판정 보류")
-        post_ok, post_reason, post_reached = self._reproduced(post, script)
-        if post_ok:
+        crowns = self.logs.crowns_in_window(since_ts=t_pre, until_ts=t_post)
+        reached = sorted(self.objectives.reached_objectives({"crown": {"asset": crowns}}))
+        if reached:
             return VerificationResult(
-                verdict=Verdict.FAKE_PATCH, method="replay", post=post,
-                flags_still_reachable=post_reached,
-                detail=f"POST 성공({post_reason}) → 공격 여전히 통함(가짜 패치)")
+                verdict=Verdict.FAKE_PATCH, method="replay-crown", post=post,
+                flags_still_reachable=reached,
+                detail=f"재생 후 크라운 재도달 {sorted(crowns)} → 공격 여전히 통함(가짜 패치)")
         return VerificationResult(
-            verdict=Verdict.BLOCKED, method="replay", post=post,
-            detail=f"POST 실패({post_reason}) → 패치가 이 공격을 차단")
-
-    # ───────────── 재현 판정(success-first → hash) ─────────────
-    def _reproduced(self, result: ReplayResult,
-                    script: ReplayScript) -> tuple[bool, str, list[str]]:
-        """대본이 재현됐나. 플래그 스텝 성공 우선, 안 되면 정규화 해시 일치로 보조.
-
-        반환: (재현여부, 근거["success"|"hash"|"no-reproduce"], 도달한 flag_id들)
-        """
-        smap = {r.step: r for r in result.steps_result}
-        flag_steps = [s for s in script.steps if s.flag_check is not None]
-        reached: list[str] = []
-
-        if flag_steps:
-            all_ok = True
-            used_hash = False
-            for s in flag_steps:
-                rec = smap.get(s.step)
-                if rec is None:
-                    all_ok = False
-                    continue
-                ok = rec.success
-                if not ok and rec.matched_baseline is True:   # ② 해시 폴백
-                    ok = True
-                    used_hash = True
-                if ok:
-                    assert s.flag_check is not None
-                    reached.append(s.flag_check.flag_id)
-                else:
-                    all_ok = False
-            reason = ("hash" if used_hash else "success") if all_ok else "no-reproduce"
-            return all_ok, reason, reached
-
-        # 플래그 스텝이 없는 대본: overall 신뢰 + 전스텝 해시 일치 폴백
-        if result.overall_success:
-            return True, "success", []
-        if result.steps_result and all(r.matched_baseline is True for r in result.steps_result):
-            return True, "hash", []
-        return False, "no-reproduce", []
+            verdict=Verdict.BLOCKED, method="replay-crown", post=post,
+            detail="재생 후 크라운 재도달 없음 → 패치가 이 공격을 차단")
 
 
 __all__ = ["Verdict", "VerificationResult", "VerificationEngine"]

@@ -126,6 +126,11 @@ class AuditFalcoLogSource:
                 out.add(t)
         return out
 
+    def crowns_in_window(self, *, since_ts: float, until_ts: float) -> set[str]:
+        """감사/Falco 는 앱·DB 레벨 크라운 반출을 못 본다(HTTP 페이로드·SQL 결과는 사각).
+        → 기법 전용 소스. 크라운은 AppLogSource/DbLogSource 가 담당. 계약 충족용 빈 집합."""
+        return set()
+
 
 __all__ = [
     "LineReader", "parse_rfc3339", "map_audit_event", "map_falco_event",

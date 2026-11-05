@@ -19,8 +19,8 @@ from orchestrator.objectives import (
 
 
 def _obs(*crowns) -> dict:
-    """app_access 통로의 crown 관측집합 꾸미기."""
-    return {"app_access": {"crown": set(crowns)}}
+    """crown 관측축의 자백 집합 꾸미기."""
+    return {"crown": {"asset": set(crowns)}}
 
 
 def test_internal_secrets_reached():
@@ -57,8 +57,8 @@ def test_and_all_conditions_required():
     # 조건줄 둘을 '그리고'로 묶으면 하나만 맞을 땐 미달성
     reg = ObjectiveRegistry([
         ObjectiveSpec("two", "T1213", "g", "두 조건 AND", (
-            Condition("app_access", "crown", "eq", CROWN_INTERNAL_SECRETS),
-            Condition("app_access", "crown", "eq", CROWN_CUSTOMERS_PII),
+            Condition("crown", "asset", "eq", CROWN_INTERNAL_SECRETS),
+            Condition("crown", "asset", "eq", CROWN_CUSTOMERS_PII),
         )),
     ])
     assert not reg.is_reached("two", _obs(CROWN_INTERNAL_SECRETS))          # 하나만 → 미달성
@@ -68,7 +68,7 @@ def test_and_all_conditions_required():
 def test_operator_in():
     reg = ObjectiveRegistry([
         ObjectiveSpec("any", "T1213", "g", "둘 중 하나", (
-            Condition("app_access", "crown", "in",
+            Condition("crown", "asset", "in",
                       [CROWN_INTERNAL_SECRETS, CROWN_CUSTOMERS_PII]),
         )),
     ])
@@ -79,7 +79,7 @@ def test_operator_in():
 def test_operator_exists():
     reg = ObjectiveRegistry([
         ObjectiveSpec("any", "T1213", "g", "크라운 아무거나", (
-            Condition("app_access", "crown", "exists"),
+            Condition("crown", "asset", "exists"),
         )),
     ])
     assert reg.is_reached("any", _obs(CROWN_INTERNAL_SECRETS))
@@ -102,7 +102,7 @@ def test_empty_conditions_rejected():
 
 
 def test_duplicate_id_rejected():
-    s = ObjectiveSpec("dup", "T1213", "g", "d", (Condition("app_access", "crown", "exists"),))
+    s = ObjectiveSpec("dup", "T1213", "g", "d", (Condition("crown", "asset", "exists"),))
     try:
         ObjectiveRegistry([s, s])
     except ValueError:

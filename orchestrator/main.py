@@ -25,6 +25,7 @@ if str(_ROOT) not in sys.path:
 from common.config import Config, load_config  # noqa: E402
 from orchestrator.baseline import BaselineManager, kubectl_runner  # noqa: E402
 from orchestrator.flags import default_registry  # noqa: E402
+from orchestrator.objectives import default_objectives  # noqa: E402
 from orchestrator.govc_snapshot import GovcSnapshotManager  # noqa: E402
 from orchestrator.http_clients import HttpAttackerClient, HttpDefenderClient  # noqa: E402
 from orchestrator.log_source import AuditFalcoLogSource, file_line_reader  # noqa: E402
@@ -85,9 +86,7 @@ def _build_snapshots(cfg: Config):
                                govc_env={"GOVC_URL": cfg.vmware.vcenter_or_esxi})
 
 
-def build_sequencer(cfg: Config, *, flag4_value: Optional[str] = None,
-                    host_flag_value: Optional[str] = None,
-                    sink=None, progress=None,
+def build_sequencer(cfg: Config, *, sink=None, progress=None,
                     params: Optional[RunParams] = None) -> TurnSequencer:
     """config + 실 어댑터로 턴 시퀀서 조립(I/O 없음 — 실제 연결은 run_experiment에서)."""
     attacker = HttpAttackerClient(cfg.network.attacker_url, token=cfg.network.shared_token)
@@ -99,14 +98,16 @@ def build_sequencer(cfg: Config, *, flag4_value: Optional[str] = None,
         runner=kubectl_runner(cfg.target.kubeconfig or None),
         manifest_paths=(str(_ROOT / "k8s" / "killchain"),),
         baseline_name=cfg.vmware.baseline_snapshot)
-    registry = default_registry(flag4_value, host_flag_value)
-    verifier = VerificationEngine(attacker, defender, baseline, registry)
+    registry = default_registry()               # 상태검증·탐지 채점용(①②③·web·esc·disc)
+    objectives = default_objectives()           # 크라운(최종 침해) 조건표 — 접근기록 판정
     logs = CompositeLogSource(
         AuditFalcoLogSource(file_line_reader(cfg.observability.audit_log_path),
                             file_line_reader(cfg.observability.falco_log_path)),
-        # [Phase A] 앱 레벨 웹 공격(SQLi·SSRF·cmdi·cred-leak) — 서비스 JSON 감사 로그 기반.
+        # [Phase A] 앱 레벨 웹 공격(SQLi·SSRF·cmdi·cred-leak) + 크라운 자백 — 서비스 JSON 감사 로그.
         AppLogSource(file_line_reader(cfg.observability.app_log_path)),
     )
+    verifier = VerificationEngine(attacker, defender, baseline, registry,
+                                  logs=logs, objectives=objectives)
     truth = TruthLog()
     if params is None:
         params = RunParams(
@@ -119,7 +120,8 @@ def build_sequencer(cfg: Config, *, flag4_value: Optional[str] = None,
             attack_endpoint=(None if cfg.attack.exec_mode else cfg.target.attack_endpoint),
             flag_format=cfg.flags.format)
     return TurnSequencer(attacker=attacker, defender=defender, snapshots=baseline,
-                         verifier=verifier, logs=logs, registry=registry, truth=truth,
+                         verifier=verifier, logs=logs, registry=registry,
+                         objectives=objectives, truth=truth,
                          params=params, sink=sink, progress=progress)
 
 
@@ -157,8 +159,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
-    flag4 = load_flag4(args.flag_file)
-    flag_host = load_flag_host(args.flag_file)       # [Wave1] 노드 호스트 objective 값
     params = _params_from_args(cfg, args)
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -168,8 +168,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     sink = jsonl_file_sink(rounds_path)
     progress = ProgressSink(progress_path)       # 실시간 진행 상태(/api/status 소스)
 
-    seq = build_sequencer(cfg, flag4_value=flag4, host_flag_value=flag_host,
-                          sink=sink, progress=progress, params=params)
+    seq = build_sequencer(cfg, sink=sink, progress=progress, params=params)
 
     print(f"[*] 실험 시작: episodes={params.episodes} max_rounds={params.max_rounds} "
           f"time_limit={params.time_limit_sec}s "

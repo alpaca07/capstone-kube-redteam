@@ -224,9 +224,9 @@ def test_load_flag4_formats():
 
 def test_build_sequencer_from_example_config():
     cfg = load_config(_ROOT / "common" / "config.example.yaml")
-    seq = build_sequencer(cfg, flag4_value="FLAG{t}")
+    seq = build_sequencer(cfg)
     assert isinstance(seq, TurnSequencer)
-    assert seq.registry.value_match("4", "FLAG{t}") is True       # ④ 값 주입됨
+    assert "db_exfil" in seq.objectives.goals()                   # 크라운 조건표 주입됨
     assert seq.params.episodes == cfg.experiment.episodes         # config에서 파라미터
     assert seq.params.baseline_snapshot == cfg.vmware.baseline_snapshot
 

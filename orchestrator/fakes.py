@@ -140,22 +140,35 @@ class FakeDefenderClient:
 
 
 class FakeLogSource:
-    """god-view 로그 fake. 라운드 순서대로 관측 기법 집합을 돌려준다.
+    """god-view 로그 fake. 라운드 순서대로 관측 기법·크라운 집합을 돌려준다.
 
-    windows: 호출 순서별 기법 집합(한 라운드 = 한 호출). 소진되면 constant 반환.
+    windows/constant         : 기법 집합(techniques_in_window).
+    crown_windows/crown_constant : 크라운 반출 집합(crowns_in_window).
+    각 큐는 호출 순서별(한 호출=한 창), 소진되면 constant 반환.
     """
 
     def __init__(self, windows: Optional[list[set[str]]] = None,
-                 constant: Optional[set[str]] = None) -> None:
+                 constant: Optional[set[str]] = None, *,
+                 crown_windows: Optional[list[set[str]]] = None,
+                 crown_constant: Optional[set[str]] = None) -> None:
         self._queue: list[set[str]] = list(windows or [])
         self._constant = constant if constant is not None else set()
+        self._crown_queue: list[set[str]] = list(crown_windows or [])
+        self._crown_constant = crown_constant if crown_constant is not None else set()
         self.calls: list[tuple[float, float]] = []
+        self.crown_calls: list[tuple[float, float]] = []
 
     def techniques_in_window(self, *, since_ts: float, until_ts: float) -> set[str]:
         self.calls.append((since_ts, until_ts))
         if self._queue:
             return set(self._queue.pop(0))
         return set(self._constant)
+
+    def crowns_in_window(self, *, since_ts: float, until_ts: float) -> set[str]:
+        self.crown_calls.append((since_ts, until_ts))
+        if self._crown_queue:
+            return set(self._crown_queue.pop(0))
+        return set(self._crown_constant)
 
 
 __all__ = [

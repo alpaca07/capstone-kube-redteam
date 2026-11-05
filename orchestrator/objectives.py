@@ -23,8 +23,10 @@ from typing import Any, Optional
 
 from common.app_signals import CROWN_CUSTOMERS_PII, CROWN_INTERNAL_SECRETS
 
-# 관측 타입: 통로(channel) → 항목(field) → 관측된 값 집합.
-# 예: {"app_access": {"crown": {"internal_secrets"}}}
+# 관측 타입: 관측축(channel) → 항목(field) → 관측된 값 집합.
+# 예: {"crown": {"asset": {"internal_secrets"}}}
+# channel 은 '관측 축'(닫힌 목록): "crown"(반출 자백 — app·db 통로 합집합) · 향후 audit/falco/cluster_state.
+# 같은 축에 여러 통로가 기여할 수 있다(crown = AppLogSource + DbLogSource) → 축 단위로 합쳐 넘긴다.
 Observation = dict[str, dict[str, set]]
 
 
@@ -110,12 +112,12 @@ def default_objectives() -> ObjectiveRegistry:
         ObjectiveSpec(
             objective_id="crown-secrets", mitre="T1213", goal="db_exfil",
             description="④ 목표물 internal_secrets 반출(과거 값기반 FLAG 자리)",
-            conditions=(Condition("app_access", "crown", "eq", CROWN_INTERNAL_SECRETS),),
+            conditions=(Condition("crown", "asset", "eq", CROWN_INTERNAL_SECRETS),),
         ),
         ObjectiveSpec(
             objective_id="crown-pii", mitre="T1213", goal="db_exfil",
             description="고객 PII(이름·이메일·전화·주소·주민번호) 반출",
-            conditions=(Condition("app_access", "crown", "eq", CROWN_CUSTOMERS_PII),),
+            conditions=(Condition("crown", "asset", "eq", CROWN_CUSTOMERS_PII),),
         ),
     ])
 

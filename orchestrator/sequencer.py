@@ -39,6 +39,7 @@ from common.messages import (
 from .clients import AttackerClient, DefenderClient
 from .flags import FlagRegistry
 from .logs import LogSource
+from .objectives import ObjectiveRegistry
 from .scorer import EpisodeSummary, Scorer
 from .snapshot import SnapshotManager
 from .truth_log import TruthEntry, TruthEvent, TruthLog
@@ -92,7 +93,8 @@ class RoundAbort(Exception):
 class TurnSequencer:
     def __init__(self, *, attacker: AttackerClient, defender: DefenderClient,
                  snapshots: SnapshotManager, verifier: VerificationEngine,
-                 logs: LogSource, registry: FlagRegistry, truth: TruthLog,
+                 logs: LogSource, registry: FlagRegistry,
+                 objectives: ObjectiveRegistry, truth: TruthLog,
                  params: RunParams, sink: Optional[Callable[[dict], None]] = None,
                  progress: Optional[Callable[[dict], None]] = None,
                  kill_switch: Optional[Callable[[], bool]] = None,
@@ -103,6 +105,7 @@ class TurnSequencer:
         self.verifier = verifier
         self.logs = logs
         self.registry = registry
+        self.objectives = objectives
         self.truth = truth
         self.params = params
         self.sink = sink
@@ -300,20 +303,20 @@ class TurnSequencer:
                      *, t0: float, t1: float) -> TruthEntry:
         """'실제로 무슨 공격이 일어났나'를 심판 관점으로. 공격자 주장 안 믿고 사실로.
 
-        ④(값 기반): 보고값 == 심어둔 값일 때만 인정.
-        ①②③(상태/로그 기반): god-view 로그에서 관측된 기법 → 플래그 매핑.
+        크라운(최종 침해): 공격자 보고값 대조가 아니라 god-view 접근기록(crowns)으로 직접 판정
+          — 민감 자산이 실제로 빠질 때 남는 자백 줄(app·db 통로)을 objectives 조건표로 해석.
+        ①②③(상태/로그 기반): god-view 로그에서 관측된 기법 → 플래그 매핑(기존 유지).
         """
         events: dict[tuple[str, Optional[str]], TruthEvent] = {}
         flags: set[str] = set()
 
-        for f in attack.flags_obtained:            # 값 대조(보고 flag_id 무시 — 값으로 objective 식별)
-            fid = self.registry.match_value(f.value)   # ④ DB·host 등 어느 크라운 주얼인지 값으로 판정
-            if fid:
-                spec = self.registry.get(fid)
-                mitre = spec.mitre if spec else "?"
-                events[(mitre, fid)] = TruthEvent(
-                    technique=mitre, flag_id=fid, detail="value-match")
-                flags.add(fid)
+        crowns = self.logs.crowns_in_window(since_ts=t0, until_ts=t1)   # 접근기록 자백
+        for oid in self.objectives.reached_objectives({"crown": {"asset": crowns}}):
+            spec = self.objectives.get(oid)
+            mitre = spec.mitre if spec else "?"
+            events[(mitre, oid)] = TruthEvent(
+                technique=mitre, flag_id=oid, detail="crown-exfil")
+            flags.add(oid)
 
         for tech in self.logs.techniques_in_window(since_ts=t0, until_ts=t1):  # ①②③ 로그
             fid = self.registry.flag_for_technique(tech)
