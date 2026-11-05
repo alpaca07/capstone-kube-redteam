@@ -107,6 +107,9 @@ class ObservabilityConfig(BaseModel):
     # [Phase A] 취약 서비스 파드 stdout(JSON 앱 감사 로그) 동기 파일 — AppLogSource 가 읽음.
     # vmc-sync-applog.sh 가 kubectl logs 로 생성(catalog/order/admin).
     app_log_path: str = "/var/log/capstone/app-requests.log"
+    # [B] 직접 DB 접속 크라운 — postgres statement 로그(log_statement=all). DbLogSource 가 읽음.
+    # vmc-sync-dblog.sh 가 kubectl logs 로 생성(database/postgres). 앱을 안 거치는 ④ 경로 커버.
+    db_log_path: str = "/var/log/capstone/db-statements.log"
 
 
 # ───────────────────────── 루트 ─────────────────────────

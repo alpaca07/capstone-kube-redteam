@@ -103,7 +103,7 @@ CROWN_TARGETS = (CROWN_INTERNAL_SECRETS, CROWN_CUSTOMERS_PII)
 def crown_target(ev: dict) -> Optional[str]:
     """crown_exfil 자백 줄 → 반출된 크라운 자산 키. 자백 줄이 아니면 None.
 
-    심판(god-view)이 '값 대조'가 아니라 '접근 흔적'으로 최종 침해를 판정하는 통로.
+    심판(god-view)이 '값 대조'가 아니라 '접근 흔적'으로 최종 침해를 판정하는 통로(app 계층).
     """
     if ev.get("src") == "app" and ev.get("event") == "crown_exfil":
         t = ev.get("target")
@@ -112,9 +112,32 @@ def crown_target(ev: dict) -> Optional[str]:
     return None
 
 
+_PII_COLS = ("ssn", "email", "phone", "address")
+
+
+def crown_of_sql(sql: str) -> Optional[str]:
+    """실행된 SQL 문자열 → 반출된 크라운 자산 키. DB 접근기록(postgres statement 로그)용.
+
+    공격자가 직접 DB 에 접속(③ NetworkPolicy 부재)해 민감 테이블을 조회하는 경로를 잡는다 —
+    앱을 안 거쳐 app 자백 줄이 안 남는 메인 킬체인 ④ 의 주 경로. postgres 로그엔 결과 행수가
+    없으므로 '민감 테이블을 조회하는 SELECT 를 실행했다'를 접근 흔적으로 본다(app 통로의
+    _crown_of 는 cur.rowcount 까지 보지만 여기선 쿼리 패턴만). 정상 앱 쿼리(이름만 조인 등)는
+    PII 컬럼이 없어 None.
+    """
+    q = (sql or "").lower()
+    if "select" not in q:                   # 반출은 조회 계열만(UPDATE/INSERT 제외)
+        return None
+    if "internal_secrets" in q:             # 정상 앱은 이 테이블 미접근 → 조회=④ 반출
+        return CROWN_INTERNAL_SECRETS
+    if "customers" in q and ("*" in q or any(c in q for c in _PII_COLS)):
+        return CROWN_CUSTOMERS_PII          # 고객 PII 조회(SELECT * 또는 민감 컬럼)
+    return None
+
+
 __all__ = [
     "WEB_SQLI", "WEB_SSRF", "WEB_CMDI", "WEB_CREDLEAK",
     "WEB_BOLA", "WEB_MASSASSIGN", "WEB_AUTHN", "WEB_TECHNIQUES",
     "is_internal_or_file", "classify", "map_app_event",
-    "CROWN_INTERNAL_SECRETS", "CROWN_CUSTOMERS_PII", "CROWN_TARGETS", "crown_target",
+    "CROWN_INTERNAL_SECRETS", "CROWN_CUSTOMERS_PII", "CROWN_TARGETS",
+    "crown_target", "crown_of_sql",
 ]

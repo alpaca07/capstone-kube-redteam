@@ -30,6 +30,7 @@ from orchestrator.govc_snapshot import GovcSnapshotManager  # noqa: E402
 from orchestrator.http_clients import HttpAttackerClient, HttpDefenderClient  # noqa: E402
 from orchestrator.log_source import AuditFalcoLogSource, file_line_reader  # noqa: E402
 from orchestrator.app_log_source import AppLogSource, CompositeLogSource  # noqa: E402
+from orchestrator.db_log_source import DbLogSource  # noqa: E402
 from orchestrator.progress import ProgressSink  # noqa: E402
 from orchestrator.scorer import jsonl_file_sink  # noqa: E402
 from orchestrator.sequencer import RunParams, TurnSequencer  # noqa: E402
@@ -105,6 +106,8 @@ def build_sequencer(cfg: Config, *, sink=None, progress=None,
                             file_line_reader(cfg.observability.falco_log_path)),
         # [Phase A] 앱 레벨 웹 공격(SQLi·SSRF·cmdi·cred-leak) + 크라운 자백 — 서비스 JSON 감사 로그.
         AppLogSource(file_line_reader(cfg.observability.app_log_path)),
+        # [B] 직접 DB 접속 크라운 — postgres statement 로그(앱 안 거치는 ④ 경로).
+        DbLogSource(file_line_reader(cfg.observability.db_log_path)),
     )
     verifier = VerificationEngine(attacker, defender, baseline, registry,
                                   logs=logs, objectives=objectives)
