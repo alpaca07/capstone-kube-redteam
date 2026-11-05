@@ -35,6 +35,7 @@ from attacker.execute_action import CommandResult  # noqa: E402
 from attacker.round_engine import AttackRound, RoundConfig  # noqa: E402
 from attacker.graph_fake import InMemoryGraph  # noqa: E402
 from attacker.scope import default_policy  # noqa: E402
+from attacker.subprocess_runner import KubectlExecRunner, SubprocessRunner  # noqa: E402
 from common.llm_client import OllamaClient  # noqa: E402
 from common.messages import AttackTurnStart, Foothold  # noqa: E402
 
@@ -106,6 +107,14 @@ def main() -> int:
     ap.add_argument("--max-waves", type=int, default=3)
     ap.add_argument("--time-limit", type=float, default=180.0, help="라운드 전체 예산(초)")
     ap.add_argument("--timeout", type=float, default=300.0, help="단일 LLM 호출 타임아웃(초)")
+    # ── 실행기 선택 ──
+    ap.add_argument("--runner", choices=["echo", "exec", "local"], default="echo",
+                    help="echo(기본,가짜·플러밍만) / exec(실 발판 파드 kubectl exec=진짜 공격) / "
+                         "local(VM A 로컬 subprocess)")
+    ap.add_argument("--kubeconfig", default="", help="exec 모드: 발판 전용 kubeconfig 경로")
+    ap.add_argument("--namespace", default="frontend", help="exec 모드: 발판 파드 네임스페이스")
+    ap.add_argument("--pod", default="deploy/attacker-foothold", help="exec 모드: 발판 파드")
+    ap.add_argument("--step-timeout", type=float, default=15.0, help="단일 명령 실행 타임아웃(초)")
     args = ap.parse_args()
 
     atk_base = normalize_base(args.attacker)
@@ -121,7 +130,25 @@ def main() -> int:
     print(f"# 공격 모델  : {atk_model}")
     print(f"# 플래너 모델: {pln_model}")
     print(f"# 워커 {args.workers} · 의도예산 {args.budget}s · max_waves {args.max_waves} · "
-          f"라운드예산 {args.time_limit}s\n")
+          f"라운드예산 {args.time_limit}s")
+
+    # ── 실행기 선택 ──
+    if args.runner == "exec":
+        if not args.kubeconfig:
+            print("\n[오류] --runner exec 는 --kubeconfig 가 필요합니다(발판 전용 kubeconfig).")
+            return 2
+        runner = KubectlExecRunner(kubeconfig=args.kubeconfig, namespace=args.namespace,
+                                   pod_ref=args.pod, default_timeout=args.step_timeout)
+        print(f"# 실행기     : exec(실 발판 파드 {args.namespace}/{args.pod}) — 진짜 공격\n")
+    elif args.runner == "local":
+        import os
+        wd = "/tmp/attack-smoke-workspace"
+        os.makedirs(wd, exist_ok=True)
+        runner = SubprocessRunner(default_timeout=args.step_timeout, cwd=wd)
+        print("# 실행기     : local(VM A 로컬 subprocess)\n")
+    else:
+        runner = EchoRunner()
+        print("# 실행기     : echo(가짜 — 플러밍만, 실 클러스터 아님)\n")
 
     attacker_llm = OllamaClient(atk_base, atk_model, timeout=args.timeout,
                                 transport=lambda m, u, b, t: urllib_transport(m, u, b, t))
@@ -130,7 +157,7 @@ def main() -> int:
 
     cfg = RoundConfig(
         system_prompt=(_ROOT / "attacker" / "prompts" / "attacker_system.txt").read_text(encoding="utf-8"),
-        session_id="smoke", n_workers=args.workers,
+        session_id="smoke", n_workers=args.workers, step_timeout=args.step_timeout,
         intent_budget_sec=args.budget, intent_max_steps=8,
         planner_max_tokens=3000, max_waves=args.max_waves)
 
@@ -142,7 +169,7 @@ def main() -> int:
 
     graph = InMemoryGraph(episode=1)
     rnd = AttackRound(attacker_llm=attacker_llm, planner_llm=planner_llm,
-                      runner=EchoRunner(), scope_policy=default_policy(),
+                      runner=runner, scope_policy=default_policy(),
                       cfg=cfg, log=lambda m: print("  " + m, flush=True))
 
     print("── 라운드 시작 ──")
