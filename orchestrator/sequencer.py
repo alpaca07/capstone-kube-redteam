@@ -148,7 +148,7 @@ class TurnSequencer:
             _t = time.time()
             self.snapshots.revert_to(self.params.baseline_snapshot)
             self._log(f"[ep{episode}]    → revert 완료 ({time.time() - _t:.0f}s)")
-        scorer = Scorer(self.truth, episode, sink=self.sink)
+        scorer = Scorer(self.truth, episode, self.objectives, sink=self.sink)
         created_snaps: list[str] = []
         consecutive = 0
         attacker_broke_through = False   # 이 에피소드에서 공격자가 한 번이라도 플래그를 획득했나(게이팅 사다리 기준)

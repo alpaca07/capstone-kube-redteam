@@ -15,6 +15,7 @@ if str(_ROOT) not in sys.path:
 from common.messages import (  # noqa: E402
     AttackEndReason, AttackTurnResult, DefenseEndReason, DefenseTurnResult, Detection,
 )
+from orchestrator.objectives import default_objectives  # noqa: E402
 from orchestrator.scorer import (  # noqa: E402
     Scorer, confusion_matrix, mttd,
 )
@@ -98,7 +99,7 @@ def test_truthlog_queries():
 # ───────────── Scorer 통합 ─────────────
 def test_score_round_true_positive():
     tl = _truth_2round()
-    sc = Scorer(tl, episode=1)
+    sc = Scorer(tl, episode=1, objectives=default_objectives())
     rec = sc.score_round(round=1, attack_result=_attack(),
                          defense_result=_defense(techs=["T1078"]), verification=_verif())
     assert (rec.detection_cum.tp, rec.detection_cum.fp, rec.detection_cum.fn) == (1, 0, 0)
@@ -109,7 +110,7 @@ def test_score_round_true_positive():
 
 def test_score_round_false_positive():
     tl = _truth_2round()
-    sc = Scorer(tl, episode=1)
+    sc = Scorer(tl, episode=1, objectives=default_objectives())
     rec = sc.score_round(round=1, attack_result=_attack(),
                          defense_result=_defense(techs=["T9999"]), verification=_verif())
     assert (rec.detection_cum.tp, rec.detection_cum.fp, rec.detection_cum.fn) == (0, 1, 1)
@@ -117,7 +118,7 @@ def test_score_round_false_positive():
 
 def test_score_cumulative_across_rounds():
     tl = _truth_2round()
-    sc = Scorer(tl, episode=1)
+    sc = Scorer(tl, episode=1, objectives=default_objectives())
     sc.score_round(round=1, attack_result=_attack(),
                    defense_result=_defense(techs=["T1078"]), verification=_verif())
     rec2 = sc.score_round(round=2, attack_result=_attack(),
@@ -128,7 +129,7 @@ def test_score_cumulative_across_rounds():
 
 def test_episode_summary():
     tl = _truth_2round()
-    sc = Scorer(tl, episode=1)
+    sc = Scorer(tl, episode=1, objectives=default_objectives())
     sc.score_round(round=1, attack_result=_attack(),
                    defense_result=_defense(techs=["T1078"], health=True), verification=_verif())
     sc.score_round(round=2, attack_result=_attack(),
@@ -144,10 +145,27 @@ def test_episode_summary():
     assert s.patches == 2
 
 
+def test_crown_metrics_from_access_record():
+    # 접근기록 기반 크라운 집계: truth 에 crown objective 가 기록되면 crowns/goals 로 분리 집계.
+    # 선형 깊이(digit ①②③)와 별개 축이다.
+    tl = TruthLog()
+    tl.record(TruthEntry(episode=1, round=1,
+                         events=[TruthEvent("T1213", flag_id="crown-secrets", detail="crown-exfil")],
+                         flags_reached=["crown-secrets"]))
+    sc = Scorer(tl, episode=1, objectives=default_objectives())
+    rec = sc.score_round(round=1, attack_result=_attack(),
+                         defense_result=_defense(techs=[]), verification=_verif())
+    assert rec.crowns_reached_cum == ["crown-secrets"]
+    assert rec.goals_reached_cum == ["db_exfil"]
+    s = sc.summary(end_reason="max_rounds")
+    assert s.crowns_reached == ["crown-secrets"] and s.goals_reached == ["db_exfil"]
+    assert s.max_flag_depth == 0            # 크라운은 선형 깊이(digit)와 별개 축
+
+
 def test_sink_receives_each_round():
     tl = _truth_2round()
     captured: list[dict] = []
-    sc = Scorer(tl, episode=1, sink=captured.append)
+    sc = Scorer(tl, episode=1, objectives=default_objectives(), sink=captured.append)
     sc.score_round(round=1, attack_result=_attack(),
                    defense_result=_defense(techs=["T1078"]), verification=_verif())
     assert len(captured) == 1
