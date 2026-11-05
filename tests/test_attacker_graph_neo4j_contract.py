@@ -147,13 +147,40 @@ def _concurrency_check(g) -> None:
     assert len(set(claimed)) == n_intents, "★ 이중 claim 발생(원자성 깨짐)"
 
 
+def _asset_checks(g) -> None:
+    """자산 그래프: name dedup·CPE 승격·계층·조회를 실 DB로."""
+    from attacker.assets_neo4j import Neo4jAssetGraph
+    ag = Neo4jAssetGraph(g._driver, episode=g._episode, database=g._db)
+    ag.ensure_schema()
+
+    host = ag.add_asset("host", "10.0.0.5")
+    svc = ag.add_asset("service", "postgres.database.svc", attrs={"port": 5432}, parent=host)
+    # 같은 name 재관측 → dedup(노드 하나) + attrs 합성 + CPE 승격
+    svc2 = ag.add_asset("service", "postgres.database.svc", cpe="cpe:2.3:a:pg:pg:14",
+                        confidence="observed")
+    assert svc == svc2, "name dedup 실패(다른 노드 생성)"
+    n = ag.get_asset(svc)
+    assert n.identified and "pg" in n.cpe, "CPE 승격 실패"
+    assert n.attrs.get("port") == 5432, "attrs 합성 실패"
+
+    # 계층: host → CONTAINS → svc
+    assert any(c.id == svc for c in ag.children(host)), "CONTAINS 계층 누락"
+
+    # 조회
+    assert ag.find_by_name("postgres.database.svc").id == svc
+    assert any(x.id == svc for x in ag.find_by_cpe("cpe:2.3:a:pg:pg:14"))
+    # 미식별: CPE 없는 host는 unidentified에
+    assert any(x.id == host for x in ag.unidentified()), "unidentified 필터 틀림"
+
+
 def _run() -> int:
     g, err = _connect()
     if g is None:
         return _skip(err)
     print(f"  (실 Neo4j 연결 OK — episode={g._episode})")
     passed = failed = 0
-    for name, fn in [("기본 불변식", _checks), ("동시 claim 원자성", _concurrency_check)]:
+    for name, fn in [("기본 불변식", _checks), ("동시 claim 원자성", _concurrency_check),
+                     ("자산 그래프", _asset_checks)]:
         try:
             fn(g)
             print(f"  \033[32m✓\033[0m {name}")
@@ -164,11 +191,13 @@ def _run() -> int:
             traceback.print_exc()
             failed += 1
     try:
-        g.reset_episode()                      # 이 테스트 episode만 정리
+        g.reset_episode()                      # 탐색 노드 정리
+        from attacker.assets_neo4j import Neo4jAssetGraph
+        Neo4jAssetGraph(g._driver, episode=g._episode, database=g._db).reset_episode()  # 자산 노드도
         print("  (episode 정리 완료)")
     except Exception as e:  # noqa: BLE001
         print(f"  (정리 실패: {e})")
-    print(f"\n{passed} passed, {failed} failed  (총 2)")
+    print(f"\n{passed} passed, {failed} failed  (총 3)")
     return 1 if failed else 0
 
 
