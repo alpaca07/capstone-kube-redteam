@@ -22,6 +22,11 @@ from .log_source import LineReader
 
 
 def _loads(line: str) -> Optional[dict]:
+    # kubectl logs --prefix 는 "[pod/name/container] {json}" 로 접두어를 붙인다(vmc-sync-applog.sh).
+    # 접두어가 있으면 첫 '{' 부터 파싱(순수 JSON 줄은 i==0 이라 그대로). pod 접두어엔 '{' 가 없다.
+    i = line.find("{")
+    if i > 0:
+        line = line[i:]
     try:
         obj = json.loads(line)
         return obj if isinstance(obj, dict) else None
