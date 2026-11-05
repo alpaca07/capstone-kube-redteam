@@ -1,0 +1,231 @@
+"""의도 실행기(진짜 run_intent) 테스트 — ReAct 스코프·정착 호출(fact/finding 쓰기)·
+종료사유 매핑·정착 실패 폴백, 그리고 플래너→풀→의도실행기 풀스택(LLM만 fake).
+
+    python3 tests/test_attacker_intent_runner.py
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from attacker.exec_lane import ExecutionLane  # noqa: E402
+from attacker.execute_action import CommandResult  # noqa: E402
+from attacker.graph import IntentState, NodeKind, Rel  # noqa: E402
+from attacker.graph_fake import InMemoryGraph  # noqa: E402
+from attacker.intent_runner import (  # noqa: E402
+    IntentRunner, IntentRunnerConfig, parse_settlement,
+)
+from attacker.scope import default_policy  # noqa: E402
+from attacker.worker_pool import WorkerPool  # noqa: E402
+
+
+class _R:
+    def __init__(self, stdout="ok"):
+        self.stdout = stdout
+
+    def run(self, tool, args, *, stdin=None, timeout=None):
+        return CommandResult(0, self.stdout, "")
+
+
+def _lane(runner=None, round=1):
+    return ExecutionLane(runner or _R(), scope_policy=default_policy(),
+                         session_id="s", episode=1, round=round)
+
+
+class _ScriptLLM:
+    """ReAct 행동(chat_text_meta)과 정착(chat_text)을 각각 프로그래밍.
+
+    react: 순서대로 내놓을 행동 JSON 문자열들(끝나면 give_up).
+    settle: 정착 호출이 돌려줄 JSON 문자열.
+    """
+    def __init__(self, react, settle):
+        self._react = list(react)
+        self._settle = settle
+        self.settle_calls = 0
+
+    def chat_text_meta(self, system, user, **kw):
+        if self._react:
+            return self._react.pop(0), "stop"
+        return '{"thought":"done","action":{"tool":"give_up","args":[]}}', "stop"
+
+    def chat_text(self, system, user, **kw):   # 정착 호출
+        self.settle_calls += 1
+        return self._settle
+
+
+_ACT_GET = '{"thought":"probe","action":{"tool":"kubectl","args":["get","po"]}}'
+_SETTLE_ONE_FACT = ('{"facts":[{"summary":"postgres reachable from foothold",'
+                    '"evidence":"nc 5432 open","confidence":"observed"}],"finding":null}')
+
+
+# ── 정착 파싱: facts + finding ──
+def test_parse_settlement_facts_and_finding():
+    facts, finding = parse_settlement(
+        '{"facts":[{"summary":"creds found","confidence":"observed"}],'
+        '"finding":{"summary":"PII read","severity":"high","evidence":"row dump"}}')
+    assert len(facts) == 1 and facts[0].confidence == "observed"
+    assert finding is not None and finding.severity == "high"
+
+
+def test_parse_settlement_null_finding():
+    facts, finding = parse_settlement('{"facts":[{"summary":"port closed"}],"finding":null}')
+    assert len(facts) == 1 and finding is None
+
+
+def test_parse_settlement_drops_empty_summary():
+    facts, _ = parse_settlement('{"facts":[{"summary":""},{"summary":"real"}]}')
+    assert len(facts) == 1 and facts[0].summary == "real"
+
+
+# ── 한 의도 실행: ReAct 스텝 실행 + 정착 fact가 intent에 yields로 연결 ──
+def test_run_one_intent_writes_fact_linked():
+    g = InMemoryGraph()
+    iid = g.add_intent({"summary": "probe postgres", "technique": "T1046"})
+    g.claim_next("w")                      # running 상태로(정착이 running intent에 연결)
+    intent = g.get_node(iid)
+
+    llm = _ScriptLLM([_ACT_GET, _ACT_GET], _SETTLE_ONE_FACT)
+    lane = _lane()
+    from attacker.exec_lane import WorkerContext
+    wctx = WorkerContext(lane, "w")
+    runner = IntentRunner(llm, IntentRunnerConfig(system_prompt="sys", round_goal="read PII"))
+    outcome = runner(g, wctx, intent)
+
+    assert outcome.state == IntentState.DONE
+    assert llm.settle_calls == 1
+    # 레인에 ReAct 스텝 2개 기록
+    assert len(lane.script.steps) == 2
+    # 정착 fact 1개가 intent→YIELDS→fact로 연결, source_step_ids는 이 의도 스텝들
+    facts = g.recent_facts()
+    assert len(facts) == 1
+    assert facts[0].payload["summary"].startswith("postgres reachable")
+    assert facts[0].payload["source_step_ids"] == ["1.1", "1.2"]
+    yields = g.edges_from(iid, Rel.YIELDS)
+    assert len(yields) == 1 and yields[0].dst_id == facts[0].id
+
+
+# ── finding이 나오면 finding 노드 + PROVES 엣지 + 기법 태그 ──
+def test_run_intent_writes_finding_with_technique():
+    g = InMemoryGraph()
+    iid = g.add_intent({"summary": "dump PII", "technique": "T1078"})
+    g.claim_next("w")
+    intent = g.get_node(iid)
+    settle = ('{"facts":[{"summary":"authed to db"}],'
+              '"finding":{"summary":"read customers table","severity":"critical","evidence":"100 rows"}}')
+    llm = _ScriptLLM([_ACT_GET], settle)
+    lane = _lane()
+    from attacker.exec_lane import WorkerContext
+    runner = IntentRunner(llm, IntentRunnerConfig(system_prompt="s", round_goal="g"))
+    runner(g, WorkerContext(lane, "w"), intent)
+
+    findings = [n for n in [g.get_node(i) for i in range(1, 20) if g.get_node(i)]
+                if n.kind == NodeKind.FINDING]
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.payload["severity"] == "critical"
+    assert f.payload["technique"] == "T1078"          # 의도 기법이 finding으로 전파(채점 조인)
+    # fact → PROVES → finding
+    fact = g.recent_facts()[0]
+    proves = g.edges_from(fact.id, Rel.PROVES)
+    assert len(proves) == 1 and proves[0].dst_id == f.id
+
+
+# ── 종료사유 매핑: 타임아웃→EXHAUSTED ──
+def test_timeout_maps_to_exhausted():
+    g = InMemoryGraph()
+    iid = g.add_intent({"summary": "slow"})
+    g.claim_next("w")
+    intent = g.get_node(iid)
+    # intent_budget_sec=0 → ReAct가 첫 스텝 전에 예산소진(TIMEOUT)
+    llm = _ScriptLLM([_ACT_GET], _SETTLE_ONE_FACT)
+    lane = _lane()
+    from attacker.exec_lane import WorkerContext
+    runner = IntentRunner(llm, IntentRunnerConfig(
+        system_prompt="s", round_goal="g", intent_budget_sec=0.0))
+    outcome = runner(g, WorkerContext(lane, "w"), intent)
+    assert outcome.state == IntentState.EXHAUSTED
+    assert outcome.reason == "timeout"
+
+
+# ── 정착 실패 폴백: 깨진 JSON이어도 의도는 안 잃고 폴백 fact 남김 ──
+def test_settlement_failure_falls_back_to_summary_fact():
+    g = InMemoryGraph()
+    iid = g.add_intent({"summary": "x"})
+    g.claim_next("w")
+    intent = g.get_node(iid)
+    llm = _ScriptLLM([_ACT_GET], "I cannot produce JSON, sorry.")  # 정착 파싱 실패
+    lane = _lane()
+    from attacker.exec_lane import WorkerContext
+    runner = IntentRunner(llm, IntentRunnerConfig(system_prompt="s", round_goal="g"))
+    outcome = runner(g, WorkerContext(lane, "w"), intent)
+    assert outcome.state == IntentState.DONE          # 의도는 완료로
+    facts = g.recent_facts()
+    assert len(facts) == 1                             # 폴백 fact 하나는 남음
+    assert facts[0].payload["confidence"] == "inferred"
+
+
+# ── ★ 풀스택: 플래너→풀→의도실행기 (LLM만 fake, 나머지 전부 실제) ──
+def test_full_stack_planner_pool_runner():
+    from attacker.planner import Planner
+
+    g = InMemoryGraph()
+
+    # 플래너 LLM: 의도 2개 생성
+    class _PlanLLM:
+        def chat_text(self, system, user, **kw):
+            return ('{"intents":[{"summary":"probe pg","target":"postgres","technique":"T1046"},'
+                    '{"summary":"enum SA","target":"admin","technique":"T1078"}]}')
+    Planner(_PlanLLM(), goal="read PII").plan(g)
+    assert len(g.frontier()) == 2
+
+    # 워커 LLM: 각 워커 호출마다 새 _ScriptLLM이 필요하므로, 의도실행기가 공유하는 단일 LLM이
+    # 스레드로 불려도 되게 '매 호출 give_up + 고정 정착'하는 간단 LLM을 쓴다.
+    class _WorkLLM:
+        def chat_text_meta(self, system, user, **kw):
+            # 한 번 정찰 후 give_up 하도록: user에 아직 관측 없으면 kubectl, 있으면 give_up
+            if "아직 행동 없음" in user or "(none" in user:
+                return _ACT_GET, "stop"
+            return '{"thought":"done","action":{"tool":"give_up","args":[]}}', "stop"
+        def chat_text(self, system, user, **kw):
+            return _SETTLE_ONE_FACT
+
+    lane = _lane()
+    runner = IntentRunner(_WorkLLM(), IntentRunnerConfig(
+        system_prompt="s", round_goal="read PII", max_steps=4))
+    summary = WorkerPool(g, lane, runner, n_workers=2).run()
+
+    assert summary.claimed == 2 and summary.done == 2
+    # 두 의도가 각각 fact를 그래프에 남김
+    assert len(g.recent_facts()) == 2
+    # 모든 의도가 종료상태(open 없음)
+    assert g.frontier() == []
+    # 레인 대본에 스텝이 쌓이고 step 번호 유일
+    nums = sorted(s.step for s in lane.script.steps)
+    assert nums == list(range(1, len(nums) + 1))
+
+
+def _run() -> int:
+    tests = [v for k, v in sorted(globals().items())
+             if k.startswith("test_") and callable(v)]
+    passed = failed = 0
+    for t in tests:
+        try:
+            t()
+            print(f"  \033[32m✓\033[0m {t.__name__}")
+            passed += 1
+        except Exception as e:  # noqa: BLE001
+            import traceback
+            print(f"  \033[31m✗\033[0m {t.__name__}: {type(e).__name__}: {e}")
+            traceback.print_exc()
+            failed += 1
+    print(f"\n{passed} passed, {failed} failed  (총 {len(tests)})")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    print("── 의도 실행기 테스트 ──")
+    sys.exit(_run())

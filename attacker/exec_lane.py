@@ -167,6 +167,12 @@ class WorkerContext:
         self.target = target
         self._values: dict[str, str] = {}   # 네임스페이스된 produce 이름 → 값(이 워커 전용)
 
+    @property
+    def script(self):
+        """이 워커가 기여하는 (공유) replay_script. ReActLoop이 executor.script를 읽으므로
+        ActionExecutor와의 호환을 위해 노출 — 대본은 레인 소유(워커별 소유 아님)."""
+        return self.lane.script
+
     def execute(self, action: AttackAction, *, foothold: Optional[dict] = None) -> Observation:
         t_args, inputs, produces = namespace_action(action, self.wid)
         fh = foothold if foothold is not None else self.foothold
