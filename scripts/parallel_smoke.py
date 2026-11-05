@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import socket
 import sys
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
@@ -36,7 +38,7 @@ from attacker.round_engine import AttackRound, RoundConfig  # noqa: E402
 from attacker.graph_fake import InMemoryGraph  # noqa: E402
 from attacker.scope import default_policy  # noqa: E402
 from attacker.subprocess_runner import KubectlExecRunner, SubprocessRunner  # noqa: E402
-from common.llm_client import OllamaClient  # noqa: E402
+from common.llm_client import LLMTimeout, OllamaClient  # noqa: E402
 from common.messages import AttackTurnStart, Foothold  # noqa: E402
 
 
@@ -58,8 +60,17 @@ def urllib_transport(method: str, url: str, body, timeout: float) -> dict:
     req = urllib.request.Request(
         url, data=data, method=method,
         headers={"Content-Type": "application/json", "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except (TimeoutError, socket.timeout) as e:          # 소켓 타임아웃 → LLMTimeout
+        # requests_transport와 동일 계약: ReAct 루프가 '정상 타임아웃'으로 받아 대본 보존·정착.
+        # (안 하면 raw Timeout 이 run_intent 밖으로 터져 의도가 blocked·사실 0개가 된다)
+        raise LLMTimeout(f"LLM 호출 타임아웃({timeout}s): {url}") from e
+    except urllib.error.URLError as e:
+        if isinstance(getattr(e, "reason", None), (TimeoutError, socket.timeout)):
+            raise LLMTimeout(f"LLM 호출 타임아웃({timeout}s): {url}") from e
+        raise
 
 
 def discover_model(base_url: str, timeout: float) -> str | None:
