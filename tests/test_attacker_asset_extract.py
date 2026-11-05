@@ -47,16 +47,30 @@ def test_ip_port():
     assert a["10.43.214.23:5432"]["attrs"]["port"] == 5432
 
 
-# ── 단독 IP → 호스트 ──
-def test_bare_ip_host():
-    a = _by_name(extract_assets(["ping 10.0.0.5"]))
-    assert a["10.0.0.5"]["kind"] == "host"
+# ── 단독 IP는 자산 안 만듦(노이즈 방지) — 포트·URL 없이 등장한 IP ──
+def test_bare_ip_not_captured():
+    a = _by_name(extract_assets(["ping 10.0.0.5 ; traceroute 192.168.1.1"]))
+    assert "10.0.0.5" not in a and "192.168.1.1" not in a
+
+
+# ── IP:port면 그 IP가 호스트 부모로 생성되고 서비스가 자식 ──
+def test_ip_port_creates_host_parent():
+    a = _by_name(extract_assets(["nc -zv 10.43.214.23:5432"]))
+    assert "10.43.214.23" in a and a["10.43.214.23"]["kind"] == "host"
+    assert a["10.43.214.23:5432"]["parent"] == "10.43.214.23"
+
+
+# ── URL 엔드포인트는 host 서비스의 자식(parent) ──
+def test_endpoint_parent_is_host():
+    a = _by_name(extract_assets(["wget http://admin-dashboard/secret"]))
+    ep = a["admin-dashboard/secret"]
+    assert ep["kind"] == "endpoint" and ep["parent"] == "admin-dashboard"
 
 
 # ── 잘못된 IP(255 초과)는 버림 ──
 def test_invalid_ip_dropped():
-    a = _by_name(extract_assets(["version 10.999.1.1 build 300.1.2.3"]))
-    assert "10.999.1.1" not in a
+    a = _by_name(extract_assets(["nc -zv 10.999.1.1:5432", "psql -h 10.999.1.1 -p 5432"]))
+    assert "10.999.1.1:5432" not in a
 
 
 # ── 의도 target: 가장 강한 신호. 'A (B)'·CIDR 처리 ──

@@ -38,58 +38,72 @@ def _valid_ip(ip: str) -> bool:
 def extract_assets(texts, *, intent_target: str = "") -> list[dict]:
     """명령·출력 문자열들(+의도 target)에서 관측 자산을 뽑는다. name으로 중복 제거.
 
-    texts: 자산을 긁을 문자열들(명령 전체 문자열·stdout 발췌 등)의 이터러블.
-    intent_target: 플래너가 명시한 대상(가장 신뢰도 높은 자산 신호).
+    반환 각 자산: {kind, name, attrs, parent?}. parent는 상위 자산 name(계층 CONTAINS용).
+    호스트⊃서비스⊃엔드포인트 2~3단 계층을 암시한다. 단독 IP 남발은 안 함(노이즈 방지) —
+    IP는 그 위에 포트·URL·엔드포인트가 관측될 때 '호스트 부모'로만 생성.
+
+    texts: 자산을 긁을 문자열들. intent_target: 플래너가 지목한 대상(최강 신호).
     """
     found: dict[str, dict] = {}       # name → asset dict(중복 제거)
 
-    def add(kind: str, name: str, **attrs):
+    def add(kind: str, name: str, *, parent: str = "", **attrs):
         name = _norm(name)
         if not name or len(name) < 3:
             return
         if name in found:
-            # 이미 있으면 attrs만 보강(kind는 먼저 잡힌 것 유지)
             found[name]["attrs"].update({k: v for k, v in attrs.items() if v is not None})
+            if parent and not found[name].get("parent"):
+                found[name]["parent"] = _norm(parent)
             return
-        found[name] = {"kind": kind, "name": name,
-                       "attrs": {k: v for k, v in attrs.items() if v is not None}}
+        d = {"kind": kind, "name": name,
+             "attrs": {k: v for k, v in attrs.items() if v is not None}}
+        if parent:
+            d["parent"] = _norm(parent)
+        found[name] = d
 
-    # 의도 target: 플래너가 지목한 자산(가장 강한 신호). CIDR 범위는 단일 자산 아님 → 제외.
+    # 의도 target: 최강 신호. CIDR 제외.
     if intent_target:
         raw_t = intent_target.strip()
-        if not re.search(r"/\d{1,2}\b", raw_t):            # CIDR(/24 등)이면 건너뜀
-            t = raw_t.split("(")[0].strip()                # 'A (B)' 꼴은 앞부분만
+        if not re.search(r"/\d{1,2}\b", raw_t):
+            t = raw_t.split("(")[0].strip()
             m = _IP_PORT.search(t)
             if m and _valid_ip(m.group(1)):
-                add("service", f"{m.group(1)}:{m.group(2)}", port=int(m.group(2)))
+                add("host", m.group(1))
+                add("service", f"{m.group(1)}:{m.group(2)}", parent=m.group(1),
+                    port=int(m.group(2)))
             elif t:
                 add("service", t, source="intent_target")
 
     for raw in texts:
         s = str(raw or "")
-        # K8s 서비스 DNS
+        # K8s 서비스 DNS (평면 — 네임스페이스 계층 추론은 섣부르니 안 함)
         for m in _SVC_DNS.finditer(s):
             add("service", m.group(1))
-        # URL → host(서비스) + path(엔드포인트)
+        # URL → host(서비스) + path(엔드포인트, host의 자식)
         for m in _URL.finditer(s):
             host, port, path = m.group(1), m.group(2), m.group(3)
             add("service", host, port=int(port) if port else None)
             if path and path != "/" and len(path) > 1:
-                add("endpoint", f"{_norm(host)}{path}", on=_norm(host))
-        # IP:port → 서비스
+                add("endpoint", f"{_norm(host)}{path}", parent=host)
+        # IP:port → 서비스(그 IP를 호스트 부모로)
         for m in _IP_PORT.finditer(s):
             ip, port = m.group(1), m.group(2)
             if _valid_ip(ip):
-                add("service", f"{ip}:{port}", port=int(port))
-        # DB 접속 꼴(-h host -p port): host에 점이 있을 때만(IP·FQDN) 서비스로(짧은 플래그값 오탐 방지)
+                add("host", ip)
+                add("service", f"{ip}:{port}", parent=ip, port=int(port))
+        # DB 접속 꼴(-h host -p port): host에 점 있을 때만. IP면 호스트 부모로.
         hm, pm = _DB_HOST.search(s), _DB_PORT.search(s)
         if hm and pm and "." in hm.group(1):
-            add("service", f"{_norm(hm.group(1))}:{int(pm.group(1))}", port=int(pm.group(1)))
-        # 단독 IP → 호스트(단, IP:port로 이미 잡힌 건 중복 무시됨)
-        for m in _IP.finditer(s):
-            ip = m.group(1)
-            if _valid_ip(ip):
-                add("host", ip)
+            host, port = hm.group(1), int(pm.group(1))
+            looks_ip = re.fullmatch(r"\d+(?:\.\d+){3}", host) is not None
+            if looks_ip and not _valid_ip(host):
+                pass                          # IP 모양인데 유효하지 않음 → 노이즈, 버림
+            else:
+                par = host if (looks_ip and _valid_ip(host)) else ""
+                if par:
+                    add("host", par)
+                add("service", f"{_norm(host)}:{port}", parent=par, port=port)
+        # ※ 단독 IP는 자산으로 안 만든다(노이즈) — 위에서 포트·URL과 함께일 때만 호스트로 생성
 
     return list(found.values())
 

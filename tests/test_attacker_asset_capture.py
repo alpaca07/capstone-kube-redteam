@@ -100,6 +100,28 @@ def test_no_asset_graph_skips():
     assert g.get_node(iid).anchors == []     # 앵커 없음
 
 
+# ── 계층(CONTAINS)이 포집 시 걸린다: IP:port 서비스가 그 호스트의 자식 ──
+def test_capture_wires_contains_hierarchy():
+    g = InMemoryGraph()
+    ag = InMemoryAssetGraph()
+    iid = g.add_intent({"summary": "probe db", "target": "db"})
+    g.claim_next("w")
+    action = ('{"thought":"p","action":{"tool":"sh","args":["-c",'
+              '"nc -zv 10.43.214.23:5432 ; wget http://admin-dashboard/secret"]}}')
+    llm = _LLM(action, '{"facts":[{"summary":"o"}],"finding":null}')
+    lane = ExecutionLane(_R(), scope_policy=default_policy(), session_id="s", episode=1, round=1)
+    IntentRunner(llm, IntentRunnerConfig(system_prompt="s", round_goal="g"),
+                 asset_graph=ag)(g, WorkerContext(lane, "w"), g.get_node(iid))
+
+    name_to_id = {a.name: a.id for a in ag.assets()}
+    # 호스트(10.43.214.23) ⊃ 서비스(10.43.214.23:5432)
+    host, svc = name_to_id.get("10.43.214.23"), name_to_id.get("10.43.214.23:5432")
+    assert host and svc and (host, svc) in ag.contains_edges()
+    # 서비스(admin-dashboard) ⊃ 엔드포인트(admin-dashboard/secret)
+    adm, ep = name_to_id.get("admin-dashboard"), name_to_id.get("admin-dashboard/secret")
+    assert adm and ep and (adm, ep) in ag.contains_edges()
+
+
 # ── 발견도 자산에 앵커 ──
 def test_finding_anchored_to_assets():
     from attacker.graph import NodeKind

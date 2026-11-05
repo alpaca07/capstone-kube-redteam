@@ -195,9 +195,18 @@ class IntentRunner:
                 texts.append(e.stdout_excerpt)
         try:
             obs = extract_assets(texts, intent_target=str(intent.payload.get("target", "")))
-            ids = [self.asset_graph.add_asset(o["kind"], o["name"], confidence="observed",
-                                              attrs=o.get("attrs"))
-                   for o in obs]
+            name_to_id = {}
+            ids = []
+            for o in obs:
+                aid = self.asset_graph.add_asset(o["kind"], o["name"], confidence="observed",
+                                                 attrs=o.get("attrs"))
+                name_to_id[o["name"]] = aid
+                ids.append(aid)
+            # 계층(CONTAINS): 부모 자산이 있으면 호스트⊃서비스⊃엔드포인트로 이음
+            for o in obs:
+                p = o.get("parent")
+                if p and p in name_to_id and name_to_id[p] != name_to_id[o["name"]]:
+                    self.asset_graph.link_contains(name_to_id[p], name_to_id[o["name"]])
             if ids:
                 graph.anchor_to(intent.id, ids)       # 의도 → 관측 자산
             if obs:
