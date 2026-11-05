@@ -108,7 +108,14 @@ class AttackRound:
                 self.log(f"[round r{round}] wave {waves+1}: 플래너 0개 → 종료 "
                          f"({plan.error or 'goal-reached/no-direction'})")
                 break
-            self.log(f"[round r{round}] wave {waves+1}: 의도 {len(plan.added_ids)}개 → 풀 가동")
+            self.log(f"[round r{round}] wave {waves+1}: 플래너가 의도 {len(plan.added_ids)}개 생성")
+            for iid in plan.added_ids:          # 플래너가 무슨 방향을 냈는지 보여줌
+                n = graph.get_node(iid)
+                if n is not None:
+                    p = n.payload
+                    tgt = f" → {p['target']}" if p.get("target") else ""
+                    tech = f" [{p['technique']}]" if p.get("technique") else ""
+                    self.log(f"    · intent#{iid}: {p.get('summary','')}{tgt}{tech}")
             WorkerPool(graph, lane, intent_runner, n_workers=self.cfg.n_workers,
                        foothold=foothold, round_deadline=deadline,
                        clock=self.clock, log=self.log).run()

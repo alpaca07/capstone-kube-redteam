@@ -26,6 +26,17 @@ from .exec_lane import ExecutionLane, WorkerContext
 from .graph import ExplorationGraph, IntentState, Node
 
 
+def _intent_brief(intent: Node) -> str:
+    """로그용 의도 한 줄 요약 — summary + target + 기법. '무슨 의도로 명령하는지' 가시화."""
+    p = intent.payload
+    s = str(p.get("summary", "")).strip()
+    if len(s) > 90:
+        s = s[:90] + "…"
+    tgt = f" → {p['target']}" if p.get("target") else ""
+    tech = f" [{p['technique']}]" if p.get("technique") else ""
+    return f"{s}{tgt}{tech}"
+
+
 @dataclass
 class IntentOutcome:
     """run_intent이 의도 하나를 돌린 결과 — 엔진이 이걸로 의도를 정착시킨다."""
@@ -109,6 +120,7 @@ class WorkerPool:
                 continue
 
             self._bump("claimed")
+            self.log(f"[{wid}] ▶ intent#{intent.id} 집음 — {_intent_brief(intent)}")
             try:
                 outcome = self.run_intent(self.graph, wctx, intent)
             except Exception as e:  # noqa: BLE001 — 한 의도의 실패가 풀을 죽이지 않게
@@ -117,6 +129,8 @@ class WorkerPool:
 
             self.graph.settle_intent(intent.id, outcome.state, outcome.reason)
             self._bump(_STATE_FIELD.get(outcome.state, "done"))
+            self.log(f"[{wid}] ■ intent#{intent.id} {outcome.state.value}"
+                     + (f" ({outcome.reason})" if outcome.reason else ""))
 
     def run(self) -> RoundSummary:
         threads = [threading.Thread(target=self._worker_loop, args=(f"work{i+1}",),

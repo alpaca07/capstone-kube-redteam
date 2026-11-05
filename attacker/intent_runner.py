@@ -143,6 +143,8 @@ class IntentRunner:
 
     def __call__(self, graph: ExplorationGraph, wctx, intent: Node) -> IntentOutcome:
         history = AttackHistory()
+        wid = getattr(wctx, "wid", "?")          # 어느 워커가 이 의도를 돌리는지(로그 가시화)
+        tag = f"[{wid}·intent#{intent.id}]"
         loop = ReActLoop(
             self.llm, wctx, history,
             system_prompt=self.cfg.system_prompt,
@@ -151,14 +153,14 @@ class IntentRunner:
             time_limit_sec=self.cfg.intent_budget_sec,
             max_steps=self.cfg.max_steps,
             max_tokens=self.cfg.react_max_tokens,
-            log=lambda m: self.log(f"[intent#{intent.id}] {m}"))
+            log=lambda m: self.log(f"{tag} {m}"))
         result = loop.run(foothold=getattr(wctx, "foothold", None))
 
         # 이 의도가 만든 스텝들의 전역 step_id (fact가 원본을 역참조)
         round_no = wctx.lane.script.round
         source_step_ids = [make_step_id(round_no, e.step) for e in history.entries]
 
-        self._settle(graph, intent, history, source_step_ids)
+        self._settle(graph, intent, history, source_step_ids, tag=tag)
 
         # 종료사유 → 의도 정착 상태. TIMEOUT만 EXHAUSTED(부분결과 보존), 나머지는 DONE.
         state = (IntentState.EXHAUSTED if result.end_reason == AttackEndReason.TIMEOUT
@@ -166,7 +168,7 @@ class IntentRunner:
         return IntentOutcome(state, reason=result.end_reason.value)
 
     def _settle(self, graph: ExplorationGraph, intent: Node, history: AttackHistory,
-                source_step_ids: list[str]) -> None:
+                source_step_ids: list[str], *, tag: str = "") -> None:
         """정착 호출(방식 B): 결론을 fact/finding으로 그래프에 쓴다. 실패해도 의도는 안 잃고
         히스토리 요약을 폴백 fact로 남긴다."""
         technique = str(intent.payload.get("technique", "")).strip()
@@ -180,7 +182,7 @@ class IntentRunner:
                 extra={"reasoning_effort": "none"})
             facts, finding = parse_settlement(text or "")
         except Exception as e:  # noqa: BLE001 — 정착 실패는 치명적 아님(폴백)
-            self.log(f"[intent#{intent.id}] 정착 실패({type(e).__name__}) → 폴백 fact")
+            self.log(f"{tag} 정착 실패({type(e).__name__}) → 폴백 fact")
             facts, finding = [], None
 
         if not facts:
@@ -192,6 +194,13 @@ class IntentRunner:
                     for fd in facts]
         if finding is not None:
             graph.add_finding(finding.to_payload(technique), proved_by=fact_ids)
+
+        # 정착 결과 한 줄 — '의도대로 결론을 냈는지' 가시화
+        first = facts[0].summary if facts else ""
+        if len(first) > 100:
+            first = first[:100] + "…"
+        extra = f" + 발견({finding.severity}): {finding.summary}" if finding is not None else ""
+        self.log(f"{tag} ⇒ 사실 {len(facts)}개: {first}{extra}")
 
 
 __all__ = [
