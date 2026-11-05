@@ -214,8 +214,10 @@ def main() -> int:
     if findings:
         print("\n  [발견]")
         for fd in findings[:5]:
+            occ = fd.payload.get("occurrences", 1)
+            rep = f" (보고 {occ}회)" if occ and occ > 1 else ""
             print(f"   - ({fd.payload.get('severity','')}) {fd.payload.get('summary','')} "
-                  f"[{fd.payload.get('technique','')}]")
+                  f"[{fd.payload.get('technique','')}]{rep}")
 
     # 판정: 스텝이 돌고 사실이 쌓였으면 플러밍 OK
     ok = (res.replay_script is not None and len(res.replay_script.steps) > 0 and len(facts) > 0)

@@ -159,7 +159,9 @@ class AttackRound:
             sev = f.payload.get("severity", "")
             tech = f.payload.get("technique", "")
             tag = f" [{tech}]" if tech else ""
-            lines.append(f"- 발견({sev}){tag}: {f.payload.get('summary', '')}")
+            occ = f.payload.get("occurrences", 1)
+            rep = f" (보고 {occ}회)" if occ and occ > 1 else ""
+            lines.append(f"- 발견({sev}){tag}{rep}: {f.payload.get('summary', '')}")
         return "\n".join(lines)
 
 

@@ -203,8 +203,11 @@ class IntentRunner:
                     for fd in facts]
         if finding is not None:
             # 발견 자신의 기법(달성한 것) 우선, 없으면 의도 기법으로 폴백
-            graph.add_finding(finding.to_payload(fallback_technique=technique),
-                              proved_by=fact_ids)
+            fpayload = finding.to_payload(fallback_technique=technique)
+            # 같은 기법의 중복 침해는 그래프에서 하나로 병합(채점은 기법 조인이라 중복=노이즈).
+            # 기법이 없으면 dedup 안 함(섣불리 다른 침해를 합치지 않게).
+            dkey = fpayload.get("technique") or None
+            graph.add_finding(fpayload, proved_by=fact_ids, dedup_key=dkey)
 
         # 정착 결과 한 줄 — '의도대로 결론을 냈는지' 가시화
         first = facts[0].summary if facts else ""

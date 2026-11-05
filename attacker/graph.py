@@ -104,8 +104,14 @@ class ExplorationGraph(Protocol):
         ...
 
     def add_finding(self, payload: dict, *, proved_by: Optional[list[int]] = None,
-                    anchors: Optional[list[int]] = None) -> int:
-        """finding 노드를 쓰고, proved_by fact들에서 PROVES 엣지를 건다."""
+                    anchors: Optional[list[int]] = None,
+                    dedup_key: Optional[str] = None) -> int:
+        """finding 노드를 쓰고, proved_by fact들에서 PROVES 엣지를 건다.
+
+        dedup_key가 주어지고 같은 키의 finding이 이미 있으면 새 노드를 안 만들고 그걸 병합
+        (심각도=최댓값, 원 보고들은 reports[]로 보존, proved_by 엣지 추가)해 그 id를 돌려준다.
+        같은 침해(같은 기법)가 여러 의도에서 중복 보고돼도 그래프엔 하나로 수렴시키기 위함.
+        """
         ...
 
     # ── frontier / claim ──
