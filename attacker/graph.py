@@ -88,12 +88,19 @@ class ExplorationGraph(Protocol):
     """
 
     # ── 쓰기 ──
+    def add_goal(self, payload: dict, *, anchors: Optional[list[int]] = None) -> int:
+        """에피소드 목표(크라운) 노드를 쓰고 id를 돌려준다. frontier엔 안 들어감.
+        개막 의도의 출처(루트)로 쓰여 그래프를 하나로 잇는다."""
+        ...
+
     def add_intent(self, payload: dict, *, priority: int = 0,
                    anchors: Optional[list[int]] = None, origin: str = "planner",
-                   spawned_by: Optional[int] = None) -> int:
+                   spawned_by=None) -> int:
         """열린 intent를 frontier에 추가하고 id를 돌려준다.
 
-        spawned_by가 있으면 그 intent에서 SPAWNS 엣지를 건다(ARTEX 계층).
+        spawned_by: 이 의도를 낳은 출처 노드 id(목표·사실·상위의도). int 하나 또는 리스트.
+        각 출처에서 (출처)-[:SPAWNS]->(이 의도) 엣지를 건다 → 추론 트리가 하나로 이어진다.
+        (사실→SPAWNS→의도 = '이 사실을 보고 이 의도가 나왔다')
         """
         ...
 

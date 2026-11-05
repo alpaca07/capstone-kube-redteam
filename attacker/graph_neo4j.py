@@ -128,13 +128,17 @@ class Neo4jGraph(ExplorationGraph):
         self._run(_LINK.replace(_RELTOK, _REL[rel]), src=src, dst=dst)
 
     # ── 쓰기 ──
+    def add_goal(self, payload: dict, *, anchors: Optional[list[int]] = None) -> int:
+        return self._create("Goal", NodeKind.GOAL, payload, "", 0, anchors)
+
     def add_intent(self, payload: dict, *, priority: int = 0,
                    anchors: Optional[list[int]] = None, origin: str = "planner",
-                   spawned_by: Optional[int] = None) -> int:
+                   spawned_by=None) -> int:
         nid = self._create("Intent", NodeKind.INTENT, payload,
                            IntentState.OPEN.value, priority, anchors)
-        if spawned_by is not None:
-            self._link(spawned_by, Rel.SPAWNS, nid)
+        srcs = [spawned_by] if isinstance(spawned_by, int) else list(spawned_by or [])
+        for src in srcs:                      # 출처→SPAWNS→의도 (Neo4j _link는 양쪽 존재 시만 엣지)
+            self._link(src, Rel.SPAWNS, nid)
         return nid
 
     def add_fact(self, payload: dict, *, intent_id: Optional[int] = None,

@@ -99,10 +99,13 @@ class AttackRound:
         foothold = _foothold_dict(start)
         assets_block = _assets_block(start)
 
+        # 목표(goal) 노드 — 개막 의도의 루트. 그래프를 하나로 잇는다(의도 따로따로 방지).
+        goal_id = graph.add_goal({"summary": start.goal})
+
         waves = 0
         planner_empty = False
         while waves < self.cfg.max_waves and self.clock() < deadline:
-            plan = planner.plan(graph, assets_block=assets_block)
+            plan = planner.plan(graph, assets_block=assets_block, default_parent=goal_id)
             if not plan.added_ids:
                 planner_empty = True        # 더 낼 방향 없음(목표 달성/막다른/계획 실패)
                 self.log(f"[round r{round}] wave {waves+1}: 플래너 0개 → 종료 "

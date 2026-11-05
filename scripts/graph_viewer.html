@@ -97,7 +97,7 @@
   <div class="item"><span class="sw" style="background:var(--fact-bg);border-color:var(--fact)"></span>사실 (관측·결론)</div>
   <div class="item"><span class="sw" style="background:var(--finding-bg);border-color:var(--finding);border-width:3px"></span>발견 (침해 주장)</div>
   <div class="item"><span class="sw" style="background:var(--goal-bg);border-color:var(--goal)"></span>목표 (크라운)</div>
-  <span class="edge">→ YIELDS 의도가 사실을 낳음 · PROVES 사실이 침해 입증 · SPAWNS 하위의도 · DERIVED_FROM 파생</span>
+  <span class="edge">→ SPAWNS 출처가 의도를 낳음(목표·사실→의도) · YIELDS 의도가 사실을 낳음 · PROVES 사실이 침해 입증</span>
 </div>
 
 <div class="modal" id="modal">
@@ -130,9 +130,14 @@ const EXAMPLE = {
     {id:20, kind:"finding", state:"claimed", payload:{summary:"admin-dashboard에서 postgres 크레덴셜 탈취", severity:"critical", technique:"T1552", occurrences:4, evidence:"decoded secret appuser/devpassword123"}}
   ],
   edges: [
-    {src:0, rel:"SPAWNS", dst:1},{src:0, rel:"SPAWNS", dst:2},{src:0, rel:"SPAWNS", dst:3},{src:0, rel:"SPAWNS", dst:4},
-    {src:1, rel:"YIELDS", dst:10},{src:2, rel:"YIELDS", dst:11},{src:3, rel:"YIELDS", dst:13},{src:4, rel:"YIELDS", dst:12},
-    {src:4, rel:"YIELDS", dst:10},
+    // 목표 → 개막 의도(1,2,3)
+    {src:0, rel:"SPAWNS", dst:1},{src:0, rel:"SPAWNS", dst:2},{src:0, rel:"SPAWNS", dst:3},
+    // 의도 → 사실
+    {src:1, rel:"YIELDS", dst:10},{src:2, rel:"YIELDS", dst:11},{src:3, rel:"YIELDS", dst:13},
+    // 사실 → (그걸 보고 나온) 하위 의도4  ← 연결의 핵심
+    {src:10, rel:"SPAWNS", dst:4},
+    {src:4, rel:"YIELDS", dst:12},{src:4, rel:"YIELDS", dst:11},
+    // 사실 → 발견
     {src:10, rel:"PROVES", dst:20},{src:11, rel:"PROVES", dst:20}
   ]
 };

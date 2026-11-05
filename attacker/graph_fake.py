@@ -20,6 +20,15 @@ from .graph import (
 _max_severity = max_severity        # 하위호환 별칭(기존 테스트 import 유지)
 
 
+def _as_id_list(x) -> list[int]:
+    """spawned_by를 리스트로 정규화(None/단일 int/리스트 모두 허용)."""
+    if x is None:
+        return []
+    if isinstance(x, int):
+        return [x]
+    return list(x)
+
+
 class InMemoryGraph(ExplorationGraph):
     def __init__(self, *, episode: int = 0) -> None:
         self._episode = episode
@@ -43,14 +52,19 @@ class InMemoryGraph(ExplorationGraph):
         self._edges.append(Edge(src_id=src, rel=rel, dst_id=dst))
 
     # ── 쓰기 ──
+    def add_goal(self, payload: dict, *, anchors: Optional[list[int]] = None) -> int:
+        with self._lock:
+            return self._new_node(NodeKind.GOAL, payload, "", 0, anchors)
+
     def add_intent(self, payload: dict, *, priority: int = 0,
                    anchors: Optional[list[int]] = None, origin: str = "planner",
-                   spawned_by: Optional[int] = None) -> int:
+                   spawned_by=None) -> int:
         with self._lock:
             nid = self._new_node(NodeKind.INTENT, payload, IntentState.OPEN.value,
                                  priority, anchors)
-            if spawned_by is not None:
-                self._link(spawned_by, Rel.SPAWNS, nid)
+            for src in _as_id_list(spawned_by):   # 출처(목표·사실·상위의도) → SPAWNS → 이 의도
+                if src in self._nodes:            # 존재하는 노드만(헛 id 무시)
+                    self._link(src, Rel.SPAWNS, nid)
             return nid
 
     def add_fact(self, payload: dict, *, intent_id: Optional[int] = None,

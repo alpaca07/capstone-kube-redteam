@@ -16,12 +16,15 @@ LLM은 주입(계약) → fake로 전 로직 테스트. 실제 LLM은 common.llm
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Optional, Protocol
 
 from common.llm_json import LLMJsonError, extract_and_load
 
 from .graph import ExplorationGraph, Node, NodeKind
+
+_re_int = re.compile(r"\d+")
 
 
 PLANNER_SYSTEM = """\
@@ -40,11 +43,16 @@ Rules:
 flight (listed below). Do not restate directions that are already open or running.
 - Each intent gets a MITRE ATT&CK technique id in a "technique" field when one fits \
 (e.g. T1552, T1078, T1046); use "" if none fits.
+- "from": list the fact id numbers (the #N shown in RECENT FACTS) that THIS intent \
+builds on — i.e. the observations that made you choose this direction. Use [] only \
+for the opening move when there are no facts yet. This links each new direction to \
+the evidence that motivated it, so the exploration forms a connected reasoning tree.
 - If the goal already appears reached from the facts, return an empty "intents" list.
 
 Output ONLY a JSON object, no prose:
 {"intents": [{"summary": "<one-line direction>", "target": "<asset>", \
-"why": "<why it advances the goal>", "technique": "<MITRE id or empty>"}]}"""
+"why": "<why it advances the goal>", "technique": "<MITRE id or empty>", \
+"from": [<fact id numbers this builds on>]}]}"""
 
 
 @dataclass
@@ -54,6 +62,7 @@ class PlannerIntent:
     target: str = ""
     why: str = ""
     technique: str = ""
+    from_facts: list = None       # 이 의도가 파생된 출처 사실 id들(그래프 연결용)
 
     def to_payload(self) -> dict:
         p = {"summary": self.summary}
@@ -127,8 +136,26 @@ def parse_intents(text: str) -> list[PlannerIntent]:
             summary=summary,
             target=str(it.get("target", "")).strip(),
             why=str(it.get("why", "")).strip(),
-            technique=str(it.get("technique", "")).strip()))
+            technique=str(it.get("technique", "")).strip(),
+            from_facts=_parse_ids(it.get("from"))))
     return out
+
+
+def _parse_ids(x) -> list:
+    """'from' 필드를 int id 리스트로. "#12"·"12"·12 모두 허용, 비정상은 버림."""
+    if not isinstance(x, list):
+        return []
+    ids = []
+    for v in x:
+        if isinstance(v, bool):
+            continue
+        if isinstance(v, int):
+            ids.append(v)
+        elif isinstance(v, str):
+            m = _re_int.search(v)
+            if m:
+                ids.append(int(m.group()))
+    return ids
 
 
 # ───────────── 플래너 ─────────────
@@ -153,9 +180,18 @@ class Planner:
         self.retries = retries
 
     def plan(self, graph: ExplorationGraph, *, assets_block: str = "",
-             spawned_by: Optional[int] = None) -> PlanResult:
-        """태세를 읽어 의도를 생성하고 frontier에 추가. 추가된 id 목록을 돌려준다."""
+             spawned_by: Optional[int] = None,
+             default_parent: Optional[int] = None) -> PlanResult:
+        """태세를 읽어 의도를 생성하고 frontier에 추가. 추가된 id 목록을 돌려준다.
+
+        각 의도는 플래너가 낸 'from'(출처 사실 id)으로 그래프에 연결된다. from이 비면
+        default_parent(보통 goal 노드)에서 파생 → 추론 트리가 하나로 이어진다. spawned_by는
+        모든 의도에 공통으로 더 붙일 출처(옵션).
+        """
         user = build_situation(graph, goal=self.goal, assets_block=assets_block)
+        # 플래너가 헛 id를 낼 수 있으니 현존 사실·의도 id만 유효 출처로 인정
+        valid = {n.id for n in graph.recent_facts(limit=10_000)}
+        valid |= {n.id for n in graph.running_intents()}
         last_err = ""
         for attempt in range(self.retries + 1):
             prompt = user if attempt == 0 else user + (
@@ -173,10 +209,16 @@ class Planner:
             except LLMJsonError as e:
                 last_err = f"파싱 실패: {e}"
                 continue
-            # 성공 — frontier에 추가
-            added = [graph.add_intent(pi.to_payload(), origin="planner",
-                                      spawned_by=spawned_by)
-                     for pi in intents]
+            # 성공 — 각 의도를 출처(from 사실들 → 없으면 default_parent)에 연결해 추가
+            added = []
+            for pi in intents:
+                srcs = [i for i in (pi.from_facts or []) if i in valid]
+                if not srcs and default_parent is not None:
+                    srcs = [default_parent]          # 개막·무출처 의도는 목표에서 파생
+                if spawned_by is not None:
+                    srcs.append(spawned_by)
+                added.append(graph.add_intent(pi.to_payload(), origin="planner",
+                                              spawned_by=srcs or None))
             return PlanResult(added_ids=added, proposed=len(intents))
         return PlanResult(added_ids=[], proposed=0, error=last_err)
 
