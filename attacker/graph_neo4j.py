@@ -55,11 +55,16 @@ def _base_props(kind: NodeKind, payload: dict, state: str, priority: int,
 
 
 # ───────────── Cypher ─────────────
+# NOTE: 쿼리엔 Cypher 맵 리터럴({name:...} 등)이 많아 str.format을 쓰면 그걸 포맷 필드로
+# 오해해 깨진다. 라벨/관계만 .replace(토큰)로 끼운다(라벨·관계는 내부 상수라 주입 위험 없음).
+_LABEL = "__LABEL__"
+_RELTOK = "__REL__"
+
 _NEXT = "MERGE (c:Counter {name:'explore_node'}) SET c.n = coalesce(c.n,0)+1 WITH c.n AS newid"
 
 _CREATE = (_NEXT + " "
-           "CREATE (n:Explore:{label} {{id:newid, episode:$episode, kind:$kind, state:$state, "
-           "owner:$owner, priority:$priority, payload_json:$payload_json, anchors:$anchors}}) "
+           "CREATE (n:Explore:" + _LABEL + " {id:newid, episode:$episode, kind:$kind, state:$state, "
+           "owner:$owner, priority:$priority, payload_json:$payload_json, anchors:$anchors}) "
            "RETURN newid AS id")
 
 # claim: 락 획득(SET) 후 재검사(WHERE) — lost update 방지
@@ -74,11 +79,11 @@ _CLAIM = (
 _FRONTIER = ("MATCH (n:Intent {episode:$episode, state:'open'}) "
              "RETURN n{.*} AS props ORDER BY n.priority DESC, n.id ASC LIMIT $limit")
 _RUNNING = "MATCH (n:Intent {episode:$episode, state:'running'}) RETURN n{.*} AS props"
-_RECENT = ("MATCH (n:{label} {{episode:$episode}}) "
-           "RETURN n{{.*}} AS props ORDER BY n.id DESC LIMIT $limit")
+_RECENT = ("MATCH (n:" + _LABEL + " {episode:$episode}) "
+           "RETURN n{.*} AS props ORDER BY n.id DESC LIMIT $limit")
 _GET = "MATCH (n:Explore {episode:$episode, id:$id}) RETURN n{.*} AS props"
 _LINK = ("MATCH (a:Explore {episode:$episode, id:$src}), (b:Explore {episode:$episode, id:$dst}) "
-         "CREATE (a)-[:{rel}]->(b)")
+         "CREATE (a)-[:" + _RELTOK + "]->(b)")
 _RESET = "MATCH (n:Explore {episode:$episode}) DETACH DELETE n"
 
 _SCHEMA = [
@@ -114,13 +119,13 @@ class Neo4jGraph(ExplorationGraph):
     def _create(self, label: str, kind: NodeKind, payload: dict, state: str,
                 priority: int, anchors: Optional[list[int]]) -> int:
         p = _base_props(kind, payload, state, priority, anchors)
-        rows = self._run(_CREATE.format(label=label), kind=p["kind"], state=p["state"],
+        rows = self._run(_CREATE.replace(_LABEL, label), kind=p["kind"], state=p["state"],
                          owner=p["owner"], priority=p["priority"],
                          payload_json=p["payload_json"], anchors=p["anchors"])
         return int(rows[0]["id"])
 
     def _link(self, src: int, rel: Rel, dst: int) -> None:
-        self._run(_LINK.format(rel=_REL[rel]), src=src, dst=dst)
+        self._run(_LINK.replace(_RELTOK, _REL[rel]), src=src, dst=dst)
 
     # ── 쓰기 ──
     def add_intent(self, payload: dict, *, priority: int = 0,
@@ -224,11 +229,11 @@ class Neo4jGraph(ExplorationGraph):
 
     def recent_facts(self, limit: int = 20) -> list[Node]:
         return [_node_from_props(r["props"])
-                for r in self._run(_RECENT.format(label="Fact"), limit=limit)]
+                for r in self._run(_RECENT.replace(_LABEL, "Fact"), limit=limit)]
 
     def recent_findings(self, limit: int = 20) -> list[Node]:
         return [_node_from_props(r["props"])
-                for r in self._run(_RECENT.format(label="Finding"), limit=limit)]
+                for r in self._run(_RECENT.replace(_LABEL, "Finding"), limit=limit)]
 
     def running_intents(self) -> list[Node]:
         return [_node_from_props(r["props"]) for r in self._run(_RUNNING)]

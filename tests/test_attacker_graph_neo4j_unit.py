@@ -92,6 +92,24 @@ def test_shared_merge_rule():
     assert merged["reports"] == ["a", "b"]
 
 
+# ── 라벨/관계 치환이 Cypher 맵 리터럴을 안 깨뜨림(KeyError 'name' 버그 회귀 방지) ──
+def test_label_substitution_does_not_break_cypher_literals():
+    # _CREATE엔 {name:'explore_node'}·{id:newid...} 같은 Cypher 맵이 있다.
+    # 라벨 치환 후에도 그 리터럴들이 온전해야 한다(str.format이었으면 여기서 깨짐).
+    q = gn._CREATE.replace(gn._LABEL, "Intent")
+    assert gn._LABEL not in q                       # 토큰 소진
+    assert "n:Explore:Intent" in q                   # 라벨 끼워짐
+    assert "{name:'explore_node'}" in q              # Counter 맵 리터럴 온전
+    assert "{id:newid" in q                          # 노드 맵 리터럴 온전
+    # 관계 치환
+    lk = gn._LINK.replace(gn._RELTOK, "SPAWNS")
+    assert gn._RELTOK not in lk and "[:SPAWNS]" in lk
+    assert "{episode:$episode, id:$src}" in lk        # 맵 리터럴 온전
+    # recent
+    rc = gn._RECENT.replace(gn._LABEL, "Fact")
+    assert gn._LABEL not in rc and "n:Fact" in rc and "n{.*}" in rc
+
+
 # ── 모듈이 드라이버 없이 import됨(지연 import 보장) ──
 def test_module_imports_without_driver():
     # import 자체가 위에서 성공했고, connect만 드라이버를 요구
