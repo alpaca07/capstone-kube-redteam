@@ -101,7 +101,7 @@ class ExecutionLane:
                                    base_snapshot=base_snapshot, steps=[])
         self.flag_value_id = flag_value_id
         self.step_timeout = step_timeout
-        self.flags_found: list[str] = []
+        self.flags_found: list[tuple[str, str]] = []   # (flag 값, step_id) — 라운드 결과 조립용
         self._step = 0
         self._lock = threading.Lock()
 
@@ -133,7 +133,7 @@ class ExecutionLane:
 
             flag_found = find_flag(res.stdout)
             if flag_found:
-                self.flags_found.append(flag_found)
+                self.flags_found.append((flag_found, sid))
 
             success = res.exit_code == 0
             rec = StepResultRec(

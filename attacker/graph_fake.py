@@ -130,6 +130,12 @@ class InMemoryGraph(ExplorationGraph):
             facts.sort(key=lambda n: n.id, reverse=True)
             return [self._copy(n) for n in facts[:limit]]
 
+    def recent_findings(self, limit: int = 20) -> list[Node]:
+        with self._lock:
+            fs = [n for n in self._nodes.values() if n.kind == NodeKind.FINDING]
+            fs.sort(key=lambda n: n.id, reverse=True)
+            return [self._copy(n) for n in fs[:limit]]
+
     def running_intents(self) -> list[Node]:
         with self._lock:
             return [self._copy(n) for n in self._nodes.values()

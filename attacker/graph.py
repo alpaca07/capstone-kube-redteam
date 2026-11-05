@@ -138,6 +138,10 @@ class ExplorationGraph(Protocol):
         """최근 fact들(플래너가 다음 의도를 설계할 때 보는 태세)."""
         ...
 
+    def recent_findings(self, limit: int = 20) -> list[Node]:
+        """최근 finding들(공격자 주장 침해 — 라운드 결과 요약·채점 입력용)."""
+        ...
+
     def running_intents(self) -> list[Node]:
         """지금 워커가 돌리고 있는 intent들(종료 판정·중복 방지용)."""
         ...
