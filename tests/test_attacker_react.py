@@ -299,6 +299,85 @@ def test_consecutive_exec_failures_deadend():
     assert len(res.replay_script.steps) == _MAX_EXEC_FAILS, len(res.replay_script.steps)  # 한계서 종료
 
 
+class DistinctLLM:
+    """매 호출 서로 다른 유효 액션(args 가 달라 명령 서명이 매번 새로움). 호스트 없음 → 스코프 통과."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def chat_text_meta(self, system, user, *, timeout=None, max_tokens=None, **kw):
+        self.calls += 1
+        return ('{"thought":"t","action":{"tool":"kubectl","args":["get","pods","-n","ns%d"]}}'
+                % self.calls), "stop"
+
+    def chat_text(self, system, user, **kw):
+        return self.chat_text_meta(system, user, **kw)[0]
+
+
+class UniqueRunner:
+    """매 호출 서로 다른 출력(성공) — 출력 해시가 매번 새로움(진전 있음 시뮬)."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def run(self, tool, args, *, stdin=None, timeout=None):
+        self.calls += 1
+        return CommandResult(exit_code=0, stdout=f"out-{self.calls}")
+
+
+def test_repeated_same_command_is_no_progress_deadend():
+    # 진전 없음 가드: 같은 명령(같은 서명·같은 출력)을 성공적으로 반복하면 연속 한계에서 DEADEND.
+    # (실패가 아니라 '똑같은 성공' 반복으로 디코드 예산을 갉아먹는 걸 끊음 — 로그의 env|grep 반복.)
+    from attacker.react_loop import _MAX_NO_PROGRESS
+    llm = FakeLLM([("ok", _ACTION)])        # 매번 같은 유효 액션
+    res = _loop(llm, stdout="same-output", max_steps=40).run(
+        foothold={"attack_endpoint": "10.0.0.1"})
+    assert res.end_reason == AttackEndReason.DEADEND, res.end_reason
+    # 첫 성공(진전) 1 + 연속 중복 _MAX_NO_PROGRESS 에서 종료
+    assert len(res.replay_script.steps) == _MAX_NO_PROGRESS + 1, len(res.replay_script.steps)
+
+
+def test_same_output_different_command_is_no_progress():
+    # 명령은 매번 달라도(서명 새로움) '출력이 똑같으면' 진전 없음으로 본다 — 다른 프로브가
+    # 계속 같은(빈·동일) 결과만 뱉는 낭비 패턴을 잡는다. 출력 해시 중복으로 DEADEND.
+    from attacker.react_loop import _MAX_NO_PROGRESS
+    ex = ActionExecutor(FakeRunner("identical"), scope_policy=default_policy(),
+                        session_id="t", episode=1, round=1)
+    loop = ReActLoop(DistinctLLM(), ex, AttackHistory(), system_prompt="s", goal="g",
+                     time_limit_sec=300.0, max_steps=40)
+    res = loop.run(foothold={"attack_endpoint": "10.0.0.1"})
+    assert res.end_reason == AttackEndReason.DEADEND, res.end_reason
+    assert len(res.replay_script.steps) == _MAX_NO_PROGRESS + 1, len(res.replay_script.steps)
+
+
+def test_distinct_commands_and_outputs_no_false_no_progress():
+    # 오탐 없음: 서로 다른 명령 + 서로 다른 출력(실제 진전)은 가드를 건드리지 않는다 →
+    # max_steps 까지 전부 실행(조기종료 없음).
+    ex = ActionExecutor(UniqueRunner(), scope_policy=default_policy(),
+                        session_id="t", episode=1, round=1)
+    loop = ReActLoop(DistinctLLM(), ex, AttackHistory(), system_prompt="s", goal="g",
+                     time_limit_sec=300.0, max_steps=8)
+    res = loop.run(foothold={"attack_endpoint": "10.0.0.1"})
+    assert len(res.replay_script.steps) == 8, len(res.replay_script.steps)   # 조기종료 없음
+
+
+def test_no_progress_nudge_injected_into_next_prompt():
+    # 반복 감지 후 '다음 프롬프트'에 다른 경로로 유도하는 넛지가 실려야(모델이 반복을 깨도록).
+    llm = FakeLLM([("ok", _ACTION)])        # 같은 액션 반복 → 2수째부터 진전 없음
+    _loop(llm, stdout="same", max_steps=40).run(foothold={"attack_endpoint": "10.0.0.1"})
+    assert any("진전 없음" in u for u in llm.users_seen), "넛지가 후속 프롬프트에 안 실림"
+
+
+def test_flag_outcome_survives_no_progress_stop():
+    # FLAG 를 집은 뒤 같은 명령을 반복해 진전 없음으로 조기정지해도 종료사유는 FLAG 로 유지된다
+    # (조기정지는 효율 차원이지 '실패'가 아님 — 크라운 주얼을 집었으면 성과를 강등하지 않음).
+    llm = FakeLLM([("ok", _FLAG_ACTION)])   # 매번 같은 액션, 러너는 항상 같은 FLAG 출력
+    res = _loop(llm, stdout="secret=FLAG{keep}", max_steps=40).run(
+        foothold={"attack_endpoint": "10.0.0.1"})
+    assert res.end_reason == AttackEndReason.FLAG, res.end_reason
+    assert any(f.value == "FLAG{keep}" for f in res.flags_obtained)
+
+
 def test_prior_summary_triggers_reattempt_framing():
     # R2+ (carry-forward 있음): '이미 했다'로 포기 안 하게 '매 라운드 재달성' 프레이밍이 붙어야.
     from attacker.react_loop import build_user_prompt
