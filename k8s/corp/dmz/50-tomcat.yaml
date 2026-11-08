@@ -1,0 +1,49 @@
+# corp DMZ — Tomcat 8.5.19 (CVE-2017-12615 PUT 웹셸 + CVE-2020-1938 Ghostcat)
+# VulHub tomcat/CVE-2017-12615 재현: base vulhub/tomcat:8.5.19 의 web.xml 에 readonly=false 를
+#   넣어 PUT 업로드(JSP 웹셸)를 허용한다. 8.5.19는 Ghostcat(AJP, 8.5.51 패치 전)에도 취약 →
+#   하나의 Tomcat 으로 두 CVE를 모두 재현(설계서 "8.5.x" 와 일치).
+# Dockerfile 빌드 대신 기동 command 로 web.xml 을 패치해 공식 이미지를 그대로 쓴다
+#   (VulHub Dockerfile 의 sed 로직과 동일).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tomcat
+  namespace: corp-dmz
+  labels: { app: tomcat, zone: dmz }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: tomcat }
+  template:
+    metadata:
+      labels: { app: tomcat, zone: dmz }
+    spec:
+      containers:
+        - name: tomcat
+          image: vulhub/tomcat:8.5.19
+          command: ["sh", "-c"]
+          args:
+            - |
+              cd /usr/local/tomcat/conf
+              LINE=$(nl -ba web.xml | grep '<load-on-startup>1' | awk '{print $1}')
+              sed -i "$LINE i <init-param><param-name>readonly</param-name><param-value>false</param-value></init-param>" web.xml
+              cd /usr/local/tomcat && exec bin/catalina.sh run
+          ports:
+            - { containerPort: 8080 }   # HTTP — PUT 웹셸(CVE-2017-12615)
+            - { containerPort: 8009 }   # AJP  — Ghostcat(CVE-2020-1938)
+          readinessProbe:
+            tcpSocket: { port: 8080 }
+            initialDelaySeconds: 15
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tomcat
+  namespace: corp-dmz
+  labels: { app: tomcat }
+spec:
+  selector: { app: tomcat }
+  ports:
+    - { name: http, port: 8080, targetPort: 8080 }
+    - { name: ajp, port: 8009, targetPort: 8009 }
