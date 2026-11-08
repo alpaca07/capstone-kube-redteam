@@ -178,11 +178,17 @@ def _parse_ids(x) -> list:
 
 
 # ───────────── 플래너 ─────────────
+def _norm_target(t: str) -> str:
+    """target 정규화(소문자·공백제거) — 자산 겹침 판정 키."""
+    return (t or "").strip().lower()
+
+
 @dataclass
 class PlanResult:
     added_ids: list[int]           # 이번에 frontier에 넣은 intent id들
     proposed: int                  # LLM이 제안한 수(파싱 성공분)
     error: str = ""                # 파싱 끝내 실패 시 진단(이 라운드 0개 추가)
+    deduped: int = 0               # 자산 겹침으로 떨군 의도 수(워커 동시 중복 방지)
 
     @property
     def goal_reached_signal(self) -> bool:
@@ -232,9 +238,24 @@ class Planner:
             except LLMJsonError as e:
                 last_err = f"파싱 실패: {e}"
                 continue
+            # 워커 겹침 방지: 같은 자산(target)을 '동시에' 겨냥하는 의도는 떨군다.
+            #   - 이미 떠 있는(open/running) 의도의 target + 이번 배치 내 target 으로 중복 차단.
+            #   - 빈 target 은 자산 식별 불가 → 안 떨군다. 탐색 끝난 자산 '재겨냥'(재검증)은
+            #     여기서 안 막는다(종료 상태 의도는 안 보므로) — 라운드 간 재검증 보존.
+            inflight = {_norm_target(n.payload.get("target", ""))
+                        for n in graph.running_intents() + graph.frontier(limit=10_000)}
+            inflight.discard("")
             # 성공 — 각 의도를 출처(from 사실들 → 없으면 default_parent)에 연결해 추가
-            added = []
+            added: list[int] = []
+            seen_batch: set[str] = set()
+            deduped = 0
             for pi in intents:
+                key = _norm_target(pi.target)
+                if key and (key in inflight or key in seen_batch):
+                    deduped += 1                 # 같은 자산 동시 겨냥 → 생략(워커 낭비 방지)
+                    continue
+                if key:
+                    seen_batch.add(key)
                 srcs = [i for i in (pi.from_facts or []) if i in valid]
                 if not srcs and default_parent is not None:
                     srcs = [default_parent]          # 개막·무출처 의도는 목표에서 파생
@@ -242,7 +263,7 @@ class Planner:
                     srcs.append(spawned_by)
                 added.append(graph.add_intent(pi.to_payload(), origin="planner",
                                               spawned_by=srcs or None))
-            return PlanResult(added_ids=added, proposed=len(intents))
+            return PlanResult(added_ids=added, proposed=len(intents), deduped=deduped)
         return PlanResult(added_ids=[], proposed=0, error=last_err)
 
 

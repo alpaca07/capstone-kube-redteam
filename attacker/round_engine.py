@@ -195,7 +195,8 @@ class AttackRound:
                 self.log(f"[round r{round}] wave {waves+1}: 플래너 0개 → 종료 "
                          f"({plan.error or 'goal-reached/no-direction'})")
                 break
-            self.log(f"[round r{round}] wave {waves+1}: 플래너가 의도 {len(plan.added_ids)}개 생성")
+            dd = f", 겹침 {plan.deduped}개 제거" if plan.deduped else ""
+            self.log(f"[round r{round}] wave {waves+1}: 플래너가 의도 {len(plan.added_ids)}개 생성{dd}")
             for iid in plan.added_ids:          # 플래너가 무슨 방향을 냈는지 보여줌
                 n = graph.get_node(iid)
                 if n is not None:

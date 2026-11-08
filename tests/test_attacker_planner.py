@@ -166,6 +166,42 @@ def test_plan_empty_is_goal_reached_signal():
     assert g.frontier() == []
 
 
+# ── plan: 같은 배치 안 같은 자산(target) 겨냥 중복은 떨군다(대소문자 무시) ──
+def test_plan_dedups_same_target_in_batch():
+    g = InMemoryGraph()
+    two_same = ('{"intents":[{"summary":"a","target":"postgres"},'
+                '{"summary":"b","target":"Postgres"}]}')     # 대소문자만 다름 → 같은 자산
+    res = Planner(_FakeLLM([two_same]), goal="x").plan(g)
+    assert len(res.added_ids) == 1 and res.deduped == 1       # 하나만 추가, 하나 겹침 제거
+    assert len(g.frontier()) == 1
+
+
+# ── plan: 이미 떠 있는(open) 의도와 같은 자산 겨냥은 떨군다(워커 동시 중복 방지) ──
+def test_plan_dedups_against_inflight_intent():
+    g = InMemoryGraph()
+    g.add_intent({"summary": "running probe", "target": "postgres"})   # open 상태로 frontier에
+    proposal = ('{"intents":[{"summary":"dup","target":"postgres"},'
+                '{"summary":"new","target":"redis"}]}')
+    res = Planner(_FakeLLM([proposal]), goal="x").plan(g)
+    assert res.deduped == 1 and len(res.added_ids) == 1       # postgres 중복 → redis만 추가
+    targets = {g.get_node(i).payload.get("target") for i in res.added_ids}
+    assert targets == {"redis"}
+
+
+# ── plan: 빈 target 의도는 안 떨군다(자산 식별 불가 → 겹침 판정 대상 아님) ──
+def test_plan_keeps_empty_target_intents():
+    g = InMemoryGraph()
+    res = Planner(_FakeLLM(['{"intents":[{"summary":"a"},{"summary":"b"}]}']), goal="x").plan(g)
+    assert len(res.added_ids) == 2 and res.deduped == 0       # 둘 다 추가
+
+
+# ── plan: 서로 다른 자산이면 제거 없음(오탐 없음) ──
+def test_plan_distinct_targets_no_dedup():
+    g = InMemoryGraph()
+    res = Planner(_FakeLLM([_TWO_INTENTS]), goal="x").plan(g)   # postgres.database vs admin-dashboard
+    assert len(res.added_ids) == 2 and res.deduped == 0
+
+
 # ── plan: spawned_by 주면 SPAWNS 엣지로 계층 연결 ──
 def test_plan_spawned_by_links_edge():
     g = InMemoryGraph()

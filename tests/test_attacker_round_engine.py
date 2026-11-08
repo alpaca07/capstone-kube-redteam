@@ -287,6 +287,18 @@ def test_round1_has_no_prior_breach_section():
     assert "PREVIOUSLY BREACHED" not in captured["user"]
 
 
+# ── 겹침 억제: 한 웨이브가 같은 자산 2개 겨냥 → 1개만 실행(사실 1개) ──
+def test_round_dedups_same_target_intents():
+    dup = ('{"intents":[{"summary":"probe pg a","target":"postgres","technique":"T1046"},'
+           '{"summary":"probe pg b","target":"postgres","technique":"T1046"}]}')
+    plan = _PlanLLM([dup])
+    rnd = AttackRound(attacker_llm=_WorkLLM(), planner_llm=plan, runner=_R(),
+                      scope_policy=default_policy(), cfg=_cfg())
+    g = InMemoryGraph(episode=1)
+    rnd.run(_start(), episode=1, round=1, graph=g)
+    assert len(g.recent_facts()) == 1          # 같은 자산 겨냥 2개 중 1개만 실행
+
+
 def _run() -> int:
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]
