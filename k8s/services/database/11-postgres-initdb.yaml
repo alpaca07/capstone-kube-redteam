@@ -65,12 +65,22 @@ data:
 
   02a-roles.sql: |
     -- DB 크라운 actor 스코핑용 role 분리 (god-view DbLogSource.attacker_db_roles 와 짝).
-    -- 앱(백엔드 서비스)은 POSTGRES_USER(appuser)로 접속 → statement 로그의 role=appuser → 크라운 제외.
-    -- legacy_admin = 킬체인 ① 평문 ConfigMap(legacy-db-config)에 유출되는 '안 지워진 레거시 관리자'.
-    --   공격자가 유출 DSN 으로 이 role 접속 → customers/internal_secrets 조회 시 ④ 크라운(actor=legacy_admin).
-    -- 비밀번호는 유출될 값(그게 ① 취약점) → 평문 OK. appuser(앱)와 '반드시 다른' role 이어야 스코핑 성립.
-    -- initdb 는 POSTGRES_USER(superuser)로 실행되므로 CREATE ROLE 권한 있음. 테이블은 01-schema 에서
-    --   이미 생성됨(internal_secrets 값은 03 에서 주입되지만 GRANT 는 테이블 레벨이라 무관).
+    -- 세 role 로 '앱 vs 공격자'를 statement 로그의 접속 role 로 가른다(log_line_prefix %u@%d).
+    --   shopflow_app = 앱(catalog/order) 전용 제한 role. internal_secrets 접근 없음 → 앱 조회는 크라운 제외.
+    --   legacy_admin = 킬체인 ① 평문 ConfigMap(legacy-db-config) 유출 '레거시 관리자' → ④ 크라운 role.
+    --   appuser(=POSTGRES_USER superuser) = ②(confused deputy→postgres-credentials)·B0로 유출되는
+    --     superuser → 앱이 더는 안 쓰므로(앱=shopflow_app) 이 role 접속은 전부 공격 = ④ 크라운 role.
+    -- 유출 비밀번호는 평문 OK(그게 ①② 취약점). 앱 role(shopflow_app)만 공격 목록에서 빠진다.
+    -- initdb 는 POSTGRES_USER(superuser)로 실행 → CREATE ROLE 권한 있음. 테이블은 01-schema 에서 이미 생성됨.
+
+    -- 앱 전용 제한 role: 비즈니스 테이블만, internal_secrets(④ 목표물)엔 권한 없음.
+    CREATE ROLE shopflow_app LOGIN PASSWORD 'Sh0pFl0wApp!svc';
+    GRANT CONNECT ON DATABASE customerdb TO shopflow_app;
+    GRANT USAGE ON SCHEMA public TO shopflow_app;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON customers, products, orders TO shopflow_app;
+    GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO shopflow_app;
+
+    -- 유출될 레거시 관리자 role: DB read 전권(internal_secrets 포함) → ④ 크라운 경로.
     CREATE ROLE legacy_admin LOGIN PASSWORD 'L3gacyAdm1n!2019';
     GRANT CONNECT ON DATABASE customerdb TO legacy_admin;
     GRANT USAGE ON SCHEMA public TO legacy_admin;

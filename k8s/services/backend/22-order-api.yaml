@@ -78,7 +78,8 @@ data:
             return jsonify(cur.fetchall())
     @app.get("/debug/config")
     def debug_config():
-        # ⚠ B0 cred-leak: env 평문 노출(DB_PASSWORD 등) → ① 대체경로.
+        # ⚠ B0 cred-leak: env 평문 노출(DB_PASSWORD=Sh0pFl0wApp!svc, shopflow_app) → ① 대체경로.
+        #   주의: 앱 role(shopflow_app)이라 god-view 크라운에선 빠짐(거짓음성). ①②는 공격 role.
         return jsonify({k: v for k, v in os.environ.items()})
     @app.get("/api/invoice/<int:oid>")
     def invoice(oid):

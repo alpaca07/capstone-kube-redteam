@@ -104,7 +104,8 @@ data:
     @app.get("/debug/config")
     def debug_config():
         # 레거시 환경 점검 엔드포인트.
-        # ⚠ B0 cred-leak: env 를 그대로 노출 → DB_PASSWORD(devpassword123) 등 평문 유출. (운영 제거 누락)
+        # ⚠ B0 cred-leak: env 를 그대로 노출 → DB_PASSWORD(Sh0pFl0wApp!svc, shopflow_app) 평문 유출. (운영 제거 누락)
+        #   주의: 이 경로로 새는 건 앱 role(shopflow_app) → god-view 크라운에선 빠짐(거짓음성). ①②는 공격 role.
         return jsonify({k: v for k, v in os.environ.items()})
     if __name__ == "__main__":
         app.run(host="0.0.0.0", port=8080)
