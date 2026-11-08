@@ -12,6 +12,7 @@ Neo4j에 적재한다. **대상 안 가리는 재사용 지식 라이브러리**
 | `sources.py` | 소스별 `parse_*(raw) -> (nodes, rels)` — ATT&CK/CAPEC/NVD/cve_attack. generic CWE 꼬리표·NVD CPE 토글도 여기 |
 | `__main__.py` | CLI — 받기(fetch)·접속(connect)·적재 |
 | `cve_attack.example.json` | CVE→Technique 큐레이트 매핑 템플릿(복사해서 VM-B 타깃으로 채움) |
+| `cve_attack.vulhub.json` | VulHub 4 타깃(Struts2·GitLab·Spring·PostgreSQL) 실제 CVE→Technique 매핑 — 끊긴 CWE→CAPEC 사슬을 직접 메움 |
 
 ## 실행 (VM-A, 개발모드 인터넷 ON)
 ```bash
