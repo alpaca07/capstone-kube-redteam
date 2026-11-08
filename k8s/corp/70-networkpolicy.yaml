@@ -1,0 +1,76 @@
+# corp 존 격리 — NetworkPolicy default-deny 후 한 방향만 개방.
+# 킬체인을 강제한다: 외부 → DMZ → 내부 → 크라운. 역방향·건너뛰기는 막힌다.
+# k3s 기본 CNI가 NetworkPolicy 를 집행한다(기존 킬체인의 '③ NetworkPolicy 부재'와 반대로, 여기선 건다).
+# ingress 만 통제한다(egress 자유) → DNS·외부 조회는 되고, '들어오는 방향'의 존 경계만 강제된다.
+#
+# ※ 지금은 WAF 가 없어 ext → dmz 를 직접 연다. 4b(WAF) 추가 시 allow-from-ext 를
+#   'WAF 파드로만' 좁혀 WAF 를 유일 진입점으로 만든다.
+
+# ──────────────── corp-dmz: 외부(ext)에서만 들어올 수 있다 ────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: corp-dmz
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-ext
+  namespace: corp-dmz
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { zone: ext }
+---
+# ──────────────── corp-internal: DMZ에서만 (측면이동) ────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: corp-internal
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-dmz
+  namespace: corp-internal
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { zone: dmz }
+---
+# ──────────────── corp-crown: 내부에서만 (크라운 접근) ────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: corp-crown
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-internal
+  namespace: corp-crown
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { zone: internal }
