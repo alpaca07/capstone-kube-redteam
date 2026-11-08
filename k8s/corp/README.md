@@ -24,7 +24,10 @@
 4. **방어장비·격리** ✓
    - 4a. 존 격리(NetworkPolicy default-deny) ✓
    - 4b. 방어장비(WAF ModSecurity · IDS Suricata) ✓ ← 이 커밋.
-5. 방어 2층 배선 (Falco·서비스 로그 → 방어 하네스 VM D).
+5. 방어 2층 배선 (방어 하네스 VM D):
+   - 5a. 관측·생존확인 ✓ — Falco corp 킬체인 룰(`k8s/observability/falco-values.yaml`) +
+     생존확인 범위에 corp 추가(`defender/kubectl_cluster.py`의 `_APP_NAMESPACES`).
+   - 5b. 대응 템플릿·서비스 로그(PostgreSQL·Samba·WAF) 수집 — 예정.
 
 ## 킬체인 (발판 → 크라운)
 
