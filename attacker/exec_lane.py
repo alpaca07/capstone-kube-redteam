@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 from common.replay_schema import (
     Command, FlagCheck, Step, StepResultRec, ReplayScript,
@@ -160,11 +160,17 @@ class WorkerContext:
     """
 
     def __init__(self, lane: ExecutionLane, worker_id: str, *,
-                 foothold: Optional[dict] = None, target: Optional[str] = None) -> None:
+                 foothold: Optional[dict] = None, target: Optional[str] = None,
+                 round_deadline: Optional[float] = None,
+                 clock: Optional[Callable[[], float]] = None) -> None:
         self.lane = lane
         self.wid = worker_id
         self.foothold = foothold
         self.target = target
+        # 라운드 마감(절대시각)·시계 — 의도 예산을 '남은 라운드 시간'으로 클램프하는 데 쓴다.
+        # (마감 직전 집은 의도가 자기 예산 120초를 꽉 써서 턴이 라운드 예산을 넘기는 걸 방지.)
+        self.round_deadline = round_deadline
+        self.clock = clock
         self._values: dict[str, str] = {}   # 네임스페이스된 produce 이름 → 값(이 워커 전용)
 
     @property

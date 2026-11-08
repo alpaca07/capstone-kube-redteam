@@ -175,6 +175,57 @@ def test_timeout_maps_to_exhausted():
     assert outcome.reason == "timeout"
 
 
+class _RecLLM:
+    """ReAct·정착 호출에 넘어온 timeout 을 기록 — 라운드 마감 클램프 검증용."""
+    def __init__(self):
+        self.react_timeouts = []
+        self.settle_timeout = "unset"
+        self._done = False
+
+    def chat_text_meta(self, system, user, *, timeout=None, **kw):
+        self.react_timeouts.append(timeout)
+        if not self._done:
+            self._done = True
+            return '{"thought":"p","action":{"tool":"get","args":["x"]}}', "stop"
+        return '{"thought":"d","action":{"tool":"give_up","args":[]}}', "stop"
+
+    def chat_text(self, system, user, *, timeout=None, **kw):
+        self.settle_timeout = timeout
+        return '{"facts":[{"summary":"o"}],"finding":null}'
+
+
+# ── 라운드 마감 클램프: 마감이 임박하면 ReAct 예산·정착 호출이 남은 시간으로 줄어든다 ──
+def test_intent_budget_and_settle_clamped_to_round_deadline():
+    import time
+    from attacker.exec_lane import WorkerContext
+
+    # (1) 먼 마감 → 예산 거의 full(120s 근처)
+    g = InMemoryGraph(); g.add_intent({"summary": "x", "target": "t"}); g.claim_next("w")
+    far = _RecLLM()
+    IntentRunner(far, IntentRunnerConfig(system_prompt="s", round_goal="g",
+                 intent_budget_sec=120.0))(
+        g, WorkerContext(_lane(), "w", round_deadline=time.time() + 1000, clock=time.time),
+        g.get_node(1))
+    assert far.react_timeouts[0] > 60, far.react_timeouts        # 클램프 안 됨(full)
+
+    # (2) 임박 마감(10s 남음) → ReAct 예산·정착 timeout 이 작게 클램프
+    g2 = InMemoryGraph(); g2.add_intent({"summary": "x", "target": "t"}); g2.claim_next("w")
+    near = _RecLLM()
+    IntentRunner(near, IntentRunnerConfig(system_prompt="s", round_goal="g",
+                 intent_budget_sec=120.0))(
+        g2, WorkerContext(_lane(), "w", round_deadline=time.time() + 10, clock=time.time),
+        g2.get_node(1))
+    assert near.react_timeouts[0] < 15, near.react_timeouts      # 120 이 아니라 남은시간으로
+    assert near.settle_timeout is not None and near.settle_timeout <= 30, near.settle_timeout
+
+    # (3) 마감 정보 없으면(기존 동작) full 예산
+    g3 = InMemoryGraph(); g3.add_intent({"summary": "x", "target": "t"}); g3.claim_next("w")
+    none = _RecLLM()
+    IntentRunner(none, IntentRunnerConfig(system_prompt="s", round_goal="g",
+                 intent_budget_sec=120.0))(g3, WorkerContext(_lane(), "w"), g3.get_node(1))
+    assert none.react_timeouts[0] > 60, none.react_timeouts      # 클램프 미적용
+
+
 # ── 정착 실패 폴백: 깨진 JSON이어도 의도는 안 잃고 폴백 fact 남김 ──
 def test_settlement_failure_falls_back_to_summary_fact():
     g = InMemoryGraph()

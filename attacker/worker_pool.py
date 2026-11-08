@@ -105,7 +105,8 @@ class WorkerPool:
             self._summary.errors.append(msg)
 
     def _worker_loop(self, wid: str) -> None:
-        wctx = WorkerContext(self.lane, wid, foothold=self.foothold, target=self.target)
+        wctx = WorkerContext(self.lane, wid, foothold=self.foothold, target=self.target,
+                             round_deadline=self.round_deadline, clock=self.clock)
         while True:
             if self._deadline_passed():
                 self.log(f"[{wid}] 라운드 데드라인 → claim 중단")

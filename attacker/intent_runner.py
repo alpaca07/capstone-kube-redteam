@@ -118,6 +118,10 @@ def parse_settlement(text: str) -> tuple[list[FactDraft], Optional[FindingDraft]
     return facts, finding
 
 
+_SETTLE_RESERVE = 25.0      # 의도 ReAct 예산에서 정착용으로 남겨둘 시간(초) — 라운드 마감 클램프 시
+_SETTLE_MAX = 30.0          # 정착 LLM 호출 상한(초) — 라운드 마감 초과 방지
+
+
 @dataclass
 class IntentRunnerConfig:
     system_prompt: str                      # 탈옥 공격 시스템 프롬프트(ReAct용)
@@ -157,12 +161,18 @@ class IntentRunner:
         history = AttackHistory()
         wid = getattr(wctx, "wid", "?")          # 어느 워커가 이 의도를 돌리는지(로그 가시화)
         tag = f"[{wid}·intent#{intent.id}]"
+        # 의도 예산을 '남은 라운드 시간'으로 클램프 — 마감 직전 집은 의도가 자기 예산(120초)을
+        # 꽉 써서 공격 턴이 라운드 예산을 넘기는 걸 막는다(오케스트레이터 read-timeout ABORT 방지).
+        rd, clk = getattr(wctx, "round_deadline", None), getattr(wctx, "clock", None)
+        budget = self.cfg.intent_budget_sec
+        if rd is not None and clk is not None:
+            budget = max(5.0, min(budget, (rd - clk()) - _SETTLE_RESERVE))
         loop = ReActLoop(
             self.llm, wctx, history,
             system_prompt=self.cfg.system_prompt,
             goal=_intent_goal(self.cfg.round_goal, intent),
             flag_format=self.cfg.flag_format,
-            time_limit_sec=self.cfg.intent_budget_sec,
+            time_limit_sec=budget,
             max_steps=self.cfg.max_steps,
             max_tokens=self.cfg.react_max_tokens,
             log=lambda m: self.log(f"{tag} {m}"))
@@ -175,7 +185,12 @@ class IntentRunner:
         # 자산 기계 포집(하이브리드 D 1단계) — 관측 자산을 미식별로 쌓고 의도를 거기 앵커
         asset_ids = self._capture_assets(graph, intent, history, tag=tag)
 
-        self._settle(graph, intent, history, source_step_ids, tag=tag, asset_ids=asset_ids)
+        # 정착 호출도 남은 라운드 시간으로 묶는다(마감 넘겨 턴이 늘어지는 걸 방지).
+        st = _SETTLE_MAX
+        if rd is not None and clk is not None:
+            st = max(5.0, min(_SETTLE_MAX, rd - clk()))
+        self._settle(graph, intent, history, source_step_ids, tag=tag,
+                     asset_ids=asset_ids, timeout=st)
 
         # 종료사유 → 의도 정착 상태. TIMEOUT만 EXHAUSTED(부분결과 보존), 나머지는 DONE.
         state = (IntentState.EXHAUSTED if result.end_reason == AttackEndReason.TIMEOUT
@@ -220,9 +235,10 @@ class IntentRunner:
 
     def _settle(self, graph: ExplorationGraph, intent: Node, history: AttackHistory,
                 source_step_ids: list[str], *, tag: str = "",
-                asset_ids: Optional[list[int]] = None) -> None:
+                asset_ids: Optional[list[int]] = None,
+                timeout: Optional[float] = None) -> None:
         """정착 호출(방식 B): 결론을 fact/finding으로 그래프에 쓴다. 실패해도 의도는 안 잃고
-        히스토리 요약을 폴백 fact로 남긴다."""
+        히스토리 요약을 폴백 fact로 남긴다. timeout=남은 라운드 시간(초과 방지)."""
         technique = str(intent.payload.get("technique", "")).strip()
         try:
             text = self.settle_llm.chat_text(
@@ -231,6 +247,7 @@ class IntentRunner:
                 f"What you observed:\n{history.render()}\n\n"
                 "Summarize your conclusions as the specified JSON object.",
                 max_tokens=self.cfg.settle_max_tokens,
+                timeout=timeout,
                 extra={"reasoning_effort": "none"})
             facts, finding = parse_settlement(text or "")
         except Exception as e:  # noqa: BLE001 — 정착 실패는 치명적 아님(폴백)

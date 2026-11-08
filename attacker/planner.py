@@ -206,7 +206,8 @@ class Planner:
 
     def plan(self, graph: ExplorationGraph, *, assets_block: str = "",
              prior_findings_block: str = "", spawned_by: Optional[int] = None,
-             default_parent: Optional[int] = None) -> PlanResult:
+             default_parent: Optional[int] = None,
+             timeout: Optional[float] = None) -> PlanResult:
         """태세를 읽어 의도를 생성하고 frontier에 추가. 추가된 id 목록을 돌려준다.
 
         각 의도는 플래너가 낸 'from'(출처 사실 id)으로 그래프에 연결된다. from이 비면
@@ -228,7 +229,7 @@ class Planner:
             try:
                 text = self.llm.chat_text(
                     PLANNER_SYSTEM, prompt,
-                    max_tokens=self.max_tokens,
+                    max_tokens=self.max_tokens, timeout=timeout,
                     extra={"reasoning_effort": "none"})
             except Exception as e:  # noqa: BLE001 — 호출 실패는 이 라운드 계획 실패로(엔진이 판단)
                 last_err = f"llm 호출 실패: {type(e).__name__}: {e}"

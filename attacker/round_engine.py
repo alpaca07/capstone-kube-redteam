@@ -197,7 +197,8 @@ class AttackRound:
                 self.log(f"[round r{round}] wave {waves+1}: 태세 → 자산 {len(all_assets)}개"
                          f"(미탐색 {n_untouched}) · 지난라운드침해 {len(prior_finding_ids)}건")
             plan = planner.plan(graph, assets_block=assets_block,
-                                prior_findings_block=prior_block, default_parent=goal_id)
+                                prior_findings_block=prior_block, default_parent=goal_id,
+                                timeout=max(5.0, deadline - self.clock()))   # 마감 넘겨 늘어지지 않게
             if not plan.added_ids:
                 planner_empty = True        # 더 낼 방향 없음(목표 달성/막다른/계획 실패)
                 self.log(f"[round r{round}] wave {waves+1}: 플래너 0개 → 종료 "
