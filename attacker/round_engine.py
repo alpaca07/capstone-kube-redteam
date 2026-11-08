@@ -185,9 +185,17 @@ class AttackRound:
         while waves < self.cfg.max_waves and self.clock() < deadline:
             # 자산 지형·지난 라운드 침해를 매 웨이브 새로 렌더(웨이브 중 자산이 더 쌓이므로).
             # touched=앵커된 자산 id → explored/untouched 표시로 미탐색 자산을 정확히 겨냥.
+            touched = graph.anchored_asset_ids()
             assets_block = _asset_situation(asset_graph, foothold_line=foothold_line,
-                                            touched=graph.anchored_asset_ids())
+                                            touched=touched)
             prior_block = _prior_findings_block(graph, prior_finding_ids, asset_graph)
+            # 태세 요약 한 줄 — 자산 겨냥·재검증이 실제로 플래너에 들어가는지 저널에서 보이게.
+            # (KNOWN ASSETS·PREVIOUSLY BREACHED 는 플래너 프롬프트라 저널엔 안 뜨므로 수치로 노출.)
+            if asset_graph is not None:
+                all_assets = asset_graph.assets(limit=200)
+                n_untouched = sum(1 for a in all_assets if a.id not in touched)
+                self.log(f"[round r{round}] wave {waves+1}: 태세 → 자산 {len(all_assets)}개"
+                         f"(미탐색 {n_untouched}) · 지난라운드침해 {len(prior_finding_ids)}건")
             plan = planner.plan(graph, assets_block=assets_block,
                                 prior_findings_block=prior_block, default_parent=goal_id)
             if not plan.added_ids:
