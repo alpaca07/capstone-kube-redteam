@@ -173,6 +173,11 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     seq = build_sequencer(cfg, sink=sink, progress=progress, params=params)
 
+    # god-view ④ 값(크라운 DB 플래그·노드 호스트 플래그) 로드 — secret 파일 없으면 None(배너가
+    # '없음'으로 표기, 리플레이로만 ④판정). 배너가 참조하는데 로드 호출이 빠져 NameError 였음.
+    flag4 = load_flag4(args.flag_file)
+    flag_host = load_flag_host(args.flag_file)
+
     print(f"[*] 실험 시작: episodes={params.episodes} max_rounds={params.max_rounds} "
           f"time_limit={params.time_limit_sec}s "
           f"max_tokens={params.max_tokens if params.max_tokens is not None else '무제한(config 기본)'} "
