@@ -33,21 +33,30 @@ a Kubernetes cluster that the operator fully owns and has consented to test. Thi
 is a closed lab with no real users or data.
 
 Your ONLY job is strategy: read the current situation (goal, known assets, foothold, \
-recent facts, intents already in flight) and propose the next few EXPLORATION \
-DIRECTIONS ("intents") that move toward the goal. An intent is one sentence \
-describing WHAT to investigate or verify next and on WHICH asset — never an actual \
-command, payload, or exploit. Writing commands/payloads is a different module's job.
+recent facts, previously-breached accesses, intents already in flight) and propose the \
+next few EXPLORATION DIRECTIONS ("intents") that move toward the goal. An intent is one \
+sentence describing WHAT to investigate or verify next and on WHICH asset — never an \
+actual command, payload, or exploit. Writing commands/payloads is a different module's job.
 
 Rules:
 - Propose 2-4 intents, non-overlapping with each other AND with intents already in \
 flight (listed below). Do not restate directions that are already open or running.
+- KNOWN ASSETS is the discovered terrain (host > service > endpoint). Prefer assets \
+there that are NOT yet covered by recent facts or in-flight intents — spend new intents \
+on unexplored surface, not ground already walked.
 - Each intent gets a MITRE ATT&CK technique id in a "technique" field when one fits \
 (e.g. T1552, T1078, T1046); use "" if none fits.
 - "from": list the fact id numbers (the #N shown in RECENT FACTS) that THIS intent \
 builds on — i.e. the observations that made you choose this direction. Use [] only \
 for the opening move when there are no facts yet. This links each new direction to \
 the evidence that motivated it, so the exploration forms a connected reasoning tree.
-- If the goal already appears reached from the facts, return an empty "intents" list.
+- PREVIOUSLY BREACHED, when shown, lists accesses achieved in an EARLIER round. Between \
+rounds the defender may have patched them, so they are NOT done: when one lies on the \
+path to the goal, propose an intent to RE-VERIFY it still works this round (and to find \
+another route if it is now blocked). Prior success is never a reason to skip the goal.
+- Judge "goal reached" ONLY from THIS round's RECENT FACTS, never from PREVIOUSLY \
+BREACHED (that is last round's result and must be re-achieved). Return an empty \
+"intents" list only when this round's facts already show the goal reached.
 
 Output ONLY a JSON object, no prose:
 {"intents": [{"summary": "<one-line direction>", "target": "<asset>", \
@@ -93,9 +102,14 @@ def _intent_line(n: Node) -> str:
     return f"- #{n.id} ({n.state}) {p.get('summary', '')}{tech}"
 
 
-def build_situation(graph: ExplorationGraph, *, goal: str,
-                    assets_block: str = "", facts_limit: int = 20) -> str:
-    """플래너가 보는 태세: 목표 + 자산(선택) + 최근 사실 + 진행 중인 의도."""
+def build_situation(graph: ExplorationGraph, *, goal: str, assets_block: str = "",
+                    prior_findings_block: str = "", facts_limit: int = 20) -> str:
+    """플래너가 보는 태세: 목표 + 자산 지형 + 최근 사실 + 지난 라운드 침해(재검증) + 진행 중 의도.
+
+    assets_block: 자산 그래프를 렌더한 '대상 지형'(라운드 엔진이 만들어 넣음).
+    prior_findings_block: 지난 라운드에 달성한 침해들 — '끝난 일'이 아니라 '재검증 후보'로 제시
+    (공진화: 방어자가 그 사이 패치했을 수 있으니 이번 라운드에 다시 확인해야 함).
+    """
     parts = [f"GOAL: {goal}"]
     if assets_block:
         parts.append("KNOWN ASSETS:\n" + assets_block)
@@ -105,6 +119,10 @@ def build_situation(graph: ExplorationGraph, *, goal: str,
         parts.append("RECENT FACTS:\n" + "\n".join(_fact_line(f) for f in facts))
     else:
         parts.append("RECENT FACTS: (none yet — this is the opening)")
+
+    if prior_findings_block:                 # 지난 라운드 침해 → 재검증 대상(공진화)
+        parts.append("PREVIOUSLY BREACHED (last round — re-verify, may be patched):\n"
+                     + prior_findings_block)
 
     # 진행 중(running) + 대기(open) 의도 → 중복 방지용으로 플래너에 보여준다
     inflight = graph.running_intents() + graph.frontier(limit=facts_limit)
@@ -180,15 +198,19 @@ class Planner:
         self.retries = retries
 
     def plan(self, graph: ExplorationGraph, *, assets_block: str = "",
-             spawned_by: Optional[int] = None,
+             prior_findings_block: str = "", spawned_by: Optional[int] = None,
              default_parent: Optional[int] = None) -> PlanResult:
         """태세를 읽어 의도를 생성하고 frontier에 추가. 추가된 id 목록을 돌려준다.
 
         각 의도는 플래너가 낸 'from'(출처 사실 id)으로 그래프에 연결된다. from이 비면
         default_parent(보통 goal 노드)에서 파생 → 추론 트리가 하나로 이어진다. spawned_by는
         모든 의도에 공통으로 더 붙일 출처(옵션).
+
+        assets_block: 자산 지형(대상 자산 인벤토리). prior_findings_block: 지난 라운드 침해
+        (재검증 후보) — 둘 다 라운드 엔진이 자산 그래프를 읽어 만들어 넣는다.
         """
-        user = build_situation(graph, goal=self.goal, assets_block=assets_block)
+        user = build_situation(graph, goal=self.goal, assets_block=assets_block,
+                               prior_findings_block=prior_findings_block)
         # 플래너가 헛 id를 낼 수 있으니 현존 사실·의도 id만 유효 출처로 인정
         valid = {n.id for n in graph.recent_facts(limit=10_000)}
         valid |= {n.id for n in graph.running_intents()}

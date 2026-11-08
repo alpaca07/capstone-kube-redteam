@@ -51,11 +51,77 @@ def _foothold_dict(start: AttackTurnStart) -> Optional[dict]:
     return {"attack_endpoint": start.foothold.attack_endpoint}
 
 
-def _assets_block(start: AttackTurnStart) -> str:
-    """플래너 개막 태세에 넣을 발판(진입점) 정보 — 자산 그래프 전까진 발판만."""
+def _foothold_line(start: AttackTurnStart) -> str:
+    """발판(진입점) 한 줄 — 자산 지형이 비어도 진입점은 항상 보이게."""
     if start.foothold is None:
         return ""
     return f"- foothold entry point: {start.foothold.attack_endpoint}"
+
+
+def _asset_situation(asset_graph, *, foothold_line: str = "", limit: int = 40) -> str:
+    """자산 그래프를 플래너가 겨냥할 '대상 지형'으로 렌더(계층: 부모→자식 들여쓰기).
+
+    자산 그래프가 없거나 비면 발판 줄만(기존 동작과 호환). 식별된 자산(CPE 보유)은 ✓id 표시.
+    순환(CONTAINS 사이클) 안전장치로 seen 집합을 둔다. 에피소드 범위 밖 자식은 안 돈다.
+    """
+    if asset_graph is None:
+        return foothold_line
+    assets = asset_graph.assets(limit=limit)
+    if not assets:
+        return foothold_line
+    by_id = {a.id: a for a in assets}
+    kids: dict[int, list] = {}
+    child_ids: set[int] = set()
+    for a in assets:
+        ch = [c for c in asset_graph.children(a.id) if c.id in by_id]
+        kids[a.id] = ch
+        for c in ch:
+            child_ids.add(c.id)
+    lines: list[str] = [foothold_line] if foothold_line else []
+    seen: set[int] = set()
+
+    def _walk(a, depth: int) -> None:
+        if a.id in seen:
+            return
+        seen.add(a.id)
+        ident = " ✓id" if a.identified else ""
+        lines.append(f"{'  ' * depth}- [{a.kind}] {a.name}{ident}")
+        for c in kids.get(a.id, []):
+            _walk(c, depth + 1)
+
+    for a in assets:                     # 최상위(부모 없음)부터 계층대로
+        if a.id not in child_ids:
+            _walk(a, 0)
+    for a in assets:                     # 부모가 범위 밖이라 안 걸린 고아도 빠짐없이
+        _walk(a, 0)
+    return "\n".join(lines)
+
+
+def _prior_findings_block(graph: ExplorationGraph, prior_ids, asset_graph,
+                          *, limit: int = 12) -> str:
+    """지난 라운드 발견(스냅샷 id)을 'RE-VERIFY' 후보로 렌더. 앵커된 자산명을 붙인다.
+
+    공진화 핵심: 누적 그래프가 R2 플래너에게 '이미 침해함→끝'으로 읽혀 재공격을 건너뛰는 걸
+    막는다. 이 발견들은 지난 라운드 결과이므로 이번 라운드에 다시 통하는지 확인해야 한다.
+    """
+    if not prior_ids:
+        return ""
+    lines: list[str] = []
+    for fid in sorted(prior_ids)[:limit]:
+        n = graph.get_node(fid)
+        if n is None:
+            continue
+        p = n.payload
+        sev = f" [{p['severity']}]" if p.get("severity") else ""
+        tech = f" ({p['technique']})" if p.get("technique") else ""
+        tgt = ""
+        if asset_graph is not None and n.anchors:
+            names = [asset_graph.get_asset(aid).name for aid in n.anchors
+                     if asset_graph.get_asset(aid) is not None]
+            if names:
+                tgt = " on " + ", ".join(names[:3])
+        lines.append(f"- {p.get('summary', '')}{sev}{tech}{tgt}")
+    return "\n".join(lines)
 
 
 class AttackRound:
@@ -98,7 +164,12 @@ class AttackRound:
             asset_graph=asset_graph, log=self.log)
 
         foothold = _foothold_dict(start)
-        assets_block = _assets_block(start)
+        foothold_line = _foothold_line(start)
+
+        # 지난 라운드 발견 스냅샷: 그래프는 에피소드 스코프라 라운드 시작 시점에 '이미 있는'
+        # 발견은 지난 라운드 것(R1은 새 그래프라 비어있음). 공진화 재검증 후보로 플래너에 준다.
+        prior_finding_ids = ({n.id for n in graph.recent_findings(limit=10_000)}
+                             if round > 1 else set())
 
         # 목표(goal) 노드 — 개막 의도의 루트. 그래프를 하나로 잇는다(의도 따로따로 방지).
         goal_id = graph.add_goal({"summary": start.goal})
@@ -106,7 +177,11 @@ class AttackRound:
         waves = 0
         planner_empty = False
         while waves < self.cfg.max_waves and self.clock() < deadline:
-            plan = planner.plan(graph, assets_block=assets_block, default_parent=goal_id)
+            # 자산 지형·지난 라운드 침해를 매 웨이브 새로 렌더(웨이브 중 자산이 더 쌓이므로).
+            assets_block = _asset_situation(asset_graph, foothold_line=foothold_line)
+            prior_block = _prior_findings_block(graph, prior_finding_ids, asset_graph)
+            plan = planner.plan(graph, assets_block=assets_block,
+                                prior_findings_block=prior_block, default_parent=goal_id)
             if not plan.added_ids:
                 planner_empty = True        # 더 낼 방향 없음(목표 달성/막다른/계획 실패)
                 self.log(f"[round r{round}] wave {waves+1}: 플래너 0개 → 종료 "

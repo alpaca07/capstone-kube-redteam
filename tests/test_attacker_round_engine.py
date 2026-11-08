@@ -166,6 +166,87 @@ def test_max_waves_cap():
     assert plan.calls == 3                       # 상한 3웨이브에서 멈춤
 
 
+# ── _asset_situation: 자산 그래프를 계층(부모→자식)으로 렌더, 식별표시, 발판 줄 ──
+def test_asset_situation_renders_hierarchy():
+    from attacker.assets_fake import InMemoryAssetGraph
+    from attacker.round_engine import _asset_situation
+    ag = InMemoryAssetGraph(episode=1)
+    host = ag.add_asset("host", "10.43.214.23")
+    ag.add_asset("service", "10.43.214.23:5432", parent=host, cpe="cpe:/a:postgresql")
+    s = _asset_situation(ag, foothold_line="- foothold entry point: 10.0.0.5:8080")
+    assert "foothold entry point" in s
+    assert "- [host] 10.43.214.23" in s
+    assert "  - [service] 10.43.214.23:5432 ✓id" in s   # 자식 들여쓰기 + 식별표시
+
+
+# ── _asset_situation: 없거나 비면 발판 줄로 폴백(기존 동작 호환) ──
+def test_asset_situation_empty_falls_back_to_foothold():
+    from attacker.assets_fake import InMemoryAssetGraph
+    from attacker.round_engine import _asset_situation
+    fl = "- foothold entry point: 10.0.0.5:8080"
+    assert _asset_situation(None, foothold_line=fl) == fl
+    assert _asset_situation(InMemoryAssetGraph(episode=1), foothold_line=fl) == fl
+
+
+# ── _prior_findings_block: 지난 라운드 발견을 앵커된 자산명과 함께 렌더 ──
+def test_prior_findings_block_renders_with_asset_names():
+    from attacker.assets_fake import InMemoryAssetGraph
+    from attacker.round_engine import _prior_findings_block
+    g = InMemoryGraph(episode=1)
+    ag = InMemoryAssetGraph(episode=1)
+    aid = ag.add_asset("service", "admin-dashboard")
+    fid = g.add_finding({"summary": "leaked token", "severity": "critical",
+                         "technique": "T1552"}, anchors=[aid])
+    s = _prior_findings_block(g, {fid}, ag)
+    assert "leaked token" in s and "critical" in s and "T1552" in s
+    assert "admin-dashboard" in s                      # 앵커된 자산명
+    assert _prior_findings_block(g, set(), ag) == ""   # 빈 집합이면 빈 문자열
+
+
+# ── R2 통합: 플래너가 받는 태세에 자산 지형 + 지난 라운드 침해(재검증)가 들어간다 ──
+def test_planner_sees_assets_and_prior_breach_in_round2():
+    from attacker.assets_fake import InMemoryAssetGraph
+    captured = {}
+
+    class _CapPlan:
+        def chat_text(self, system, user, **kw):
+            captured["user"] = user
+            return '{"intents": []}'          # 즉시 종료(1웨이브)
+
+    g = InMemoryGraph(episode=1)
+    ag = InMemoryAssetGraph(episode=1)
+    aid = ag.add_asset("service", "postgres.database.svc.cluster.local")
+    # 지난 라운드 발견(R2 시작 전 그래프에 이미 존재) → 스냅샷되어 재검증 섹션으로
+    g.add_finding({"summary": "dumped crown creds", "severity": "high",
+                   "technique": "T1552"}, anchors=[aid])
+    rnd = AttackRound(attacker_llm=_WorkLLM(), planner_llm=_CapPlan(), runner=_R(),
+                      scope_policy=default_policy(), cfg=_cfg())
+    rnd.run(_start(), episode=1, round=2, graph=g, asset_graph=ag)
+    u = captured["user"]
+    assert "KNOWN ASSETS" in u and "postgres.database.svc.cluster.local" in u
+    assert "PREVIOUSLY BREACHED" in u and "dumped crown creds" in u and "T1552" in u
+
+
+# ── R1(첫 라운드)엔 지난 라운드가 없으므로 재검증 섹션이 안 뜬다 ──
+def test_round1_has_no_prior_breach_section():
+    from attacker.assets_fake import InMemoryAssetGraph
+    captured = {}
+
+    class _CapPlan:
+        def chat_text(self, system, user, **kw):
+            captured.setdefault("user", user)
+            return '{"intents": []}'
+
+    g = InMemoryGraph(episode=1)
+    ag = InMemoryAssetGraph(episode=1)
+    # R1인데도 그래프에 발견이 있다 치더라도(비정상) round>1 아니면 스냅샷 안 함
+    g.add_finding({"summary": "should not appear", "severity": "high"}, anchors=[])
+    rnd = AttackRound(attacker_llm=_WorkLLM(), planner_llm=_CapPlan(), runner=_R(),
+                      scope_policy=default_policy(), cfg=_cfg())
+    rnd.run(_start(), episode=1, round=1, graph=g, asset_graph=ag)
+    assert "PREVIOUSLY BREACHED" not in captured["user"]
+
+
 def _run() -> int:
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

@@ -96,6 +96,36 @@ def test_situation_opening_phrasing():
     assert "INTENTS ALREADY IN FLIGHT: (none)" in s
 
 
+# ── 태세: 자산 지형(KNOWN ASSETS) + 지난 라운드 침해(PREVIOUSLY BREACHED) 섹션 ──
+def test_situation_shows_assets_and_prior_breaches():
+    g = InMemoryGraph()
+    s = build_situation(g, goal="read PII",
+                        assets_block="- [service] postgres.database.svc.cluster.local",
+                        prior_findings_block="- dumped crown creds [high] (T1552) on postgres")
+    assert "KNOWN ASSETS:" in s and "postgres.database.svc.cluster.local" in s
+    assert "PREVIOUSLY BREACHED" in s and "re-verify" in s
+    assert "dumped crown creds" in s and "T1552" in s
+
+
+# ── 빈 블록이면 해당 섹션은 아예 안 뜬다(개막·R1 호환) ──
+def test_situation_omits_empty_blocks():
+    g = InMemoryGraph()
+    s = build_situation(g, goal="x")       # 둘 다 기본 빈 문자열
+    assert "KNOWN ASSETS" not in s
+    assert "PREVIOUSLY BREACHED" not in s
+
+
+# ── 플래너 시스템 프롬프트: 공진화 재검증 규칙이 박혀 있어야 ──
+def test_planner_system_prompt_has_reverify_rule():
+    from attacker.planner import PLANNER_SYSTEM
+    # 지난 라운드 침해를 '끝'이 아니라 재검증 대상으로
+    assert "PREVIOUSLY BREACHED" in PLANNER_SYSTEM and "RE-VERIFY" in PLANNER_SYSTEM
+    # 목표 달성은 이번 라운드 사실로만 판단
+    assert "THIS round" in PLANNER_SYSTEM
+    # 미탐색 자산 우선 겨냥
+    assert "unexplored surface" in PLANNER_SYSTEM
+
+
 # ── plan: 의도를 frontier에 추가하고 id를 돌려준다 ──
 def test_plan_adds_intents_to_frontier():
     g = InMemoryGraph()
