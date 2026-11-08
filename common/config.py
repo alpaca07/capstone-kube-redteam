@@ -97,6 +97,9 @@ class ObservabilityConfig(BaseModel):
     # VM C가 god-view로 직접 읽는 로그 경로(관리망으로 마운트/동기 전제).
     audit_log_path: str = "/var/lib/rancher/k3s/server/logs/audit.log"
     falco_log_path: str = "/var/log/falco/events.txt"   # Falco file_output 설정 필요
+    # 방어 B층 — corp 서비스 로그(source → 경로). `kubectl logs --timestamps` 를 파일로 수집 전제.
+    # 예: {"postgres": "/var/log/corp/postgres.log", "samba": "...", "waf": "..."}. 비면 미수집.
+    service_log_paths: dict = Field(default_factory=dict)
 
 
 # ───────────────────────── 루트 ─────────────────────────

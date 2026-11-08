@@ -61,6 +61,9 @@ corp-dmz·corp-internal·corp-crown 은 '취약 사내망 섬(corp)'이다. 기�
 - 발판 → WAF → DMZ(Tomcat/Solr) 원격코드실행 [통과 ①]   (Falco rule: "corp DMZ web shell")
 - DMZ → 내부(Samba/Redis/Jenkins) 측면이동·자격증명 수집 [통과 ②]
 - 내부 → 크라운(PostgreSQL) 접속 → 민감 데이터 read   (Falco: "corp lateral to crown" / "corp crown exec")
+corp 서비스 로그(관측 보고서의 "service" 항목에 올 수 있음):
+- postgres: ops_secrets·customers 테이블 SELECT/COPY 가 보이면 크라운 침해 성사/직전 신호.
+- samba: 비정상 tree connect·쓰기 공유 접근 = 측면이동. waf: 다수 차단·우회 흔적 = 통과 ① 시도.
 corp 대응 지침(중요):
 - corp 는 이미 존 격리가 있으므로 add_networkpolicy 를 corp-* 네임스페이스에 쓰면 tier 라벨이
   없어 정상 트래픽까지 끊긴다(자해) — corp 에는 add_networkpolicy 를 쓰지 마라.

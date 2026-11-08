@@ -161,8 +161,11 @@ def create_harness(cfg, *, prompt: Optional[str] = None, cluster=None, llm=None)
                            temperature=cfg.dgx.temperature,
                            timeout=req_timeout,            # 콜드스타트/느린 모델이 120초 넘겨도 안 끊김
                            max_tokens=cfg.dgx.max_tokens)
+    service_readers = {src: _file_line_reader(path)
+                       for src, path in (cfg.observability.service_log_paths or {}).items()}
     observer = Observer(_file_line_reader(cfg.observability.audit_log_path),
-                        _file_line_reader(cfg.observability.falco_log_path))
+                        _file_line_reader(cfg.observability.falco_log_path),
+                        service_readers)
     return DefenseHarness(observer=observer, triager=Triager(llm, prompt or _load_prompt()),
                           patcher=Patcher(cluster), state_handler=StateQueryHandler(cluster),
                           cluster=cluster)

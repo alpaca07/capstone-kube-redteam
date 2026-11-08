@@ -10,7 +10,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Callable, Iterable, Optional
 
-from common.k8s_logs import audit_ts, falco_ts
+from common.k8s_logs import audit_ts, falco_ts, parse_rfc3339
 
 LineReader = Callable[[], Iterable[str]]
 
@@ -37,14 +37,22 @@ class FalcoEvent:
 
 
 @dataclass
+class ServiceLogEntry:
+    timestamp: float
+    source: str                        # "postgres" | "samba" | "waf"
+    line: str                          # 타임스탬프 제거 후 원시 로그 라인
+
+
+@dataclass
 class Observation:
     since_ts: float
     until_ts: float
     audit: list[AuditEntry] = field(default_factory=list)
     falco: list[FalcoEvent] = field(default_factory=list)
+    service: list[ServiceLogEntry] = field(default_factory=list)   # B층 — 서비스 로그
 
     def is_empty(self) -> bool:
-        return not self.audit and not self.falco
+        return not self.audit and not self.falco and not self.service
 
 
 def _loads(line: str) -> Optional[dict]:
@@ -92,12 +100,28 @@ def parse_falco_line(line: str) -> Optional[FalcoEvent]:
         fields=ev.get("output_fields") or {})
 
 
+def parse_service_log_line(line: str, source: str) -> Optional[ServiceLogEntry]:
+    """`kubectl logs --timestamps` 한 줄(RFC3339 + 공백 + 내용) → ServiceLogEntry.
+    타임스탬프 파싱 불가면 None(증분 수집에서 제외)."""
+    s = line.rstrip("\n")
+    if not s:
+        return None
+    head, _, rest = s.partition(" ")
+    ts = parse_rfc3339(head)
+    if ts is None:
+        return None
+    return ServiceLogEntry(timestamp=ts, source=source, line=rest)
+
+
 class Observer:
     """감사/Falco 로그를 증분 수집. since_ts 이후 ~ until_ts 이하만."""
 
-    def __init__(self, audit_reader: LineReader, falco_reader: LineReader) -> None:
+    def __init__(self, audit_reader: LineReader, falco_reader: LineReader,
+                 service_readers: Optional[dict] = None) -> None:
         self.audit_reader = audit_reader
         self.falco_reader = falco_reader
+        # source(postgres/samba/waf) → LineReader. 기본 없음(하위호환: 서비스 로그 미수집).
+        self.service_readers = service_readers or {}
 
     def collect(self, *, since_ts: float, until_ts: Optional[float] = None) -> Observation:
         hi = until_ts if until_ts is not None else float("inf")
@@ -111,14 +135,22 @@ class Observer:
             f = parse_falco_line(line)
             if f is not None and since_ts < f.timestamp <= hi:
                 falco.append(f)
+        service: list[ServiceLogEntry] = []
+        for source, reader in self.service_readers.items():
+            for line in reader():
+                s = parse_service_log_line(line, source)
+                if s is not None and since_ts < s.timestamp <= hi:
+                    service.append(s)
 
         if until_ts is not None:
             end = until_ts
         else:                              # 윗경계 미지정 → 관측된 최대 ts(없으면 since_ts)
-            seen = [e.timestamp for e in audit] + [f.timestamp for f in falco]
+            seen = ([e.timestamp for e in audit] + [f.timestamp for f in falco]
+                    + [s.timestamp for s in service])
             end = max(seen) if seen else since_ts
-        return Observation(since_ts=since_ts, until_ts=end, audit=audit, falco=falco)
+        return Observation(since_ts=since_ts, until_ts=end, audit=audit, falco=falco,
+                           service=service)
 
 
-__all__ = ["AuditEntry", "FalcoEvent", "Observation",
-           "parse_audit_line", "parse_falco_line", "Observer"]
+__all__ = ["AuditEntry", "FalcoEvent", "ServiceLogEntry", "Observation",
+           "parse_audit_line", "parse_falco_line", "parse_service_log_line", "Observer"]

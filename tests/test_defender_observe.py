@@ -121,8 +121,41 @@ def test_quiet_and_prompt_dict():
     obs = Observer(_reader([_audit_line()]), _reader([_falco_line()]))
     rep = filter_observations(obs.collect(since_ts=0.0))
     d = rep.to_prompt_dict()
-    assert set(d.keys()) == {"window_sec", "audit", "falco"}
+    assert set(d.keys()) == {"window_sec", "audit", "falco", "service"}
     assert d["audit"][0]["resource"] == "secrets" and d["falco"][0]["rule"]
+
+
+# ───────────── 서비스 로그(B층) ─────────────
+def _svc_line(ts, body):
+    return f"{ts} {body}"
+
+
+def test_service_log_backcompat():
+    # service_readers 없이 = 기존 2-인자 생성(하위호환) → service 비어 있음
+    obs = Observer(_reader([_audit_line()]), _reader([]))
+    assert obs.collect(since_ts=0.0).service == []
+
+
+def test_service_log_collect_and_filter():
+    def _pg():
+        return [_svc_line("2026-10-11T14:56:04Z", "LOG: statement: SELECT * FROM ops_secrets"),
+                _svc_line("2026-10-11T14:56:05Z", "LOG: statement: SELECT 1")]
+    obs = Observer(_reader([]), _reader([]), {"postgres": _pg})
+    full = obs.collect(since_ts=0.0)
+    assert len(full.service) == 2 and full.service[0].source == "postgres"
+    rep = filter_observations(full)
+    h = rep.service_highlights[0]
+    assert h.source == "postgres" and h.count == 2
+    assert len(h.samples) == 1 and "ops_secrets" in h.samples[0]   # 신호만(노이즈 SELECT 1 제외)
+
+
+def test_service_log_window():
+    def _pg():
+        return [_svc_line("2026-10-11T14:56:01Z", "LOG: early"),
+                _svc_line("2026-10-11T14:56:09Z", "LOG: ops_secrets read")]
+    obs = Observer(_reader([]), _reader([]), {"postgres": _pg})
+    narrow = obs.collect(since_ts=parse_rfc3339("2026-10-11T14:56:05Z"))
+    assert len(narrow.service) == 1 and "ops_secrets" in narrow.service[0].line
 
 
 def _run() -> int:

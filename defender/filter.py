@@ -49,16 +49,25 @@ class FalcoHighlight:
 
 
 @dataclass
+class ServiceHighlight:
+    source: str                        # postgres | samba | waf
+    count: int                         # 수집된 라인 수(노이즈 포함)
+    samples: list = field(default_factory=list)   # 신호 라인 샘플(최대 3)
+
+
+@dataclass
 class SituationReport:
     since_ts: float
     until_ts: float
     audit_highlights: list[AuditHighlight] = field(default_factory=list)
     falco_highlights: list[FalcoHighlight] = field(default_factory=list)
+    service_highlights: list[ServiceHighlight] = field(default_factory=list)
     total_audit: int = 0        # 노이즈 제거 후 감사 이벤트 총수
     total_falco: int = 0
 
     def is_quiet(self) -> bool:
-        return not self.audit_highlights and not self.falco_highlights
+        return (not self.audit_highlights and not self.falco_highlights
+                and not self.service_highlights)
 
     def to_prompt_dict(self) -> dict:
         """LLM 프롬프트에 넣을 간추린 형태(원시 로그 대신 이것만 준다)."""
@@ -69,11 +78,25 @@ class SituationReport:
                        "reason": h.sample_reason} for h in self.audit_highlights],
             "falco": [{"rule": h.rule, "priority": h.priority, "count": h.count,
                        "sample": h.sample_output} for h in self.falco_highlights],
+            "service": [{"source": h.source, "count": h.count, "samples": h.samples}
+                        for h in self.service_highlights],
         }
 
 
 def _is_system_user(user: str) -> bool:
     return any(user.startswith(p) for p in _SYSTEM_PREFIXES)
+
+
+# 서비스 로그에서 '신호'로 볼 키워드(민감 테이블·명령실행·공유접근·WAF 거부/우회).
+# 나머지(평범한 쿼리 등)는 count 에만 반영하고 샘플에서 제외 → LLM 프롬프트 부담 축소.
+_SERVICE_SIGNAL = ("ops_secrets", "customers", "copy ", "copy(", "program",
+                   "tree connect", "smbd", "modsecurity", "denied", "forbidden",
+                   "authorized")
+
+
+def _is_service_signal(line: str) -> bool:
+    low = line.lower()
+    return any(k in low for k in _SERVICE_SIGNAL)
 
 
 def filter_observations(obs: Observation) -> SituationReport:
@@ -105,10 +128,22 @@ def filter_observations(obs: Observation) -> SituationReport:
                for r, v in fagg.items()]
     falco_h.sort(key=lambda h: (-_PRIORITY_RANK.get(h.priority.lower(), 0), -h.count, h.rule))
 
+    # ── 서비스 로그(B층): source로 집계. 샘플은 '신호' 라인만 최대 3개 ──
+    sagg: dict[str, dict] = {}
+    for s in obs.service:
+        slot = sagg.setdefault(s.source, {"count": 0, "samples": []})
+        slot["count"] += 1
+        if _is_service_signal(s.line) and len(slot["samples"]) < 3:
+            slot["samples"].append(s.line[:200])
+    service_h = [ServiceHighlight(source=src, count=v["count"], samples=v["samples"])
+                 for src, v in sagg.items()]
+    service_h.sort(key=lambda h: (-len(h.samples), -h.count, h.source))
+
     return SituationReport(
         since_ts=obs.since_ts, until_ts=obs.until_ts,
-        audit_highlights=audit_h, falco_highlights=falco_h,
+        audit_highlights=audit_h, falco_highlights=falco_h, service_highlights=service_h,
         total_audit=kept, total_falco=len(obs.falco))
 
 
-__all__ = ["AuditHighlight", "FalcoHighlight", "SituationReport", "filter_observations"]
+__all__ = ["AuditHighlight", "FalcoHighlight", "ServiceHighlight",
+           "SituationReport", "filter_observations"]
