@@ -181,6 +181,13 @@ class InMemoryGraph(ExplorationGraph):
                     if n.kind == NodeKind.INTENT
                     and n.state == IntentState.RUNNING.value]
 
+    def anchored_asset_ids(self) -> set[int]:
+        with self._lock:
+            out: set[int] = set()
+            for n in self._nodes.values():
+                out.update(n.anchors)
+            return out
+
     # ── 테스트 편의 ──
     def edges_from(self, src_id: int, rel: Optional[Rel] = None) -> list[Edge]:
         with self._lock:

@@ -41,9 +41,10 @@ actual command, payload, or exploit. Writing commands/payloads is a different mo
 Rules:
 - Propose 2-4 intents, non-overlapping with each other AND with intents already in \
 flight (listed below). Do not restate directions that are already open or running.
-- KNOWN ASSETS is the discovered terrain (host > service > endpoint). Prefer assets \
-there that are NOT yet covered by recent facts or in-flight intents — spend new intents \
-on unexplored surface, not ground already walked.
+- KNOWN ASSETS is the discovered terrain (host > service > endpoint), each tagged \
+[explored] (a worker already probed it) or [untouched]. Prefer [untouched] assets, and \
+ones not already covered by recent facts or in-flight intents — spend new intents on \
+unexplored surface, not ground already walked.
 - Each intent gets a MITRE ATT&CK technique id in a "technique" field when one fits \
 (e.g. T1552, T1078, T1046); use "" if none fits.
 - "from": list the fact id numbers (the #N shown in RECENT FACTS) that THIS intent \

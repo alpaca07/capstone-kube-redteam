@@ -165,6 +165,14 @@ class ExplorationGraph(Protocol):
         """지금 워커가 돌리고 있는 intent들(종료 판정·중복 방지용)."""
         ...
 
+    def anchored_asset_ids(self) -> set[int]:
+        """이 에피소드의 탐색 노드들이 앵커한 자산 id 전체(union).
+
+        '이미 건드린(탐색된) 자산' 판정용 — 플래너가 KNOWN ASSETS에서 아직 안 친
+        자산을 우선 겨냥하도록, 자산을 explored/untouched로 가른다.
+        """
+        ...
+
 
 # ───────────── 발견 병합(공유) — 인메모리·Neo4j가 같은 의미를 쓰도록 ─────────────
 SEVERITY_RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}

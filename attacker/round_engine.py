@@ -58,10 +58,13 @@ def _foothold_line(start: AttackTurnStart) -> str:
     return f"- foothold entry point: {start.foothold.attack_endpoint}"
 
 
-def _asset_situation(asset_graph, *, foothold_line: str = "", limit: int = 40) -> str:
+def _asset_situation(asset_graph, *, foothold_line: str = "", touched=None,
+                     limit: int = 40) -> str:
     """자산 그래프를 플래너가 겨냥할 '대상 지형'으로 렌더(계층: 부모→자식 들여쓰기).
 
     자산 그래프가 없거나 비면 발판 줄만(기존 동작과 호환). 식별된 자산(CPE 보유)은 ✓id 표시.
+    touched(앵커된 자산 id 집합)를 주면 각 자산을 [explored]/[untouched]로 표시 → 플래너가
+    아직 안 친 자산을 정확히 겨냥(사실·의도로 추론하던 걸 실제 앵커 기록으로 대체).
     순환(CONTAINS 사이클) 안전장치로 seen 집합을 둔다. 에피소드 범위 밖 자식은 안 돈다.
     """
     if asset_graph is None:
@@ -85,7 +88,10 @@ def _asset_situation(asset_graph, *, foothold_line: str = "", limit: int = 40) -
             return
         seen.add(a.id)
         ident = " ✓id" if a.identified else ""
-        lines.append(f"{'  ' * depth}- [{a.kind}] {a.name}{ident}")
+        mark = ""
+        if touched is not None:                  # 앵커 기록으로 explored/untouched 표시
+            mark = " [explored]" if a.id in touched else " [untouched]"
+        lines.append(f"{'  ' * depth}- [{a.kind}] {a.name}{ident}{mark}")
         for c in kids.get(a.id, []):
             _walk(c, depth + 1)
 
@@ -178,7 +184,9 @@ class AttackRound:
         planner_empty = False
         while waves < self.cfg.max_waves and self.clock() < deadline:
             # 자산 지형·지난 라운드 침해를 매 웨이브 새로 렌더(웨이브 중 자산이 더 쌓이므로).
-            assets_block = _asset_situation(asset_graph, foothold_line=foothold_line)
+            # touched=앵커된 자산 id → explored/untouched 표시로 미탐색 자산을 정확히 겨냥.
+            assets_block = _asset_situation(asset_graph, foothold_line=foothold_line,
+                                            touched=graph.anchored_asset_ids())
             prior_block = _prior_findings_block(graph, prior_finding_ids, asset_graph)
             plan = planner.plan(graph, assets_block=assets_block,
                                 prior_findings_block=prior_block, default_parent=goal_id)

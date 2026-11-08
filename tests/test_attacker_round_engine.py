@@ -179,6 +179,46 @@ def test_asset_situation_renders_hierarchy():
     assert "  - [service] 10.43.214.23:5432 ✓id" in s   # 자식 들여쓰기 + 식별표시
 
 
+# ── _asset_situation: touched 주면 explored/untouched 표시 ──
+def test_asset_situation_marks_explored_untouched():
+    from attacker.assets_fake import InMemoryAssetGraph
+    from attacker.round_engine import _asset_situation
+    ag = InMemoryAssetGraph(episode=1)
+    hit = ag.add_asset("service", "internal-wiki")
+    miss = ag.add_asset("service", "payments-api")
+    s = _asset_situation(ag, touched={hit})
+    assert "- [service] internal-wiki [explored]" in s
+    assert "- [service] payments-api [untouched]" in s
+    # touched 미지정이면 표시 없음(기존 호출 호환)
+    s2 = _asset_situation(ag)
+    assert "[explored]" not in s2 and "[untouched]" not in s2
+
+
+# ── R2 통합: 앵커된 자산은 explored, 안 친 자산은 untouched 로 플래너 태세에 뜬다 ──
+def test_round2_marks_touched_assets_in_situation():
+    from attacker.assets_fake import InMemoryAssetGraph
+    captured = {}
+
+    class _CapPlan:
+        def chat_text(self, system, user, **kw):
+            captured["user"] = user
+            return '{"intents": []}'
+
+    g = InMemoryGraph(episode=1)
+    ag = InMemoryAssetGraph(episode=1)
+    probed = ag.add_asset("service", "internal-wiki")
+    ag.add_asset("service", "payments-api")           # 안 친 자산
+    # 지난 라운드 의도가 internal-wiki 를 앵커(= 탐색됨)
+    iid = g.add_intent({"summary": "probe wiki"})
+    g.anchor_to(iid, [probed])
+    rnd = AttackRound(attacker_llm=_WorkLLM(), planner_llm=_CapPlan(), runner=_R(),
+                      scope_policy=default_policy(), cfg=_cfg())
+    rnd.run(_start(), episode=1, round=2, graph=g, asset_graph=ag)
+    u = captured["user"]
+    assert "internal-wiki [explored]" in u
+    assert "payments-api [untouched]" in u
+
+
 # ── _asset_situation: 없거나 비면 발판 줄로 폴백(기존 동작 호환) ──
 def test_asset_situation_empty_falls_back_to_foothold():
     from attacker.assets_fake import InMemoryAssetGraph

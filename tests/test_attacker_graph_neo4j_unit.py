@@ -83,6 +83,14 @@ def test_reset_cypher_scoped_to_episode_explore():
     assert "DETACH DELETE" in gn._RESET
 
 
+# ── anchored 쿼리: 이 에피소드 탐색 노드의 anchors를 UNWIND해 distinct 자산 id ──
+def test_anchored_cypher_scoped_and_distinct():
+    q = gn._ANCHORED
+    assert "n:Explore {episode:$episode}" in q        # 에피소드 스코프
+    assert "UNWIND coalesce(n.anchors, [])" in q       # anchors 평탄화(널 안전)
+    assert "DISTINCT aid" in q                         # 중복 제거
+
+
 # ── 병합 규칙은 인메모리와 같은 공유 함수 ──
 def test_shared_merge_rule():
     base = {"summary": "a", "severity": "high"}

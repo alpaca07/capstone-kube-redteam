@@ -159,6 +159,19 @@ def test_returned_nodes_are_copies():
     assert g.get_node(i).state == IntentState.OPEN.value
 
 
+# ── anchored_asset_ids: 모든 노드의 앵커 합집합(explored 자산 판정용) ──
+def test_anchored_asset_ids_union():
+    g = InMemoryGraph()
+    i1 = g.add_intent({"s": "a"})
+    i2 = g.add_intent({"s": "b"})
+    assert g.anchored_asset_ids() == set()          # 앵커 전엔 빈 집합
+    g.anchor_to(i1, [10, 11])
+    g.anchor_to(i2, [11, 12])                        # 11 중복 → 합집합에서 하나
+    f = g.add_finding({"summary": "breach"}, anchors=[20])   # finding 앵커도 포함
+    assert f                                          # 노드 생성됨
+    assert g.anchored_asset_ids() == {10, 11, 12, 20}
+
+
 def _run() -> int:
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

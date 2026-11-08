@@ -82,6 +82,9 @@ _RUNNING = "MATCH (n:Intent {episode:$episode, state:'running'}) RETURN n{.*} AS
 _RECENT = ("MATCH (n:" + _LABEL + " {episode:$episode}) "
            "RETURN n{.*} AS props ORDER BY n.id DESC LIMIT $limit")
 _GET = "MATCH (n:Explore {episode:$episode, id:$id}) RETURN n{.*} AS props"
+# 이 에피소드 탐색 노드들이 앵커한 자산 id 전체(union) — explored/untouched 판정용
+_ANCHORED = ("MATCH (n:Explore {episode:$episode}) "
+             "UNWIND coalesce(n.anchors, []) AS aid RETURN DISTINCT aid AS aid")
 _LINK = ("MATCH (a:Explore {episode:$episode, id:$src}), (b:Explore {episode:$episode, id:$dst}) "
          "CREATE (a)-[:" + _RELTOK + "]->(b)")
 _RESET = "MATCH (n:Explore {episode:$episode}) DETACH DELETE n"
@@ -254,6 +257,9 @@ class Neo4jGraph(ExplorationGraph):
 
     def running_intents(self) -> list[Node]:
         return [_node_from_props(r["props"]) for r in self._run(_RUNNING)]
+
+    def anchored_asset_ids(self) -> set[int]:
+        return {int(r["aid"]) for r in self._run(_ANCHORED)}
 
 
 def connect_driver(uri: str, user: str, password: str):
