@@ -1,0 +1,37 @@
+# 취약 사내망 섬 (corp) — 방향 B 통합 타깃
+# 신뢰 등급별 존을 네임스페이스로 분리하고, 뒤이어 NetworkPolicy로 한 방향만 열어
+# 외부 → DMZ → 내부 → 크라운 킬체인을 강제한다(존 격리는 2단계 이후 배선).
+#   corp-ext      = 섬 바깥 외부 세그먼트 — 공격자 발판만 여기에 둔다
+#   corp-dmz      = 외부노출 웹 (Tomcat, Log4j)          ← 3단계
+#   corp-internal = 사내 서비스 (Samba, Redis, Jenkins)   ← 2단계
+#   corp-crown    = 최종 목표 (PostgreSQL 민감 DB)         ← 1단계(지금 여기)
+#   corp-defense  = 방어 관측 (IDS, Falco, 서비스 로그)    ← 4·5단계
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: corp-ext
+  labels: { app.kubernetes.io/part-of: capstone-corp, zone: ext }
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: corp-dmz
+  labels: { app.kubernetes.io/part-of: capstone-corp, zone: dmz }
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: corp-internal
+  labels: { app.kubernetes.io/part-of: capstone-corp, zone: internal }
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: corp-crown
+  labels: { app.kubernetes.io/part-of: capstone-corp, zone: crown }
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: corp-defense
+  labels: { app.kubernetes.io/part-of: capstone-corp, zone: defense }

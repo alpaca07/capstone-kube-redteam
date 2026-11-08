@@ -1,0 +1,62 @@
+# corp 크라운 — PostgreSQL 11.2 (corp-crown 네임스페이스)
+# 취약 요소: ① 약한 인증(수퍼유저 postgres + 약한 패스워드)
+#            ② 수퍼유저라 COPY FROM PROGRAM 으로 OS 명령 실행 가능
+# ※ CVE-2019-9193은 공식적으론 '취약점'이 아니라 수퍼유저의 의도된 기능 오용 →
+#   '약한 인증으로 수퍼유저를 먼저 잡은 뒤의 명령 실행'으로 설계한다(플래그 없음).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: corp-crown
+  labels:
+    app: postgres
+    zone: crown
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+        zone: crown
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:11.2          # 버전 고정 (설계서 확정)
+          ports:
+            - containerPort: 5432
+          envFrom:
+            - secretRef:
+                name: corp-postgres-credentials
+          volumeMounts:
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      volumes:
+        - name: initdb
+          configMap:
+            name: corp-postgres-initdb
+        - name: data
+          emptyDir: {}               # 재기동마다 재초기화 → 에피소드 리셋 친화
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: corp-crown
+  labels:
+    app: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
