@@ -11,6 +11,7 @@ Neo4j에 적재한다. **대상 안 가리는 재사용 지식 라이브러리**
 | `graph_writer.py` | 라벨별 `UNWIND` 멱등 `MERGE` 적재 엔진(파라미터 바인딩, 세션 주입) |
 | `sources.py` | 소스별 `parse_*(raw) -> (nodes, rels)` — ATT&CK/CAPEC/NVD/cve_attack. generic CWE 꼬리표·NVD CPE 토글도 여기 |
 | `__main__.py` | CLI — 받기(fetch)·접속(connect)·적재 |
+| `query.py` | 조회(Retrieval) 읽기 API — 플래너가 CVE→기법 추론할 때 호출. 직접매핑 우선·브리지 폴백 |
 | `cve_attack.example.json` | CVE→Technique 큐레이트 매핑 템플릿(복사해서 VM-B 타깃으로 채움) |
 | `cve_attack.vulhub.json` | VulHub 4 타깃(Struts2·GitLab·Spring·PostgreSQL) 실제 CVE→Technique 매핑 — 끊긴 CWE→CAPEC 사슬을 직접 메움 |
 
@@ -71,6 +72,22 @@ python -m knowledge --sources cve_attack --data-dir /tmp/ctid/mappings/kev
 - generic CWE 노드엔 `is_generic=true` 꼬리표 → 플래너 질의가 브리지에서 뺄 때 `WHERE NOT coalesce(w.is_generic,false)`.
 - 적재는 **attack 다음**(Technique 노드 선행). 전체: `--sources cwe,attack,capec,nvd,cve_attack`.
 - 검증: KEV 2025-07판 419개 CVE / `EXPLOITED_BY` 1177건(ATT&CK v16.1).
+
+## 조회 (query) — 플래너 읽기 API
+적재한 그래프를 플래너가 질의하는 **읽기 전용 API**(`knowledge/query.py`). 라벨은 고정 상수, 입력은 파라미터 바인딩(주입 차단), 반환은 전부 JSON 직렬화 가능한 dict/list. 핵심은 **직접매핑 우선·브리지 폴백** 패턴을 함수에 박아둔 것:
+```python
+from knowledge import query
+from neo4j import GraphDatabase
+s = GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j", pw)).session()
+
+query.cve_facts(s, "CVE-2021-44228")            # 설명·심각도·CWE
+query.techniques_for_cve(s, "CVE-2021-44228")   # 후보 기법: 직접(EXPLOITED_BY) 있으면 그것만, 없으면 브리지(generic 제외)
+query.technique_detail(s, "T1190")              # 기법 이름·전술·상/하위
+query.techniques_for_target(s, ["CVE-2017-5638","CVE-2019-9193"])  # 다중 CVE 집계(by_cve + aggregate)
+```
+- 각 후보엔 `via`(direct/bridge)·`source`·`confidence`(curated 0.95 / kev 0.90 / ctid 0.70 / llm 0.50 / bridge 0.40)가 붙어 플래너가 가중치를 준다.
+- 데모 CLI: `python -m knowledge.query --cve CVE-2021-44228` (NEO4J_PASSWORD 환경변수).
+- 플래너 통합 지점 — 이 함수들이 반환하는 dict 를 그대로 LLM 컨텍스트에 넣거나, 팀원 플래너가 자체 Text2Cypher 를 쓰면 이걸 "올바른 질의 패턴" 레퍼런스로 삼으면 된다.
 
 ## 데이터 출처
 - ATT&CK: `github.com/mitre-attack/attack-stix-data` → `enterprise-attack/enterprise-attack.json`
