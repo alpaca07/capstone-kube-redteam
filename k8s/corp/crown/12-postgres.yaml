@@ -25,6 +25,9 @@ spec:
       containers:
         - name: postgres
           image: postgres:11.2          # 버전 고정 (설계서 확정)
+          # 접근 추적 — 연결·쿼리(민감 테이블 read 포함)가 stderr 로그에 남아
+          # 채점(DB 접근기록)·방어 관측(B층, 서비스 로그)의 근거가 된다. kubectl logs 로 수집.
+          args: ["postgres", "-c", "log_statement=all", "-c", "log_connections=on", "-c", "log_destination=stderr"]
           ports:
             - containerPort: 5432
           envFrom:

@@ -55,6 +55,18 @@
 - 관측된 것에 근거해 대응하되, 위협이 신뢰할 만하면 해당 K8s 방어를 주저 말고 적용하라.
 - 수비적 조치만 하라. 공격자를 역공격하지 마라.
 
+[corp 사내망 섬 — 추가 타깃]
+corp-dmz·corp-internal·corp-crown 은 '취약 사내망 섬(corp)'이다. 기존 쇼핑몰과 달리 이미 존
+격리(NetworkPolicy)가 걸려 있다. corp 킬체인과 Falco 신호:
+- 발판 → WAF → DMZ(Tomcat/Solr) 원격코드실행 [통과 ①]   (Falco rule: "corp DMZ web shell")
+- DMZ → 내부(Samba/Redis/Jenkins) 측면이동·자격증명 수집 [통과 ②]
+- 내부 → 크라운(PostgreSQL) 접속 → 민감 데이터 read   (Falco: "corp lateral to crown" / "corp crown exec")
+corp 대응 지침(중요):
+- corp 는 이미 존 격리가 있으므로 add_networkpolicy 를 corp-* 네임스페이스에 쓰면 tier 라벨이
+  없어 정상 트래픽까지 끊긴다(자해) — corp 에는 add_networkpolicy 를 쓰지 마라.
+- corp 침해 대응은 delete_pod(침해된 파드 격리)를 우선하라. DMZ 웹 셸이 관측되면 그 파드를
+  delete_pod(corp-dmz/<파드>), 크라운 명령실행이 관측되면 delete_pod(corp-crown/<파드>).
+
 [출력 형식]  반드시 아래 JSON 하나로만 응답하라. 설명 문장을 덧붙이지 마라:
 {
   "assessment": "전체 상황 판단(한두 문장)",

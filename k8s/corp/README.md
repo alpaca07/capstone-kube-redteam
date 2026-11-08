@@ -27,7 +27,10 @@
 5. 방어 2층 배선 (방어 하네스 VM D):
    - 5a. 관측·생존확인 ✓ — Falco corp 킬체인 룰(`k8s/observability/falco-values.yaml`) +
      생존확인 범위에 corp 추가(`defender/kubectl_cluster.py`의 `_APP_NAMESPACES`).
-   - 5b. 대응 템플릿·서비스 로그(PostgreSQL·Samba·WAF) 수집 — 예정.
+   - 5b. 방어자 corp 대응(진행):
+     · 프롬프트에 corp 킬체인·대응(delete_pod 중심, corp엔 add_networkpolicy=자해 금지) ✓
+     · PostgreSQL 접근 로깅(`log_statement=all`) ✓ — 채점·서비스 로그 근거
+     · observer 서비스 로그 수집 + patcher corp NetworkPolicy 일반화 — 남음
 
 ## 킬체인 (발판 → 크라운)
 
