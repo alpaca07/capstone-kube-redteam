@@ -36,15 +36,14 @@ data:
         except Exception:
             pass
         return resp
-    def _crown_of(cur):
+    def _crown_of(cur, rows):
         # 크라운 반출 자백(god-view): 실행된 실제 쿼리가 민감 데이터를 읽어 행을 돌려줬나.
         # 하드닝 버전은 파라미터 바인딩이라 민감테이블이 쿼리에 안 떠 → 자백 안 나옴(= BLOCKED 판정).
+        if not rows:            # fetch 결과가 실제로 있을 때만(rowcount 는 execute 직후 신뢰 불가)
+            return None
         try:
             q = (cur.query or b"").decode("utf-8", "replace").lower()
-            n = cur.rowcount
         except Exception:
-            return None
-        if not n or n <= 0:
             return None
         if "internal_secrets" in q:
             return "internal_secrets"
@@ -73,8 +72,9 @@ data:
                             "WHERE name ILIKE %s OR category ILIKE %s ORDER BY id", (like, like))
             else:
                 cur.execute("SELECT id,name,category,price,stock FROM products ORDER BY id")
-            request.environ["capstone.crown"] = _crown_of(cur)   # 자백: 하드닝이면 민감테이블 안 뜸→None
-            return jsonify(cur.fetchall())
+            rows = cur.fetchall()
+            request.environ["capstone.crown"] = _crown_of(cur, rows)   # 자백: 하드닝이면 민감테이블 안 뜸→None(fetch 후)
+            return jsonify(rows)
     @app.get("/api/products/<int:pid>")
     def product(pid):
         with conn() as c, c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:

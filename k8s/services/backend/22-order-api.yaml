@@ -36,16 +36,15 @@ data:
         except Exception:
             pass
         return resp
-    def _crown_of(cur):
+    def _crown_of(cur, rows):
         # 크라운 반출 자백(god-view): 실행된 실제 쿼리가 민감 데이터를 읽어 행을 돌려줬나.
         # 플래그 문자열이 아니라 '접근 흔적'으로 판정 — internal_secrets 접근(정상 앱은 미접근) 또는
         # PII 컬럼(ssn/email/phone/address) 반환. invoice(BOLA) 에서만 호출(account_update 오탐 방지).
+        if not rows:            # fetch 결과가 실제로 있을 때만(rowcount 는 execute 직후 신뢰 불가)
+            return None
         try:
             q = (cur.query or b"").decode("utf-8", "replace").lower()
-            n = cur.rowcount
         except Exception:
-            return None
-        if not n or n <= 0:
             return None
         if "internal_secrets" in q:
             return "internal_secrets"
@@ -90,8 +89,8 @@ data:
                         "cu.name AS customer, cu.email, cu.phone, cu.address, cu.ssn "
                         "FROM orders o JOIN products p ON o.product_id=p.id "
                         "JOIN customers cu ON o.customer_id=cu.id WHERE o.id=%s", (oid,))
-            request.environ["capstone.crown"] = _crown_of(cur)   # 자백: PII(ssn 등) 반환됐나(BOLA)
             r = cur.fetchone()
+            request.environ["capstone.crown"] = _crown_of(cur, r)   # 자백: PII(ssn 등) 반환됐나(BOLA, fetch 후)
             if not r:
                 abort(404)
             return jsonify(r)
