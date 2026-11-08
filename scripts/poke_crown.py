@@ -30,7 +30,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from orchestrator.app_log_source import AppLogSource  # noqa: E402
+from orchestrator.app_log_source import AppLogSource, CompositeLogSource  # noqa: E402
 from orchestrator.db_log_source import DbLogSource    # noqa: E402
 from orchestrator.objectives import default_objectives  # noqa: E402
 
@@ -149,6 +149,23 @@ def main(argv=None) -> int:
     db_lines = _logs("postgres", args.db_ns, since=args.since, kubeconfig=args.kubeconfig)
     db_crowns = _check("DB 통로(DbLogSource)", db_lines,
                        DbLogSource(lambda: iter(db_lines)), args.since)
+
+    # 통로 귀속(새 crowns_by_channel_in_window) — 대시보드가 보는 '{자산: [통로]}' 그대로.
+    # 판정은 아래 합집합이 하고, 이 맵은 '어느 통로로 빠졌나'를 표시만 한다(심판 결정 불변).
+    t0w, t1w = _window(args.since)
+    comp = CompositeLogSource(AppLogSource(lambda: iter(app_lines)),
+                              DbLogSource(lambda: iter(db_lines)))
+    by_ch = comp.crowns_by_channel_in_window(since_ts=t0w, until_ts=t1w)
+    per_asset: dict[str, list[str]] = {}
+    for ch, assets in by_ch.items():
+        for a in assets:
+            per_asset.setdefault(a, []).append("앱" if ch == "app" else "직접DB" if ch == "db" else ch)
+    print("\n=== 통로 귀속(대시보드와 동일 축) ===")
+    if per_asset:
+        for a, chs in sorted(per_asset.items()):
+            print(f"  {a}: {sorted(chs)}")
+    else:
+        print("  (반출된 크라운 없음)")
 
     # 판정: 심판과 같은 objectives 로 goal 달성 확인
     crowns = app_crowns | db_crowns
