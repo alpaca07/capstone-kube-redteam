@@ -19,6 +19,9 @@ Neo4j에 적재한다. **대상 안 가리는 재사용 지식 라이브러리**
 pip install neo4j
 export NEO4J_PASSWORD='<password>'
 python -m knowledge --sources cwe,attack,capec          # 순서 중요: cwe → attack → capec
+# VulHub 4 타깃(바닥층 CVE/CPE → 직접 매핑). attack 적재 뒤에 돌려야 Technique 노드에 붙는다.
+python -m knowledge --sources nvd       --nvd-targets knowledge/nvd_targets.vulhub.json
+python -m knowledge --sources cve_attack --cve-map    knowledge/cve_attack.vulhub.json
 ```
 `kg-bootstrap.cypher`의 제약조건·색인을 먼저 적용해 두면 적재가 빠르고 중복이 안 생긴다.
 

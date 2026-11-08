@@ -51,7 +51,9 @@ def _cwe_root_from_zip(data: bytes) -> ET.Element:
 def fetch(source: str, data_dir: str | None):
     """소스 원본 로드. data_dir 있으면 로컬 파일, 없으면 공식 URL 다운로드."""
     if source == "nvd":
-        raise NotImplementedError("nvd: VulHub 타깃 CPE 확정 후 구현")
+        # nvd 는 run()에서 fetch_nvd()로 처리한다(타깃 CVE/CPE 가 필요해 시그니처가 다름).
+        # 여기 도달하면 run() 디스패치 버그.
+        raise RuntimeError("nvd 는 fetch_nvd()로 수집한다 — fetch() 로 오면 안 됨")
     if data_dir:
         if source == "attack":
             return json.load(open(os.path.join(data_dir, "enterprise-attack.json")))
