@@ -85,6 +85,53 @@ def test_db_techniques_empty():
     assert src.techniques_in_window(since_ts=0, until_ts=9e9) == set()
 
 
+# ───────────── actor 스코핑(선택) ─────────────
+# log_line_prefix '%m [%p] %u@%d ' 를 켠 환경: role 로 접속자를 가른다.
+_ROLE_LOGS = [
+    # 공격자: 유출 크레덴셜 전용 role 로 민감 테이블 조회 → 크라운
+    "2026-11-05 01:00:05.000 UTC [42] legacy_admin@shopflow LOG:  statement: SELECT * FROM customers",
+    "2026-11-05 01:00:06.000 UTC [42] legacy_admin@shopflow LOG:  statement: SELECT value FROM internal_secrets",
+    # 앱 정상 트래픽: 같은 민감 쿼리라도 앱 role → 크라운 아님(actor 스코핑의 핵심)
+    "2026-11-05 01:00:07.000 UTC [43] shopflow_app@shopflow LOG:  statement: SELECT * FROM customers",
+    # 슈퍼유저 유지보수 조회도 제외
+    "2026-11-05 01:00:08.000 UTC [44] postgres@shopflow LOG:  statement: SELECT ssn FROM customers",
+]
+
+
+def test_db_actor_scoping_only_attacker_role():
+    # attacker_roles 지정 → legacy_admin 접속만 크라운
+    src = DbLogSource(lambda: iter(_ROLE_LOGS), attacker_roles={"legacy_admin"})
+    crowns = src.crowns_in_window(since_ts=_ts("2026-11-05 01:00:00"),
+                                  until_ts=_ts("2026-11-05 01:00:10"))
+    assert crowns == {CROWN_CUSTOMERS_PII, CROWN_INTERNAL_SECRETS}
+
+
+def test_db_actor_scoping_excludes_app_and_super():
+    # 앱·슈퍼유저 role 만 있으면(공격 role 접속 없음) 크라운 없음 — 거짓 크라운 방지
+    app_only = [ln for ln in _ROLE_LOGS if "legacy_admin" not in ln]
+    src = DbLogSource(lambda: iter(app_only), attacker_roles={"legacy_admin"})
+    crowns = src.crowns_in_window(since_ts=_ts("2026-11-05 01:00:00"),
+                                  until_ts=_ts("2026-11-05 01:00:10"))
+    assert crowns == set()
+
+
+def test_db_no_scoping_is_backward_compatible():
+    # attacker_roles 미지정(기존 동작) → role 무시, 쿼리 패턴만 → 민감 쿼리 전부 크라운
+    src = DbLogSource(lambda: iter(_ROLE_LOGS))   # role prefix 있어도 스코핑 안 함
+    crowns = src.crowns_in_window(since_ts=_ts("2026-11-05 01:00:00"),
+                                  until_ts=_ts("2026-11-05 01:00:10"))
+    assert crowns == {CROWN_CUSTOMERS_PII, CROWN_INTERNAL_SECRETS}
+
+
+def test_db_scoping_skips_roleless_lines():
+    # role prefix 없는 줄(기본 prefix) + attacker_roles 지정 → role 불명이라 제외(보수적)
+    roleless = ["2026-11-05 01:00:05.000 UTC [42] LOG:  statement: SELECT * FROM customers"]
+    src = DbLogSource(lambda: iter(roleless), attacker_roles={"legacy_admin"})
+    crowns = src.crowns_in_window(since_ts=_ts("2026-11-05 01:00:00"),
+                                  until_ts=_ts("2026-11-05 01:00:10"))
+    assert crowns == set()
+
+
 # ───────────────────── 자체 러너 ─────────────────────
 def _run() -> int:
     tests = [v for k, v in sorted(globals().items())

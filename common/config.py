@@ -111,6 +111,10 @@ class ObservabilityConfig(BaseModel):
     # [B] 직접 DB 접속 크라운 — postgres statement 로그(log_statement=all). DbLogSource 가 읽음.
     # vmc-sync-dblog.sh 가 kubectl logs 로 생성(database/postgres). 앱을 안 거치는 ④ 경로 커버.
     db_log_path: str = "/var/log/capstone/db-statements.log"
+    # DB 크라운 actor 스코핑(선택): 이 role 로 접속한 쿼리만 크라운으로 센다(유출 크레덴셜 전용 role).
+    # ShopFlow 처럼 앱이 민감 테이블을 상시 조회하는 환경에서 거짓 크라운 방지. 켤 땐 postgres
+    # log_line_prefix 에 '%u@%d' 필요. 빈 목록이면 스코핑 없이 쿼리 패턴만(VulHub 단독 등).
+    attacker_db_roles: list[str] = Field(default_factory=list)
 
 
 # ───────────────────────── 루트 ─────────────────────────

@@ -107,7 +107,9 @@ def build_sequencer(cfg: Config, *, sink=None, progress=None,
         # [Phase A] 앱 레벨 웹 공격(SQLi·SSRF·cmdi·cred-leak) + 크라운 자백 — 서비스 JSON 감사 로그.
         AppLogSource(file_line_reader(cfg.observability.app_log_path)),
         # [B] 직접 DB 접속 크라운 — postgres statement 로그(앱 안 거치는 ④ 경로).
-        DbLogSource(file_line_reader(cfg.observability.db_log_path)),
+        #     attacker_db_roles 가 설정되면 그 role 접속만 크라운(앱·슈퍼유저 조회 제외).
+        DbLogSource(file_line_reader(cfg.observability.db_log_path),
+                    attacker_roles=cfg.observability.attacker_db_roles or None),
     )
     verifier = VerificationEngine(attacker, defender, baseline, registry,
                                   logs=logs, objectives=objectives)
