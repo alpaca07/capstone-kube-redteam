@@ -21,6 +21,7 @@ import glob
 import io
 import json
 import os
+import re
 import time
 import urllib.parse
 import urllib.request
@@ -186,12 +187,46 @@ def _load_curated(path: str) -> list:
     return out
 
 
+def _load_kev(path: str) -> list:
+    """CTID KEV->ATT&CK JSON(mapping_objects[]) -> 레코드. 실제 악용 CVE(CISA KEV) + 최신 ATT&CK."""
+    data = json.load(open(path))
+    out = []
+    for o in data.get("mapping_objects", []):
+        cve = (o.get("capability_id") or "").strip()
+        tech = (o.get("attack_object_id") or "").strip()
+        if cve.upper().startswith("CVE-") and tech.upper().startswith("T"):
+            out.append({"cve": cve, "technique": tech,
+                        "category": o.get("mapping_type", ""), "source": "kev"})
+    return out
+
+
+def _newest_kev(data_dir: str) -> str | None:
+    """data-dir 아래에서 KEV enterprise 매핑 JSON 중 날짜(파일명 MM.DD.YYYY) 최신 하나 고름."""
+    hits = [h for h in glob.glob(os.path.join(data_dir, "**", "*attack-*-enterprise.json"), recursive=True)
+            if "kev" in os.path.basename(h).lower()]
+    if not hits:
+        return None
+
+    def key(p):
+        m = re.search(r"kev-(\d{2})\.(\d{2})\.(\d{4})", os.path.basename(p))
+        return (m.group(3), m.group(1), m.group(2)) if m else ("0000", "00", "00")
+
+    return max(hits, key=key)
+
+
 def fetch_cve_attack(args) -> dict:
-    """CVE->ATT&CK 매핑을 모아 {"mappings":[...]} 로. 큐레이트 JSON(--cve-map) + 선택적 CTID CSV(data-dir)."""
+    """CVE->ATT&CK 매핑을 모아 {"mappings":[...]}. 우선순위대로 있으면 합쳐 씀:
+       KEV(--kev-json 또는 data-dir 자동탐색, 최신·권장) + 큐레이트 JSON(--cve-map) + CTID 2021 CSV(data-dir)."""
     mappings = []
+    # KEV (최신 실악용 CVE 매핑)
+    kev = args.kev_json or (_newest_kev(args.data_dir) if args.data_dir else None)
+    if kev and os.path.exists(kev):
+        mappings += _load_kev(kev)
+    # 큐레이트
     cmap = args.cve_map or (os.path.join(args.data_dir, "cve_attack.json") if args.data_dir else None)
     if cmap and os.path.exists(cmap):
         mappings += _load_curated(cmap)
+    # CTID 2021 CSV (레거시 베이스라인)
     if args.data_dir:
         csv_path = os.path.join(args.data_dir, _CTID_CSV)
         if os.path.exists(csv_path):
@@ -199,8 +234,9 @@ def fetch_cve_attack(args) -> dict:
     if not mappings:
         raise SystemExit(
             "cve_attack: 매핑이 없다. 아래 중 하나를 줘라.\n"
-            "  --cve-map ./kg_data/cve_attack.json   (큐레이트: {\"mappings\":[{\"cve\":..,\"techniques\":[..]}]})\n"
-            f"  또는 <data-dir>/{_CTID_CSV} (CTID CSV, git clone 으로 받음) 를 data-dir 에 두기")
+            "  --kev-json <KEV JSON>                 (CTID KEV->ATT&CK, 최신·권장)\n"
+            "  --cve-map ./kg_data/cve_attack.json   (큐레이트)\n"
+            f"  또는 data-dir 아래에 KEV JSON / {_CTID_CSV} 두기(자동 탐색)")
     return {"mappings": mappings}
 
 
@@ -252,6 +288,7 @@ def main() -> None:
     ap.add_argument("--nvd-targets", default=None, help="타깃 JSON 파일 경로({\"cve_ids\":[...],\"cpe_matches\":[...]})")
     ap.add_argument("--nvd-cpe-nodes", action="store_true", help="NVD CPE 열거도 적재(기본 꺼짐 — 벤더 제품 노이즈 차단)")
     ap.add_argument("--cve-map", default=None, help="CVE->ATT&CK 큐레이트 매핑 JSON 경로(cve_attack 소스)")
+    ap.add_argument("--kev-json", default=None, help="CTID KEV->ATT&CK 매핑 JSON 경로(없으면 data-dir 에서 최신 자동탐색)")
     run(ap.parse_args())
 
 
