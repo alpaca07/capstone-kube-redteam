@@ -16,6 +16,7 @@ Neo4j 접속: 환경변수 NEO4J_URI / NEO4J_USER / NEO4J_PASSWORD (또는 --uri
 from __future__ import annotations
 
 import argparse
+import csv
 import glob
 import io
 import json
@@ -144,6 +145,63 @@ def fetch_nvd(args) -> dict:
     return {"vulnerabilities": uniq}
 
 
+# --- CVE->ATT&CK 매핑 로드 (큐레이트 JSON + 선택적 CTID CSV) ------------------
+_CTID_CSV = "Att&ckToCveMappings.csv"
+_CTID_COLS = {   # CSV 컬럼 -> category
+    "Primary Impact": "primary_impact",
+    "Secondary Impact": "secondary_impact",
+    "Exploitation Technique": "exploitation_technique",
+    "Uncategorized": "uncategorized",
+}
+
+
+def _load_ctid_csv(path: str) -> list:
+    """CTID Att&ckToCveMappings.csv -> 매핑 레코드. 셀은 'T1190; T1078' 처럼 ; 로 여러 개."""
+    out = []
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            cve = (row.get("CVE ID") or "").strip()
+            if not cve:
+                continue
+            for col, cat in _CTID_COLS.items():
+                for t in (row.get(col) or "").split(";"):
+                    t = t.strip()
+                    if t:
+                        out.append({"cve": cve, "technique": t, "category": cat, "source": "ctid"})
+    return out
+
+
+def _load_curated(path: str) -> list:
+    """큐레이트 JSON({"mappings":[{"cve":..,"techniques":[..]|"technique":..,"category":..}]}) -> 레코드."""
+    data = json.load(open(path))
+    out = []
+    for m in data.get("mappings", []):
+        cve = m.get("cve")
+        cat = m.get("category", "")
+        techs = m.get("techniques") or ([m["technique"]] if m.get("technique") else [])
+        for t in techs:
+            out.append({"cve": cve, "technique": t, "category": cat, "source": m.get("source", "curated")})
+    return out
+
+
+def fetch_cve_attack(args) -> dict:
+    """CVE->ATT&CK 매핑을 모아 {"mappings":[...]} 로. 큐레이트 JSON(--cve-map) + 선택적 CTID CSV(data-dir)."""
+    mappings = []
+    cmap = args.cve_map or (os.path.join(args.data_dir, "cve_attack.json") if args.data_dir else None)
+    if cmap and os.path.exists(cmap):
+        mappings += _load_curated(cmap)
+    if args.data_dir:
+        csv_path = os.path.join(args.data_dir, _CTID_CSV)
+        if os.path.exists(csv_path):
+            mappings += _load_ctid_csv(csv_path)
+    if not mappings:
+        raise SystemExit(
+            "cve_attack: 매핑이 없다. 아래 중 하나를 줘라.\n"
+            "  --cve-map ./kg_data/cve_attack.json   (큐레이트: {\"mappings\":[{\"cve\":..,\"techniques\":[..]}]})\n"
+            f"  또는 <data-dir>/{_CTID_CSV} (CTID CSV, git clone 으로 받음) 를 data-dir 에 두기")
+    return {"mappings": mappings}
+
+
 def connect(args):
     """Neo4j 세션. neo4j 드라이버는 여기서만 import(없어도 dry-run 됨)."""
     from neo4j import GraphDatabase
@@ -158,11 +216,17 @@ def connect(args):
 
 def run(args) -> None:
     source_list = [s.strip() for s in args.sources.split(",") if s.strip()]
+    sources.LOAD_NVD_CPE = bool(args.nvd_cpe_nodes)   # NVD CPE 열거 적재 여부(기본 False)
     session = graph_writer.DryRunSession() if args.dry_run else connect(args)
     for source in source_list:
         if source not in sources.PARSERS:
             raise SystemExit(f"unknown source: {source} (쓸 수 있는 것: {list(sources.PARSERS)})")
-        raw = fetch_nvd(args) if source == "nvd" else fetch(source, args.data_dir)
+        if source == "nvd":
+            raw = fetch_nvd(args)
+        elif source == "cve_attack":
+            raw = fetch_cve_attack(args)
+        else:
+            raw = fetch(source, args.data_dir)
         nodes, rels = sources.PARSERS[source](raw)
         n = graph_writer.merge_nodes(session, nodes)
         r = graph_writer.merge_rels(session, rels)
@@ -174,7 +238,7 @@ def run(args) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(prog="knowledge", description="지식 그래프 ETL 적재")
     ap.add_argument("--sources", default="cwe,attack,capec",
-                    help="적재 소스 쉼표구분 (cwe,attack,capec,nvd). 순서 cwe->attack->capec 권장")
+                    help="적재 소스 쉼표구분 (cwe,attack,capec,nvd,cve_attack). 순서 cwe->attack->capec, nvd/cve_attack 은 그 뒤")
     ap.add_argument("--data-dir", default=None, help="로컬 원본 파일 디렉토리(없으면 공식 URL 다운로드)")
     ap.add_argument("--dry-run", action="store_true", help="적재 없이 건수만")
     ap.add_argument("--uri", default=None); ap.add_argument("--user", default=None)
@@ -184,6 +248,8 @@ def main() -> None:
     ap.add_argument("--nvd-cve", default=[], type=_csv, help="NVD 타깃 CVE id (예: CVE-2021-44228,CVE-2021-45046)")
     ap.add_argument("--nvd-cpe", default=[], type=_csv, help="NVD 타깃 제품 CPE/virtualMatchString (예: cpe:2.3:a:apache:log4j)")
     ap.add_argument("--nvd-targets", default=None, help="타깃 JSON 파일 경로({\"cve_ids\":[...],\"cpe_matches\":[...]})")
+    ap.add_argument("--nvd-cpe-nodes", action="store_true", help="NVD CPE 열거도 적재(기본 꺼짐 — 벤더 제품 노이즈 차단)")
+    ap.add_argument("--cve-map", default=None, help="CVE->ATT&CK 큐레이트 매핑 JSON 경로(cve_attack 소스)")
     run(ap.parse_args())
 
 

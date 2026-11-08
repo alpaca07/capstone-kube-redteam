@@ -22,6 +22,17 @@ from . import schema
 Node = dict
 Rel = dict
 
+# 포괄적(generic) CWE — 기법으로 아무데나 팬아웃만 시켜 노이즈. CVE->CWE 는 기록하되
+# 노드에 is_generic 꼬리표를 달아 플래너 질의가 브리지에서 빼게 한다("참고로만").
+GENERIC_CWES: frozenset[str] = frozenset({
+    "CWE-20", "CWE-74", "CWE-116", "CWE-200", "CWE-400", "CWE-404",
+    "CWE-664", "CWE-693", "CWE-707", "CWE-710",
+})
+
+# NVD CPE 열거 적재 여부. 기본 False — 한 CVE가 영향 준 수백 벤더 제품 CPE 노이즈를 막는다.
+# VM-B 스택 매칭을 CPE 노드로 하고 싶을 때만 __main__ 에서 True 로 켠다(--nvd-cpe-nodes).
+LOAD_NVD_CPE: bool = False
+
 
 def knowledge_source_node(source: str) -> Node:
     ks = schema.KNOWLEDGE_SOURCES[source]
@@ -173,7 +184,10 @@ def parse_cwe(raw) -> tuple[list[Node], list[Rel]]:
             if local(child.tag) == "Description":
                 desc = "".join(child.itertext()).strip()
                 break
-        nodes.append({"label": "CWE", "id": cwe_id, "props": {"name": name, "description": desc}})
+        props = {"name": name, "description": desc}
+        if cwe_id in GENERIC_CWES:
+            props["is_generic"] = True   # 플래너 질의가 브리지에서 제외하는 표식
+        nodes.append({"label": "CWE", "id": cwe_id, "props": props})
         rels.append(_supported_by("cwe", "CWE", cwe_id))
     return nodes, rels
 
@@ -261,21 +275,59 @@ def parse_nvd(raw) -> tuple[list[Node], list[Rel]]:
                     rels.append({"type": "CLASSIFIED_AS", "from_label": "CVE", "from_id": cve_id,
                                  "to_label": "CWE", "to_id": val, "props": {}})
 
-        # CPE -> CVE (영향받는 제품). 같은 criteria 의 버전대들을 모아 한 엣지로.
-        ranges: dict[str, list[str]] = {}
-        for criteria, vrange in _iter_cpe_matches(cve):
-            ranges.setdefault(criteria, [])
-            if vrange and vrange not in ranges[criteria]:
-                ranges[criteria].append(vrange)
-        for criteria, rlist in ranges.items():
-            if criteria not in seen_cpe:
-                seen_cpe.add(criteria)
-                nodes.append({"label": "CPE", "id": criteria, "props": {"cpe_uri": criteria}})
-                rels.append(_supported_by("nvd", "CPE", criteria))
-            rels.append({"type": "AFFECTED_BY", "from_label": "CPE", "from_id": criteria,
-                         "to_label": "CVE", "to_id": cve_id,
-                         "props": {"confidence": 1.0, "source_type": "OFFICIAL",
-                                   "version_range": " | ".join(rlist)}})
+        # CPE -> CVE (영향받는 제품). 기본 미적재(LOAD_NVD_CPE=False) — 벤더 제품 열거 노이즈 차단.
+        if LOAD_NVD_CPE:
+            ranges: dict[str, list[str]] = {}
+            for criteria, vrange in _iter_cpe_matches(cve):
+                ranges.setdefault(criteria, [])
+                if vrange and vrange not in ranges[criteria]:
+                    ranges[criteria].append(vrange)
+            for criteria, rlist in ranges.items():
+                if criteria not in seen_cpe:
+                    seen_cpe.add(criteria)
+                    nodes.append({"label": "CPE", "id": criteria, "props": {"cpe_uri": criteria}})
+                    rels.append(_supported_by("nvd", "CPE", criteria))
+                rels.append({"type": "AFFECTED_BY", "from_label": "CPE", "from_id": criteria,
+                             "to_label": "CVE", "to_id": cve_id,
+                             "props": {"confidence": 1.0, "source_type": "OFFICIAL",
+                                       "version_range": " | ".join(rlist)}})
+    return nodes, rels
+
+
+# --- CVE -> ATT&CK 직접 매핑 (EXPLOITED_BY) ----------------------------------
+def parse_cve_attack(raw) -> tuple[list[Node], list[Rel]]:
+    """CVE→Technique 직접 매핑 -> (CVE)-EXPLOITED_BY->(Technique/SubTechnique).
+
+    raw 모양: {"mappings": [{"cve":"CVE-...", "technique":"T1190",
+                            "category":"exploitation_technique", "source":"ctid"|"curated"}, ...]}
+    - Technique 노드는 attack 소스가 먼저 만든 것에 붙는다(없으면 MATCH 실패로 조용히 스킵) → attack 먼저 적재.
+    - CWE 브리지보다 정확하지만 커버리지는 소스에 달림 → 비는 CVE 는 플래너(LLM) 폴백.
+    """
+    nodes: list[Node] = []
+    rels: list[Rel] = []
+    seen_cve: set[str] = set()
+    seen_src: set[str] = set()
+    seen_edge: set[tuple] = set()
+
+    for m in raw.get("mappings", []):
+        cve_id = (m.get("cve") or "").strip()
+        tech = (m.get("technique") or "").strip()
+        if not cve_id or not tech:
+            continue
+        src = m.get("source", "curated")
+        if src in schema.KNOWLEDGE_SOURCES and src not in seen_src:
+            seen_src.add(src)
+            nodes.append(knowledge_source_node(src))
+        if cve_id not in seen_cve:
+            seen_cve.add(cve_id)
+            nodes.append({"label": "CVE", "id": cve_id, "props": {}})   # 속성은 NVD 가 채움(있으면)
+        key = (cve_id, tech, src)
+        if key in seen_edge:
+            continue
+        seen_edge.add(key)
+        rels.append({"type": "EXPLOITED_BY", "from_label": "CVE", "from_id": cve_id,
+                     "to_label": _tech_label(tech), "to_id": tech,
+                     "props": {"category": m.get("category", ""), "source": src}})
     return nodes, rels
 
 
@@ -284,4 +336,5 @@ PARSERS = {
     "capec": parse_capec,
     "cwe": parse_cwe,
     "nvd": parse_nvd,
+    "cve_attack": parse_cve_attack,
 }

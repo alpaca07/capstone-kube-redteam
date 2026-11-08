@@ -49,6 +49,11 @@ KNOWLEDGE_SOURCES = {
                "url": "https://cwe.mitre.org/"},
     "nvd":    {"id": "KS-nvd",          "name": "NVD",          "source_type": "OFFICIAL",
                "url": "https://nvd.nist.gov/"},
+    # CVE -> ATT&CK 직접 매핑 출처 (EXPLOITED_BY)
+    "ctid":    {"id": "KS-ctid-cve-attack", "name": "CTID CVE→ATT&CK", "source_type": "COMMUNITY",
+                "url": "https://github.com/center-for-threat-informed-defense/mappings-explorer"},
+    "curated": {"id": "KS-curated-cve-attack", "name": "직접 큐레이트 CVE→ATT&CK", "source_type": "CURATED",
+                "url": ""},
 }
 
 # =============================================================================
