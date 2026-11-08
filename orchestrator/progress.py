@@ -41,7 +41,9 @@ class ProgressSink:
             "turn_started": None,        # epoch(초) — 턴 경과 계산용
             "time_limit_sec": 0,
             "last_verdict": None,        # 직전 라운드 판정(blocked/fake_patch/...)
-            "flags_reached": [],         # 현재 에피소드 누적 god-view 플래그
+            "flags_reached": [],         # 현재 에피소드 누적 god-view 플래그(①②③ + 크라운 objective id)
+            "crowns_reached": [],        # 그중 크라운(중요자산 반출) objective id — 어느 자산이 빠졌나
+            "goals_reached": [],         # 달성 최종 목표(db_exfil 등) — 실제 침해 성립 여부
             "updated_at": time.time(),
         }
 

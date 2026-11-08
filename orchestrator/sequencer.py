@@ -137,7 +137,8 @@ class TurnSequencer:
 
     def run_episode(self, episode: int) -> EpisodeSummary:
         self._emit(status="running", episode=episode, round=0, phase=0, active=None,
-                   turn_started=None, last_verdict=None, flags_reached=[])
+                   turn_started=None, last_verdict=None,
+                   flags_reached=[], crowns_reached=[], goals_reached=[])
         # 0. init — clean 베이스라인으로 리셋(이전 에피소드 오염 제거)
         if self.params.skip_revert:
             # vmrun revert 가 k3s exec 경로를 느리게 만드는 인프라 이슈 회피 — 라이브(이미 베이스라인
@@ -291,9 +292,13 @@ class TurnSequencer:
         scorer.score_round(round=rnd, attack_result=attack,
                            defense_result=defense, verification=verification)
         self._log(f"[ep{episode} R{rnd}] 6. 채점 완료 (라운드 총 {time.time() - t0:.0f}s)")
+        all_flags = self.truth.flags_up_to(episode, rnd)
+        crowns = sorted(f for f in all_flags if self.objectives.get(f))   # flags 중 크라운 objective
         self._emit(phase=4, active=None, turn_started=None,
                    last_verdict=verification.verdict.value,
-                   flags_reached=sorted(self.truth.flags_up_to(episode, rnd)))
+                   flags_reached=sorted(all_flags),
+                   crowns_reached=crowns,   # 실시간 크라운(어느 자산이 빠졌나) — 대시보드 소스
+                   goals_reached=sorted({self.objectives.get(f).goal for f in crowns}))
 
         return RoundOutcome(round=rnd, verdict=verification.verdict,
                             defense_succeeded=verification.defense_succeeded(),
