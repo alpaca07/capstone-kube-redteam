@@ -75,6 +75,20 @@ def test_parallel_route_runs_round():
     assert len(h._graph.recent_facts()) == 2
 
 
+# ── 병렬 경로 가시성: 웨이브·스텝 로그가 주입된 log로 흐른다(저널 침묵 회귀 방지) ──
+def test_parallel_path_emits_logs():
+    logs: list[str] = []
+    h = AttackHarness(
+        llm=_WorkLLM(), runner=_R(), scope_policy=default_policy(),
+        system_prompt="attacker-sys", mode="parallel", planner_llm=_PlanLLM(),
+        round_cfg=RoundConfig(system_prompt="attacker-sys", n_workers=2),
+        log=logs.append)
+    h.attack_turn(_start(), episode=1, round=1)
+    joined = "\n".join(logs)
+    assert "wave" in joined                       # 라운드 엔진 웨이브 로그
+    assert "[공격" in joined                        # ReAct 스텝 로그도 흐른다
+
+
 # ── mode=single이면 기존 단일 경로(그래프 안 만듦) ──
 def test_single_route_untouched():
     h = _harness("single")

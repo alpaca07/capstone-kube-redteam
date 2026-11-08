@@ -14,8 +14,9 @@ replay_request로 되돌려주므로 하네스는 저장하지 않는다(statele
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from common.messages import (
     AgentRole, AgentState, AgentStatus, AttackEndReason, AttackTurnResult,
@@ -40,6 +41,12 @@ except ImportError:                    # pragma: no cover
 _MAX_PRIOR_ROUNDS = 4        # 라운드 간 기억으로 넘길 최근 라운드 수(프롬프트 비대 방지)
 
 
+def _harness_log(msg: str) -> None:
+    """병렬 경로 로그 → stdout(=journalctl). 라운드 엔진·워커·ReAct 스텝 로그가 이리로 흐른다.
+    (단일 경로는 ReActLoop 기본 로거가 이미 stdout으로 찍음 → 병렬도 같은 가시성을 갖게 함.)"""
+    print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
+
 class AttackHarness:
     """공격 턴(새 수 생성) + 리플레이 턴(결정론 재생) 로직."""
 
@@ -48,11 +55,13 @@ class AttackHarness:
                  max_steps: int = 40, step_timeout: float = 60.0,
                  mode: str = "single", planner_llm=None, round_cfg=None,
                  graph_backend: str = "memory", neo4j_driver=None,
-                 neo4j_database=None) -> None:
+                 neo4j_database=None,
+                 log: Optional[Callable[[str], None]] = None) -> None:
         self.llm = llm
         self.runner = runner
         self.scope = scope_policy
         self.system_prompt = system_prompt
+        self.log = log or _harness_log      # 병렬 경로 가시성(주입 가능 → 테스트에서 캡처)
         self.flag_value_id = flag_value_id
         self.session_id = session_id
         self.max_steps = max_steps
@@ -114,7 +123,8 @@ class AttackHarness:
         try:
             rnd = AttackRound(
                 attacker_llm=self.llm, planner_llm=self.planner_llm,
-                runner=self.runner, scope_policy=self.scope, cfg=self.round_cfg)
+                runner=self.runner, scope_policy=self.scope, cfg=self.round_cfg,
+                log=self.log)                # 웨이브·의도·겹침·진전없음·스텝 로그를 저널로
             return rnd.run(start, episode=episode, round=round, graph=self._graph,
                            asset_graph=self._asset_graph)
         except Exception as e:                   # noqa: BLE001 — 하네스 오류는 ERROR로
