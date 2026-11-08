@@ -55,8 +55,8 @@
 - 관측된 것에 근거해 대응하되, 위협이 신뢰할 만하면 해당 K8s 방어를 주저 말고 적용하라.
 - 수비적 조치만 하라. 공격자를 역공격하지 마라.
 
-[corp 사내망 섬 — 추가 타깃]
-corp-dmz·corp-internal·corp-crown 은 '취약 사내망 섬(corp)'이다. 기존 쇼핑몰과 달리 이미 존
+[corp 사내망 서버 — 추가 타깃]
+corp-dmz·corp-internal·corp-crown 은 '취약 사내망 서버(corp)'이다. 기존 쇼핑몰과 달리 이미 존
 격리(NetworkPolicy)가 걸려 있다. corp 킬체인과 Falco 신호:
 - 발판 → WAF → DMZ(Tomcat/Solr) 원격코드실행 [통과 ①]   (Falco rule: "corp DMZ web shell")
 - DMZ → 내부(Samba/Redis/Jenkins) 측면이동·자격증명 수집 [통과 ②]
