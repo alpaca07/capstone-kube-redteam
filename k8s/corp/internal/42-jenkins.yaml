@@ -1,0 +1,62 @@
+# corp 내부 — Jenkins 2.138 (CVE-2018-1000861) + 배포 자격증명 보관
+# VulHub jenkins/CVE-2018-1000861 재현: Stapler URL 라우팅으로 인증 전 코드실행 → 스크립트 콘솔.
+# 공격자는 여기서 아래 배포 접속정보를 읽어 '자격증명 수집 → 크라운'을 잇는다(통과 ②).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jenkins-deploy-creds
+  namespace: corp-internal
+data:
+  # 야간 DB 동기화 잡이 쓰는 접속정보 — corp-crown PostgreSQL 로 이어진다.
+  # 값은 corp-crown/10-postgres-secret.yaml 과 일치(수집 → 크라운 접속 성립).
+  corp-db.properties: |
+    CORP_DB_HOST=postgres.corp-crown.svc.cluster.local
+    CORP_DB_PORT=5432
+    CORP_DB_USER=postgres
+    CORP_DB_PASS=postgres
+    CORP_DB_NAME=corpdb
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jenkins
+  namespace: corp-internal
+  labels: { app: jenkins, zone: internal }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: jenkins }
+  template:
+    metadata:
+      labels: { app: jenkins, zone: internal }
+    spec:
+      containers:
+        - name: jenkins
+          image: vulhub/jenkins:2.138
+          ports:
+            - { containerPort: 8080 }
+            - { containerPort: 50000 }
+          volumeMounts:
+            - name: deploy-creds
+              mountPath: /opt/deploy
+              readOnly: true
+          readinessProbe:
+            httpGet: { path: /login, port: 8080 }
+            initialDelaySeconds: 40
+            periodSeconds: 10
+            failureThreshold: 12
+      volumes:
+        - name: deploy-creds
+          configMap: { name: jenkins-deploy-creds }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jenkins
+  namespace: corp-internal
+  labels: { app: jenkins }
+spec:
+  selector: { app: jenkins }
+  ports:
+    - { name: http, port: 8080, targetPort: 8080 }
+    - { name: agent, port: 50000, targetPort: 50000 }
