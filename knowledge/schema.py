@@ -103,7 +103,7 @@ CWE_MAPPING = {
     # CWE 자체 관계는 초기엔 적재 안 함(CWE->CAPEC 는 CAPEC 쪽에서 건다). 확장시 ChildOf 등 추가 가능.
 }
 
-# NVD CVE/CPE (services.nvd.nist.gov API) — 뼈대만, 대상 소프트웨어 확정 후 적재 세션에서
+# NVD CVE/CPE (services.nvd.nist.gov API) — parse_nvd 구현됨(타깃 CVE/CPE 로 질의, sources.py)
 NVD_MAPPING = {
     "cve": {"label": "CVE", "id_from": "cve.id", "props": {"description": "descriptions[en]"}},
     "cpe": {"label": "CPE", "id_from": "cpe-name slug", "props": {"cpe_uri": "criteria"}},

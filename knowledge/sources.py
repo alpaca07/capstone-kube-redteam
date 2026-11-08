@@ -15,6 +15,8 @@ raw 는 그 소스의 로드 결과:
 """
 from __future__ import annotations
 
+import re
+
 from . import schema
 
 Node = dict
@@ -176,18 +178,104 @@ def parse_cwe(raw) -> tuple[list[Node], list[Rel]]:
     return nodes, rels
 
 
-# --- NVD (뼈대, 대상 소프트웨어 확정 후) -------------------------------------
-def parse_nvd(raw) -> tuple[list[Node], list[Rel]]:
-    """NVD API 응답 -> CVE / CPE + AFFECTED_BY / CLASSIFIED_AS.
+# --- NVD CVE/CPE -------------------------------------------------------------
+# weaknesses 값 중 'CWE-###' 만 받고 'NVD-CWE-Other/noinfo' 같은 비표준값은 버린다.
+_CWE_RE = re.compile(r"^CWE-\d+$")
 
-    TODO(적재 세션, VulHub 타깃 확정 후):
-      - raw['vulnerabilities'][].cve -> CVE(id, description)
-      - configurations..cpeMatch.criteria -> CPE(cpe_uri) + (CPE)-AFFECTED_BY->(CVE){version_range,...}
-      - weaknesses..value(CWE-###) -> (CVE)-CLASSIFIED_AS->(CWE)
-      - EXPLOITED_BY(->Technique)는 NVD에 직접 매핑 없음 → 보류
+
+def _cve_description(cve: dict) -> str:
+    for d in cve.get("descriptions", []):
+        if d.get("lang") == "en":
+            return d.get("value", "")
+    return ""
+
+
+def _cve_cvss(cve: dict) -> tuple[float | None, str]:
+    """가장 최신 CVSS 한 벌에서 점수·심각도 뽑기(3.1 -> 3.0 -> 2.0 순)."""
+    metrics = cve.get("metrics", {})
+    for key in ("cvssMetricV31", "cvssMetricV30", "cvssMetricV2"):
+        arr = metrics.get(key) or []
+        if arr:
+            data = arr[0].get("cvssData", {})
+            return data.get("baseScore"), data.get("baseSeverity") or arr[0].get("baseSeverity", "")
+    return None, ""
+
+
+def _version_range(m: dict) -> str:
+    """cpeMatch 의 버전 경계를 '>=2.0,<2.3.1' 꼴 문자열로. 경계 없으면 빈 문자열(해당 CPE 전체 취약)."""
+    parts = []
+    if m.get("versionStartIncluding"): parts.append(f">={m['versionStartIncluding']}")
+    if m.get("versionStartExcluding"): parts.append(f">{m['versionStartExcluding']}")
+    if m.get("versionEndIncluding"):   parts.append(f"<={m['versionEndIncluding']}")
+    if m.get("versionEndExcluding"):   parts.append(f"<{m['versionEndExcluding']}")
+    return ",".join(parts)
+
+
+def _iter_cpe_matches(cve: dict):
+    """configurations 를 훑어 vulnerable=true 인 (criteria, version_range) 만 내보냄(negate 노드·children 처리)."""
+    for conf in cve.get("configurations", []):
+        stack = list(conf.get("nodes", []))
+        while stack:
+            node = stack.pop()
+            if node.get("negate"):
+                continue
+            stack.extend(node.get("children", []))
+            for m in node.get("cpeMatch", []):
+                if m.get("vulnerable") and m.get("criteria"):
+                    yield m["criteria"], _version_range(m)
+
+
+def parse_nvd(raw) -> tuple[list[Node], list[Rel]]:
+    """NVD API 2.0 응답 -> CVE / CPE + (CVE)-CLASSIFIED_AS->(CWE) + (CPE)-AFFECTED_BY->(CVE).
+
+    raw 모양: {"vulnerabilities": [{"cve": {...}}, ...]}  (여러 질의를 합친 것도 그대로 OK)
+    - CWE 노드는 cwe 소스가 먼저 만든 것에 붙는다(없으면 CLASSIFIED_AS 는 MATCH 실패로 조용히 스킵) → 적재순서 cwe 먼저.
+    - CPE id 는 criteria(정식 cpe:2.3 문자열). 자산 그래프가 자산을 이 CPE 에 앵커링하는 접점이므로 양쪽이 같은 문자열을 써야 이어진다.
+    - 같은 CPE 의 여러 버전대는 한 AFFECTED_BY 엣지에 ' | ' 로 합친다.
+    - EXPLOITED_BY(->Technique)는 NVD에 직접 매핑이 없어 보류(후순위).
     """
     nodes: list[Node] = [knowledge_source_node("nvd")]
     rels: list[Rel] = []
+    seen_cpe: set[str] = set()
+
+    for entry in raw.get("vulnerabilities", []):
+        cve = entry.get("cve", {})
+        cve_id = cve.get("id")
+        if not cve_id:
+            continue
+        score, severity = _cve_cvss(cve)
+        props = {"description": _cve_description(cve)}
+        if cve.get("published"): props["published"] = cve["published"]
+        if score is not None:    props["cvss_score"] = score
+        if severity:             props["cvss_severity"] = severity
+        nodes.append({"label": "CVE", "id": cve_id, "props": props})
+        rels.append(_supported_by("nvd", "CVE", cve_id))
+
+        # CVE -> CWE (약점 분류). 중복·비표준값 제거.
+        seen_cwe: set[str] = set()
+        for w in cve.get("weaknesses", []):
+            for d in w.get("description", []):
+                val = d.get("value", "")
+                if _CWE_RE.match(val) and val not in seen_cwe:
+                    seen_cwe.add(val)
+                    rels.append({"type": "CLASSIFIED_AS", "from_label": "CVE", "from_id": cve_id,
+                                 "to_label": "CWE", "to_id": val, "props": {}})
+
+        # CPE -> CVE (영향받는 제품). 같은 criteria 의 버전대들을 모아 한 엣지로.
+        ranges: dict[str, list[str]] = {}
+        for criteria, vrange in _iter_cpe_matches(cve):
+            ranges.setdefault(criteria, [])
+            if vrange and vrange not in ranges[criteria]:
+                ranges[criteria].append(vrange)
+        for criteria, rlist in ranges.items():
+            if criteria not in seen_cpe:
+                seen_cpe.add(criteria)
+                nodes.append({"label": "CPE", "id": criteria, "props": {"cpe_uri": criteria}})
+                rels.append(_supported_by("nvd", "CPE", criteria))
+            rels.append({"type": "AFFECTED_BY", "from_label": "CPE", "from_id": criteria,
+                         "to_label": "CVE", "to_id": cve_id,
+                         "props": {"confidence": 1.0, "source_type": "OFFICIAL",
+                                   "version_range": " | ".join(rlist)}})
     return nodes, rels
 
 
