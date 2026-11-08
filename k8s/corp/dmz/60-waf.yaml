@@ -1,0 +1,115 @@
+# corp DMZ — WAF (ModSecurity 3.0.5 + CRS 3.3.0) + IDS 사이드카 (Suricata 4.0.3)
+# ① WAF: owasp/modsecurity-crs nginx 리버스프록시. corp-ext → WAF → Tomcat/Solr (유일 진입점).
+#    취약: CRS 3.3.0 우회(CVE-2021-35368) · ModSecurity 3.0.5 요청본문 DoS(CVE-2021-42717).
+# ② IDS: Suricata 를 WAF 파드 사이드카로(같은 netns eth0 감시) → '진입 트래픽'을 관측한다(②-가).
+#    내부 측면이동의 셸·프로세스는 Falco(5단계)가 본다. 취약: 탐지 회피(CVE-2018-6794).
+#    role=defense-appliance 로 역할을 표시(corp-defense 는 로그 수집·Falco 용, 5단계).
+# ※ 1단계: 방어자(VM D)는 이 장비를 '운용'하지 않는다 — 로그만 방어 관측에 쓴다.
+# ※ [배포 시 조정] owasp 이미지의 nginx 설정 반영 위치(conf.d vs templates), ModSecurity 규칙
+#   경로(/etc/modsecurity.d/setup.conf), Suricata 인터페이스 이름은 실제 이미지에 맞춰 확인한다.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: waf-nginx-conf
+  namespace: corp-dmz
+data:
+  default.conf: |
+    server {
+        listen 8080;
+        server_name _;
+
+        modsecurity on;
+        modsecurity_rules_file /etc/modsecurity.d/setup.conf;
+
+        location /solr/ {
+            proxy_pass http://solr:8983;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+        location / {
+            proxy_pass http://tomcat:8080;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ids-suricata-conf
+  namespace: corp-dmz
+data:
+  suricata.yaml: |
+    %YAML 1.1
+    ---
+    af-packet:
+      - interface: eth0
+        cluster-id: 99
+        cluster-type: cluster_flow
+        defrag: yes
+    default-rule-path: /etc/suricata/rules
+    rule-files:
+      - suricata.rules
+    outputs:
+      - eve-log:
+          enabled: yes
+          filetype: regular
+          filename: /var/log/suricata/eve.json
+          types:
+            - alert
+            - http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: waf
+  namespace: corp-dmz
+  labels: { app: waf, zone: dmz, role: defense-appliance }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: waf }
+  template:
+    metadata:
+      labels: { app: waf, zone: dmz, role: defense-appliance }
+    spec:
+      containers:
+        - name: waf
+          image: owasp/modsecurity-crs:3.3.0-nginx
+          ports:
+            - { containerPort: 8080 }
+          volumeMounts:
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+          readinessProbe:
+            tcpSocket: { port: 8080 }
+            initialDelaySeconds: 10
+            periodSeconds: 5
+        - name: ids
+          image: jasonish/suricata:4.0.3
+          args: ["-i", "eth0"]
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN", "NET_RAW", "SYS_NICE"]
+          volumeMounts:
+            - name: suricata-conf
+              mountPath: /etc/suricata/suricata.yaml
+              subPath: suricata.yaml
+      volumes:
+        - name: nginx-conf
+          configMap: { name: waf-nginx-conf }
+        - name: suricata-conf
+          configMap: { name: ids-suricata-conf }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: waf
+  namespace: corp-dmz
+  labels: { app: waf }
+spec:
+  selector: { app: waf }
+  ports:
+    - { name: http, port: 80, targetPort: 8080 }

@@ -22,12 +22,29 @@ metadata:
   name: allow-from-ext
   namespace: corp-dmz
 spec:
-  podSelector: {}
+  podSelector:
+    matchLabels: { app: waf }          # WAF 만 외부(ext)에서 받는다 — 유일 진입점
   policyTypes: [Ingress]
   ingress:
     - from:
         - namespaceSelector:
             matchLabels: { zone: ext }
+---
+# corp-dmz: Tomcat·Solr 는 WAF 에서만 (외부 직접 노출 차단)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-waf-to-web
+  namespace: corp-dmz
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app, operator: In, values: [tomcat, solr] }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app: waf }
 ---
 # ──────────────── corp-internal: DMZ에서만 (측면이동) ────────────────
 apiVersion: networking.k8s.io/v1

