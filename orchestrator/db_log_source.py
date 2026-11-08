@@ -40,6 +40,8 @@ def _pg_ts(line: str) -> Optional[float]:
 class DbLogSource:
     """postgres statement 로그를 god-view 로 조회. 시간창 내 반출 크라운 자산 집합 반환."""
 
+    channel = "db"   # 크라운 반출 통로 이름(직접 DB 접속 — 표시용, 판정엔 안 쓰임)
+
     def __init__(self, reader: LineReader) -> None:
         self.reader = reader
 
@@ -56,6 +58,11 @@ class DbLogSource:
             if c:
                 out.add(c)
         return out
+
+    def crowns_by_channel_in_window(self, *, since_ts: float, until_ts: float) -> dict[str, set[str]]:
+        """통로별 크라운 맵(표시 전용) — {"db": {자산}}. 판정은 crowns_in_window 이 담당."""
+        c = self.crowns_in_window(since_ts=since_ts, until_ts=until_ts)
+        return {self.channel: c} if c else {}
 
     def techniques_in_window(self, *, since_ts: float, until_ts: float) -> set[str]:
         """DB 통로는 크라운 전용 — 기법 관측은 감사/Falco/app 담당. 계약 충족용 빈 집합."""

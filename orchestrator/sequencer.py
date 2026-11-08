@@ -138,7 +138,7 @@ class TurnSequencer:
     def run_episode(self, episode: int) -> EpisodeSummary:
         self._emit(status="running", episode=episode, round=0, phase=0, active=None,
                    turn_started=None, last_verdict=None,
-                   flags_reached=[], crowns_reached=[], goals_reached=[])
+                   flags_reached=[], crowns_reached=[], crowns_by_channel={}, goals_reached=[])
         # 0. init — clean 베이스라인으로 리셋(이전 에피소드 오염 제거)
         if self.params.skip_revert:
             # vmrun revert 가 k3s exec 경로를 느리게 만드는 인프라 이슈 회피 — 라이브(이미 베이스라인
@@ -294,10 +294,12 @@ class TurnSequencer:
         self._log(f"[ep{episode} R{rnd}] 6. 채점 완료 (라운드 총 {time.time() - t0:.0f}s)")
         all_flags = self.truth.flags_up_to(episode, rnd)
         crowns = sorted(f for f in all_flags if self.objectives.get(f))   # flags 중 크라운 objective
+        crown_ch = self.truth.crown_channels_up_to(episode, rnd)          # 어느 통로로 빠졌나(표시)
         self._emit(phase=4, active=None, turn_started=None,
                    last_verdict=verification.verdict.value,
                    flags_reached=sorted(all_flags),
                    crowns_reached=crowns,   # 실시간 크라운(어느 자산이 빠졌나) — 대시보드 소스
+                   crowns_by_channel={k: sorted(v) for k, v in crown_ch.items()},
                    goals_reached=sorted({self.objectives.get(f).goal for f in crowns}))
 
         return RoundOutcome(round=rnd, verdict=verification.verdict,
@@ -317,12 +319,19 @@ class TurnSequencer:
         events: dict[tuple[str, Optional[str]], TruthEvent] = {}
         flags: set[str] = set()
 
-        crowns = self.logs.crowns_in_window(since_ts=t0, until_ts=t1)   # 접근기록 자백
+        crowns = self.logs.crowns_in_window(since_ts=t0, until_ts=t1)   # 접근기록 자백(판정용 합집합)
+        # 통로별 맵(표시 전용) — 판정은 위 합집합이, '어느 통로로 빠졌나'는 이 맵이 담당.
+        by_ch = getattr(self.logs, "crowns_by_channel_in_window", None)
+        crown_ch = by_ch(since_ts=t0, until_ts=t1) if by_ch else {}
         for oid in self.objectives.reached_objectives({"crown": {"asset": crowns}}):
             spec = self.objectives.get(oid)
             mitre = spec.mitre if spec else "?"
+            assets = ({c.expected for c in spec.conditions
+                       if c.channel == "crown" and c.field == "asset" and c.operator == "eq"}
+                      if spec else set())
+            chans = tuple(sorted(ch for ch, a in crown_ch.items() if a & assets))
             events[(mitre, oid)] = TruthEvent(
-                technique=mitre, flag_id=oid, detail="crown-exfil")
+                technique=mitre, flag_id=oid, detail="crown-exfil", channels=chans)
             flags.add(oid)
 
         for tech in self.logs.techniques_in_window(since_ts=t0, until_ts=t1):  # ①②③ 로그

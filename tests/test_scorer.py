@@ -162,6 +162,28 @@ def test_crown_metrics_from_access_record():
     assert s.max_flag_depth == 0            # 크라운은 선형 깊이(digit)와 별개 축
 
 
+def test_crown_channels_recorded_but_judgment_unchanged():
+    # 크라운이 통로 꼬리표(app·db)를 달고 있으면 라운드 기록에 통로 맵이 실린다 —
+    # 단, 판정 축(crowns_reached_cum/goals)은 통로와 무관하게 그대로.
+    tl = TruthLog()
+    tl.record(TruthEntry(
+        episode=1, round=1,
+        events=[TruthEvent("T1213", flag_id="crown-secrets",
+                           detail="crown-exfil", channels=("app",)),
+                TruthEvent("T1213", flag_id="crown-pii",
+                           detail="crown-exfil", channels=("app", "db"))],
+        flags_reached=["crown-secrets", "crown-pii"]))
+    sc = Scorer(tl, episode=1, objectives=default_objectives())
+    rec = sc.score_round(round=1, attack_result=_attack(),
+                         defense_result=_defense(techs=[]), verification=_verif())
+    assert rec.crowns_reached_cum == ["crown-pii", "crown-secrets"]   # 판정 축(불변)
+    assert rec.crowns_by_channel_cum == {
+        "crown-secrets": ["app"], "crown-pii": ["app", "db"]}         # 표시 축(통로)
+    assert rec.to_dict()["crowns_by_channel_cum"]["crown-pii"] == ["app", "db"]
+    assert sc.summary(end_reason="max_rounds").crowns_by_channel == {
+        "crown-secrets": ["app"], "crown-pii": ["app", "db"]}
+
+
 def test_sink_receives_each_round():
     tl = _truth_2round()
     captured: list[dict] = []

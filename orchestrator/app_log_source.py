@@ -41,6 +41,8 @@ def app_ts(ev: dict) -> Optional[float]:
 class AppLogSource:
     """서비스 앱 감사 로그를 god-view로 조회. 시간창 내 관측 웹 기법 집합 반환."""
 
+    channel = "app"   # 크라운 반출 통로 이름(표시용 — 판정엔 안 쓰임)
+
     def __init__(self, reader: LineReader) -> None:
         self.reader = reader
 
@@ -77,6 +79,11 @@ class AppLogSource:
                 out.add(c)
         return out
 
+    def crowns_by_channel_in_window(self, *, since_ts: float, until_ts: float) -> dict[str, set[str]]:
+        """통로별 크라운 맵(표시 전용) — {channel: {자산}}. 판정은 crowns_in_window(합집합)이 담당."""
+        c = self.crowns_in_window(since_ts=since_ts, until_ts=until_ts)
+        return {self.channel: c} if c else {}
+
 
 class CompositeLogSource:
     """여러 LogSource 를 합쳐 기법 집합을 합집합(Audit+Falco+App). LogSource Protocol 충족."""
@@ -97,6 +104,17 @@ class CompositeLogSource:
             fn = getattr(s, "crowns_in_window", None)
             if fn is not None:
                 out |= fn(since_ts=since_ts, until_ts=until_ts)
+        return out
+
+    def crowns_by_channel_in_window(self, *, since_ts: float, until_ts: float) -> dict[str, set[str]]:
+        """통로별 크라운 맵(표시 전용) — 하위 소스의 {channel: {자산}}을 통로 단위로 합집합."""
+        out: dict[str, set[str]] = {}
+        for s in self.sources:
+            fn = getattr(s, "crowns_by_channel_in_window", None)
+            if fn is None:
+                continue
+            for ch, assets in fn(since_ts=since_ts, until_ts=until_ts).items():
+                out.setdefault(ch, set()).update(assets)
         return out
 
 

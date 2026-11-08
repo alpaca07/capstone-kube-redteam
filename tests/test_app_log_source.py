@@ -78,6 +78,32 @@ def test_window_excludes_outside():
     assert AppLogSource(lambda: iter([old])).crowns_in_window(since_ts=t0, until_ts=t1) == set()
 
 
+def test_crowns_by_channel_app():
+    # 앱 통로는 자기 이름("app") 아래로 크라운을 묶어 돌려줘야 한다(표시용)
+    lines = [_crown_line("catalog-api", CROWN_INTERNAL_SECRETS, prefix=True)]
+    t0, t1 = _win()
+    got = AppLogSource(lambda: iter(lines)).crowns_by_channel_in_window(since_ts=t0, until_ts=t1)
+    assert got == {"app": {CROWN_INTERNAL_SECRETS}}
+
+
+def test_crowns_by_channel_composite_splits_app_db():
+    # 핵심: 앱 통로(SQLi 자백)와 DB 통로(직접 접속)가 통로별로 갈라져 나온다.
+    # 판정용 합집합(crowns_in_window)은 그대로 — 통로 분리는 '표시 축'일 뿐 판정 불변.
+    from orchestrator.app_log_source import CompositeLogSource
+    from orchestrator.db_log_source import DbLogSource
+    app_lines = [_crown_line("catalog-api", CROWN_INTERNAL_SECRETS, prefix=True)]
+    pg = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:23] + " UTC"
+    db_lines = [f"{pg} [42] LOG:  statement: SELECT ssn,email FROM customers"]
+    t0, t1 = _win()
+    comp = CompositeLogSource(AppLogSource(lambda: iter(app_lines)),
+                              DbLogSource(lambda: iter(db_lines)))
+    assert comp.crowns_in_window(since_ts=t0, until_ts=t1) == \
+        {CROWN_INTERNAL_SECRETS, CROWN_CUSTOMERS_PII}
+    got = {k: set(v) for k, v in
+           comp.crowns_by_channel_in_window(since_ts=t0, until_ts=t1).items()}
+    assert got == {"app": {CROWN_INTERNAL_SECRETS}, "db": {CROWN_CUSTOMERS_PII}}
+
+
 # ───────────────────── 자체 러너 ─────────────────────
 def _run() -> int:
     tests = [v for k, v in sorted(globals().items())

@@ -169,6 +169,10 @@ button{font-family:inherit}
 .crownnode.exfil{opacity:1;border-color:var(--attack);background:linear-gradient(180deg,var(--attack-bg),var(--surface-2))}
 .crownnode.exfil .cic{background:var(--attack-bg);color:var(--attack)}
 .crownnode.exfil .cst{color:var(--attack)}
+.crownnode .chrow{display:flex;align-items:center;gap:4px;margin-top:5px;font-size:10px;color:var(--fg-dim)}
+.chtag{display:inline-flex;align-items:center;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:600;background:var(--surface-3);color:var(--fg-muted);border:1px solid var(--border)}
+.chtag.app{color:var(--accent);border-color:var(--accent-bg)}
+.chtag.db{color:var(--flag);border-color:var(--flag-bg)}
 .crownverdict{display:flex;align-items:center;gap:9px;flex-wrap:wrap;border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 12px;background:var(--surface-2)}
 .crownverdict .cvdot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--fg-dim)}
 .crownverdict .cvt{font-size:12.5px;font-weight:700;color:var(--fg-muted)}
@@ -449,11 +453,18 @@ function renderCtx(){
 /* ============ shared components ============ */
 function loopStepper(now){return `<div class="loop">${LOOP.map((l,i)=>`<div class="step ${i<now?'done':''} ${i===now?'now':''}"><div class="n">${i}</div><div class="l">${l}</div></div>`).join('')}</div>`;}
 function stageChain(reached){return `<div class="chain">${STAGES.map((f,i)=>`<div class="flagnode ${i<reached?'hit':''}"><div class="id">${f.id}</div><div class="nm">${f.name}</div><div class="sub">${f.sub}</div><div class="mi">${f.mitre}</div></div>`).join('')}</div>`;}
-// 크라운 반출 패널 — '어느 중요자산이 실제로 빠졌나'(접근기록) + 최종 침해 성립 여부.
-function crownPanel(crowns,goal){
+// 통로 이름(표시용): app→앱, db→직접DB.
+const CHAN_KO={app:'앱',db:'직접DB'};
+function chanTags(chs){return (chs||[]).map(c=>`<span class="chtag ${c}">${CHAN_KO[c]||c}</span>`).join('');}
+// 크라운 반출 패널 — '어느 중요자산이 어느 통로로 빠졌나'(접근기록) + 최종 침해 성립 여부.
+function crownPanel(crowns,goal,channels){
+ channels=channels||{};
  const has=id=>(crowns||[]).includes(id);
- const nodes=CROWNS.map(c=>`<div class="crownnode ${has(c.id)?'exfil':''}"><span class="cic">${icon('db')}</span><span class="cmeta"><span class="cnm">${c.name}</span><span class="csub">${c.sub}</span></span><span class="cst">${has(c.id)?'반출됨':'미반출'}</span></div>`).join('');
- return `<div class="crownwrap"><div class="crownnodes">${nodes}</div><div class="crownverdict ${goal?'breached':'safe'}"><span class="cvdot"></span><span class="cvt">${goal?'중요자산 실제 침해 성립':'중요자산 미침해'}</span><span class="cvwhy">${goal?'지정 자산이 접근기록(app·직접DB)에 실제로 남음':'지정 자산 접근기록 없음 · 정답지 대조 아님'}</span></div></div>`;
+ const nodes=CROWNS.map(c=>{
+  const hit=has(c.id), tags=hit?chanTags(channels[c.id]):'';
+  return `<div class="crownnode ${hit?'exfil':''}"><span class="cic">${icon('db')}</span><span class="cmeta"><span class="cnm">${c.name}</span><span class="csub">${c.sub}</span>${tags?`<span class="chrow">통로 ${tags}</span>`:''}</span><span class="cst">${hit?'반출됨':'미반출'}</span></div>`;
+ }).join('');
+ return `<div class="crownwrap"><div class="crownnodes">${nodes}</div><div class="crownverdict ${goal?'breached':'safe'}"><span class="cvdot"></span><span class="cvt">${goal?'중요자산 실제 침해 성립':'중요자산 미침해'}</span><span class="cvwhy">${goal?'지정 자산이 접근기록(앱·직접DB)에 실제로 남음':'지정 자산 접근기록 없음 · 정답지 대조 아님'}</span></div></div>`;
 }
 function evItem(e){
  const label=e.t==='attack'?`<span class="pill p-attack"><span class="d" style="background:var(--attack)"></span>공격${e.tag?' · '+e.tag:''}</span>`
@@ -572,7 +583,7 @@ ROUTES.live={html(){
    </div>
    <div class="card">
     <div class="card-h"><h3>지정 중요자산 반출</h3><span class="hint">접근 흔적으로 판정 · 심은 FLAG 아님</span></div>
-    <div class="card-b">${crownPanel(L.crowns_reached,(L.goals_reached||[]).includes(CROWN_GOAL))}</div>
+    <div class="card-b">${crownPanel(L.crowns_reached,(L.goals_reached||[]).includes(CROWN_GOAL),L.crowns_by_channel)}</div>
    </div>
   </div>
 
@@ -685,7 +696,8 @@ ROUTES.round={html(){
  const _crowns=(rec.crowns_reached_cum||[]);            // 반출된 크라운 objective id(접근기록)
  const _goals=(rec.goals_reached_cum||[]);              // 달성 최종 목표(db_exfil)
  const _breached=_goals.includes(CROWN_GOAL);           // 중요자산 실제 침해 성립
- const _crownGod=_crowns.length?_crowns.map(id=>{const c=CROWNS.find(x=>x.id===id)||{name:id,mitre:''};return `<span class="pill p-attack"><span class="d" style="background:var(--attack)"></span>${c.name} 반출 · ${c.mitre}</span>`;}).join(''):'<span class="dim">중요자산 반출 없음</span>';
+ const _crownCh=(rec.crowns_by_channel_cum||{});
+ const _crownGod=_crowns.length?_crowns.map(id=>{const c=CROWNS.find(x=>x.id===id)||{name:id,mitre:''};const chs=(_crownCh[id]||[]).map(ch=>CHAN_KO[ch]||ch).join('·');return `<span class="pill p-attack"><span class="d" style="background:var(--attack)"></span>${c.name} 반출${chs?' ['+chs+']':''} · ${c.mitre}</span>`;}).join(''):'<span class="dim">중요자산 반출 없음</span>';
  const _attained=_breached||_crowns.length>0||(rec.flags_reached_cum||[]).some(f=>String(f)==='4');
  return `<div class="view-in">
   <div class="page-head"><div><h1>라운드 뷰 · <span class="mono">Ep.${ep} / R${rnd}</span></h1><div class="sub">한 라운드를 가장 깊이 — 공격 추론 트레이스, 방어 파이프라인, 검증 판정까지.</div></div>
@@ -960,7 +972,7 @@ function buildChrome(){
 
 /* ============ live data layer (실데이터 배선: /api/status·rounds·episodes·run) ============ */
 let ONLINE=false;
-let LIVE={status:'running',episode:4,total_episodes:10,round:3,max_rounds:8,phase:2,phase_name:'방어 턴',active:'attacker',turn_started:(Date.now()/1000-150),time_limit_sec:600,last_verdict:'blocked',flags_reached:['1','2','3'],crowns_reached:['crown-secrets','crown-pii'],goals_reached:['db_exfil']};
+let LIVE={status:'running',episode:4,total_episodes:10,round:3,max_rounds:8,phase:2,phase_name:'방어 턴',active:'attacker',turn_started:(Date.now()/1000-150),time_limit_sec:600,last_verdict:'blocked',flags_reached:['1','2','3'],crowns_reached:['crown-secrets','crown-pii'],crowns_by_channel:{'crown-secrets':['app'],'crown-pii':['app','db']},goals_reached:['db_exfil']};
 let ROUNDS=[], EPISODES_DATA=[], RUNS_DATA=[], RUNSTATUS={running:false,log:[]};
 let _sig='', _firstFail=true;
 const liveViews={live:1,episode:1,round:1};

@@ -119,6 +119,8 @@ class RoundRecord:
     # 크라운(최종 침해) 달성 축 — 선형 깊이와 별개. flags 중 objectives 조건표에 해당하는 것(누적).
     crowns_reached_cum: list[str] = field(default_factory=list)   # 달성 objective id (crown-secrets 등)
     goals_reached_cum: list[str] = field(default_factory=list)    # 달성 goal (db_exfil 등)
+    # 어느 크라운이 어느 통로로 빠졌나(표시 전용) — {objective id: [app·db]}. 판정엔 안 쓰임.
+    crowns_by_channel_cum: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -139,6 +141,7 @@ class EpisodeSummary:
     patches: int                       # 총 패치 적용 횟수
     crowns_reached: list[str] = field(default_factory=list)   # 달성 크라운 objective id(접근기록)
     goals_reached: list[str] = field(default_factory=list)    # 달성 goal (db_exfil 등)
+    crowns_by_channel: dict = field(default_factory=dict)     # {objective id: [app·db]} — 표시 전용
 
     def to_dict(self) -> dict:
         return {"episode": self.episode, "rounds": self.rounds,
@@ -146,7 +149,8 @@ class EpisodeSummary:
                 "detection": self.detection.to_dict(), "mttd": self.mttd.to_dict(),
                 "verdict_counts": self.verdict_counts, "availability": self.availability,
                 "patches": self.patches,
-                "crowns_reached": self.crowns_reached, "goals_reached": self.goals_reached}
+                "crowns_reached": self.crowns_reached, "goals_reached": self.goals_reached,
+                "crowns_by_channel": self.crowns_by_channel}
 
 
 # ───────────────────── 채점기(에피소드 1개) ─────────────────────
@@ -190,6 +194,8 @@ class Scorer:
         flags_cum = sorted(self.truth.flags_up_to(self.episode, round))
         crowns = [f for f in flags_cum if self.objectives.get(f)]   # flags 중 크라운 objective
         goals = sorted({self.objectives.get(f).goal for f in crowns})
+        _ch = self.truth.crown_channels_up_to(self.episode, round)   # 어느 통로로 빠졌나(표시)
+        crowns_by_channel = {k: sorted(v) for k, v in _ch.items() if k in crowns}
         rec = RoundRecord(
             episode=self.episode, round=round,
             attack_end_reason=attack_result.end_reason.value,
@@ -209,6 +215,7 @@ class Scorer:
             stages_reached=stages_reached,
             crowns_reached_cum=crowns,
             goals_reached_cum=goals,
+            crowns_by_channel_cum=crowns_by_channel,
         )
         self._records.append(rec)
         if self.sink is not None:
@@ -230,6 +237,8 @@ class Scorer:
         depth = max((int(f) for f in flags if f.isdigit()), default=0)
         crowns = sorted(f for f in flags if self.objectives.get(f))   # 달성 크라운 objective
         goals = sorted({self.objectives.get(f).goal for f in crowns})
+        _ch = self.truth.crown_channels_up_to(self.episode, last_round)   # 어느 통로로 빠졌나(표시)
+        crowns_by_channel = {k: sorted(v) for k, v in _ch.items() if k in crowns}
 
         verdict_counts: dict[str, int] = {}
         for r in self._records:
@@ -245,7 +254,8 @@ class Scorer:
             mttd=mttd(occ, self._detection_first),
             verdict_counts=verdict_counts, availability=availability,
             patches=sum(1 for r in self._records if r.patch_applied),
-            crowns_reached=crowns, goals_reached=goals)
+            crowns_reached=crowns, goals_reached=goals,
+            crowns_by_channel=crowns_by_channel)
 
 
 def jsonl_file_sink(path: str) -> Callable[[dict], None]:
