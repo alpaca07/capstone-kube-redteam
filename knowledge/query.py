@@ -94,6 +94,74 @@ def techniques_for_target(session: Session, cve_ids: Iterable[str]) -> dict:
     return {"by_cve": by_cve, "aggregate": aggregate}
 
 
+def cves_for_term(session: Session, term: str, limit: int = 25) -> list[str]:
+    """관측 용어(서비스명·배너·제품 키워드)가 설명에 든 CVE id 들 — 자산→KG 느슨 진입.
+
+    자산은 CPE 식별 전엔 기계 조인이 안 되므로(1차 플래너/KG 가 식별), 관측된 용어로 CVE
+    설명을 느슨 검색해 후보를 연다. 입력은 파라미터 바인딩(주입 차단), 라벨은 고정 상수.
+    """
+    t = (term or "").strip()
+    if not t:
+        return []
+    rows = _rows(session.run(
+        "MATCH (c:CVE) WHERE c.description IS NOT NULL "
+        "AND toLower(c.description) CONTAINS toLower($t) "
+        "RETURN c.id AS id LIMIT $lim", t=t, lim=limit))
+    return [r["id"] for r in rows if r.get("id")]
+
+
+def knowledge_for_terms(session: Session, terms: Iterable[str]) -> dict:
+    """여러 관측 용어 → 후보 기법 집계(플래너 situation 공급, LLM 바인딩용).
+
+    각 용어로 CVE(설명 매칭)를 찾아 그 CVE 의 기법을 모은다. 플래너 LLM 이 자산과 이 후보를
+    묶어 intent 의 technique 를 고른다(히트 없으면 자기 지식 폴백 — 기계 조인에 안 가둠).
+    반환: {by_term:{term:[cve..]}, aggregate:[{technique,name,confidence,via,cves,terms}]}
+    (aggregate 는 신뢰도 내림차순). 같은 CVE 가 여러 용어에 걸려도 기법은 한 번만 센다.
+    """
+    by_term: dict[str, list] = {}
+    agg: dict[str, dict] = {}
+    seen_cve_tech: set[tuple] = set()      # (cve, technique) 중복 집계 방지
+    for term in terms:
+        t = (term or "").strip()
+        if not t or t in by_term:
+            continue
+        cids = cves_for_term(session, t)
+        by_term[t] = cids
+        for cve in cids:
+            for tech in techniques_for_cve(session, cve):
+                a = agg.setdefault(tech["technique"], {
+                    "technique": tech["technique"], "name": tech.get("name"),
+                    "confidence": 0.0, "via": tech.get("via"), "cves": [], "terms": []})
+                a["confidence"] = max(a["confidence"], tech["confidence"])
+                if (cve, tech["technique"]) not in seen_cve_tech:
+                    seen_cve_tech.add((cve, tech["technique"]))
+                    if cve not in a["cves"]:
+                        a["cves"].append(cve)
+                if t not in a["terms"]:
+                    a["terms"].append(t)
+    aggregate = sorted(agg.values(), key=lambda x: x["confidence"], reverse=True)
+    return {"by_term": by_term, "aggregate": aggregate}
+
+
+def render_kg_candidates(knowledge: dict, *, limit: int = 12) -> str:
+    """knowledge_for_terms 결과 → 플래너 프롬프트용 텍스트 블록(없으면 빈 문자열).
+
+    플래너가 LLM 으로 자산과 바인딩하도록 '후보 기법+근거 CVE+매칭 용어'를 간결히 나열한다.
+    기계적 '정답'이 아니라 '참고 후보'임을 분명히(플래너가 취사선택).
+    """
+    agg = (knowledge or {}).get("aggregate", [])[:limit]
+    if not agg:
+        return ""
+    lines = []
+    for a in agg:
+        name = f" {a['name']}" if a.get("name") else ""
+        terms = ", ".join(a.get("terms", []))
+        cves = ", ".join(a.get("cves", [])[:3])
+        conf = a.get("confidence", 0.0)
+        lines.append(f"- {a['technique']}{name} (conf {conf:.2f}; matches: {terms}; via {cves})")
+    return "\n".join(lines)
+
+
 def _demo() -> None:
     """데모 CLI: python -m knowledge.query --cve CVE-2021-44228"""
     import argparse

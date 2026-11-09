@@ -146,7 +146,7 @@ class AttackRound:
 
     def run(self, start: AttackTurnStart, *, episode: int, round: int,
             graph: Optional[ExplorationGraph] = None,
-            asset_graph=None) -> AttackTurnResult:
+            asset_graph=None, kg_lookup=None) -> AttackTurnResult:
         t0 = self.clock()
         deadline = t0 + float(start.time_limit_sec)
         graph = graph if graph is not None else InMemoryGraph(episode=episode)
@@ -188,6 +188,13 @@ class AttackRound:
             touched = graph.anchored_asset_ids()
             assets_block = _asset_situation(asset_graph, foothold_line=foothold_line,
                                             touched=touched)
+            # 자산 → KG 느슨 매칭 후보 기법(LLM 바인딩용). 콜백 없거나 히트 없으면 빈 블록.
+            kg_block = ""
+            if kg_lookup is not None and asset_graph is not None:
+                try:
+                    kg_block = kg_lookup(asset_graph) or ""
+                except Exception as e:  # noqa: BLE001 — KG 조회 실패는 계획을 막지 않음(폴백)
+                    self.log(f"[round r{round}] wave {waves+1}: KG 조회 실패({type(e).__name__}) → 생략")
             prior_block = _prior_findings_block(graph, prior_finding_ids, asset_graph)
             # 태세 요약 한 줄 — 자산 겨냥·재검증이 실제로 플래너에 들어가는지 저널에서 보이게.
             # (KNOWN ASSETS·PREVIOUSLY BREACHED 는 플래너 프롬프트라 저널엔 안 뜨므로 수치로 노출.)
@@ -196,7 +203,7 @@ class AttackRound:
                 n_untouched = sum(1 for a in all_assets if a.id not in touched)
                 self.log(f"[round r{round}] wave {waves+1}: 태세 → 자산 {len(all_assets)}개"
                          f"(미탐색 {n_untouched}) · 지난라운드침해 {len(prior_finding_ids)}건")
-            plan = planner.plan(graph, assets_block=assets_block,
+            plan = planner.plan(graph, assets_block=assets_block, kg_block=kg_block,
                                 prior_findings_block=prior_block, default_parent=goal_id,
                                 timeout=max(5.0, deadline - self.clock()))   # 마감 넘겨 늘어지지 않게
             if not plan.added_ids:

@@ -47,6 +47,10 @@ ones not already covered by recent facts or in-flight intents — spend new inte
 unexplored surface, not ground already walked.
 - Each intent gets a MITRE ATT&CK technique id in a "technique" field when one fits \
 (e.g. T1552, T1078, T1046); use "" if none fits.
+- RELEVANT KNOWLEDGE, when shown, lists candidate ATT&CK techniques the knowledge base \
+associates with the observed assets (with the asset terms and CVEs that matched). Treat \
+these as hints: when a candidate fits the asset and direction, reuse its technique id; if \
+none fits, fall back to your own judgement. The list is advisory — never invent CVEs from it.
 - "from": list the fact id numbers (the #N shown in RECENT FACTS) that THIS intent \
 builds on — i.e. the observations that made you choose this direction. Use [] only \
 for the opening move when there are no facts yet. This links each new direction to \
@@ -104,16 +108,21 @@ def _intent_line(n: Node) -> str:
 
 
 def build_situation(graph: ExplorationGraph, *, goal: str, assets_block: str = "",
-                    prior_findings_block: str = "", facts_limit: int = 20) -> str:
-    """플래너가 보는 태세: 목표 + 자산 지형 + 최근 사실 + 지난 라운드 침해(재검증) + 진행 중 의도.
+                    kg_block: str = "", prior_findings_block: str = "",
+                    facts_limit: int = 20) -> str:
+    """플래너가 보는 태세: 목표 + 자산 지형 + KG 후보 + 최근 사실 + 지난 라운드 침해 + 진행 중 의도.
 
     assets_block: 자산 그래프를 렌더한 '대상 지형'(라운드 엔진이 만들어 넣음).
+    kg_block: 그 자산들을 지식 그래프에 느슨 매칭한 '후보 기법'(knowledge.query.render_kg_candidates).
+    플래너 LLM 이 자산과 묶어 technique 를 고르는 참고자료(히트 없으면 빈 문자열 → 자기 지식 폴백).
     prior_findings_block: 지난 라운드에 달성한 침해들 — '끝난 일'이 아니라 '재검증 후보'로 제시
     (공진화: 방어자가 그 사이 패치했을 수 있으니 이번 라운드에 다시 확인해야 함).
     """
     parts = [f"GOAL: {goal}"]
     if assets_block:
         parts.append("KNOWN ASSETS:\n" + assets_block)
+    if kg_block:
+        parts.append("RELEVANT KNOWLEDGE (candidate techniques for the assets above):\n" + kg_block)
 
     facts = graph.recent_facts(limit=facts_limit)
     if facts:
@@ -205,7 +214,8 @@ class Planner:
         self.retries = retries
 
     def plan(self, graph: ExplorationGraph, *, assets_block: str = "",
-             prior_findings_block: str = "", spawned_by: Optional[int] = None,
+             kg_block: str = "", prior_findings_block: str = "",
+             spawned_by: Optional[int] = None,
              default_parent: Optional[int] = None,
              timeout: Optional[float] = None) -> PlanResult:
         """태세를 읽어 의도를 생성하고 frontier에 추가. 추가된 id 목록을 돌려준다.
@@ -218,7 +228,7 @@ class Planner:
         (재검증 후보) — 둘 다 라운드 엔진이 자산 그래프를 읽어 만들어 넣는다.
         """
         user = build_situation(graph, goal=self.goal, assets_block=assets_block,
-                               prior_findings_block=prior_findings_block)
+                               kg_block=kg_block, prior_findings_block=prior_findings_block)
         # 플래너가 헛 id를 낼 수 있으니 현존 사실·의도 id만 유효 출처로 인정
         valid = {n.id for n in graph.recent_facts(limit=10_000)}
         valid |= {n.id for n in graph.running_intents()}
