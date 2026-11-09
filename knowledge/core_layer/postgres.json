@@ -1,5 +1,5 @@
 {
-  "_note": "핵심층 환경 — PostgreSQL CVE-2019-9193 (COPY FROM PROGRAM 명령실행). 고수준 스키마: 절차·전제·예상결과를 도메인 말로 적으면 build_core_layer 가 ④⑤ 노드/관계(REALIZED_BY·REQUIRES·PRODUCES·HAS_OUTCOME·CONSTRAINED_BY·EVIDENCED_BY)로 펼친다. technique 는 bottom layer(attack 소스)에 이미 있어야 REALIZED_BY 가 붙음(없으면 조용히 스킵) → 적재순서 attack→core. ResultCondition 은 verifier 조건표 저작원본({channel·field·operator·expected}); 한 ExpectedResult 의 조건들은 '그리고'(전부 만족=성공), list 형 expected 는 '값집합 중 하나'. 경로 A(크라운)=민감 데이터 실제 read / 경로 B(진행도)=CVE 자체 명령실행 흔적.",
+  "_note": "핵심층 환경 — PostgreSQL CVE-2019-9193 (COPY FROM PROGRAM 명령실행). 고수준 스키마 → build_core_layer 가 ④⑤ 노드/관계로 펼침. technique 는 bottom layer(attack) 선적재 필요(REALIZED_BY). ★ResultCondition 문법은 orchestrator/objectives.py 실제 조건표와 1:1 — operator=eq|in|exists, channel=닫힌목록(crown[실배선] · 향후 audit/falco/cluster_state), 한 ExpectedResult 의 조건들은 '그리고'(전부 참=성공). 크라운(경로 A)=민감 자산 반출: channel=crown·field=asset·expected=크라운 상수(common/app_signals: internal_secrets·customers_pii). 공격 롤 좁히기(legacy_admin)·민감테이블 read 분류는 DbLogSource.crowns_in_window 가 crown asset 로 이미 해소하므로 조건은 asset 멤버십만. 진행도(경로 B)=명령실행 흔적: channel=falco(Falco 룰 'Terminal shell in container' → log_source 가 기법 매핑). ★주의: 현재 verifier.py 는 crown 채널만 평가(falco/audit/cluster_state 는 선언만·미배선) → 경로 B 조건은 선저작(진행도 측정용), 심판 평가 합류는 그 채널 배선 후.",
 
   "env": "postgres",
   "technique": "T1059",
@@ -17,20 +17,18 @@
       "id": "PRE-postgres-superuser",
       "name": "슈퍼유저 또는 pg_execute_server_program 권한",
       "description": "COPY FROM PROGRAM 은 해당 권한을 가진 롤에서만 가능.",
-      "config": {"key": "copy_program_enabled", "expected_value": "true", "operator": "equals"}
+      "config": {"key": "copy_program_enabled", "expected_value": "true", "operator": "eq"}
     }
   ],
 
   "expected_results": [
     {
       "id": "ER-postgres-crown-read",
-      "name": "민감 테이블 실제 read (크라운)",
+      "name": "민감 자산 실제 반출 (크라운)",
       "kind": "crown",
       "outcome": {"id": "AO-data-exposure", "name": "민감 데이터 유출"},
       "conditions": [
-        {"channel": "db_app_log", "field": "actor",  "operator": "equals",   "expected": "legacy_admin"},
-        {"channel": "db_app_log", "field": "table",  "operator": "is_one_of", "expected": ["customers_pii", "internal_secrets"]},
-        {"channel": "db_app_log", "field": "action", "operator": "equals",   "expected": "read"}
+        {"channel": "crown", "field": "asset", "operator": "in", "expected": ["internal_secrets", "customers_pii"]}
       ]
     },
     {
@@ -39,8 +37,7 @@
       "kind": "progress",
       "outcome": {"id": "AO-command-execution", "name": "명령 실행"},
       "conditions": [
-        {"channel": "falco", "field": "rule",    "operator": "equals",   "expected": "Terminal shell in container"},
-        {"channel": "falco", "field": "process", "operator": "contains", "expected": ["sh", "cp", "cat"]}
+        {"channel": "falco", "field": "rule", "operator": "eq", "expected": "Terminal shell in container"}
       ]
     }
   ]

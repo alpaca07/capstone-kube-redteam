@@ -403,13 +403,13 @@ def parse_allowlist(raw) -> tuple[list[Node], list[Rel]]:
 
 
 # --- 핵심층 ④⑤ 수기 저작 (고수준 환경 스키마 -> 노드/관계로 펼침) ----------------
-# EvidenceType 상수(증거 통로 셀렉터, 5개 고정) — ResultCondition.channel 이 가리키는 통로
+# EvidenceType 상수(증거 통로 셀렉터) — ResultCondition.channel 이 가리키는 통로.
+# orchestrator/objectives.py 의 조건표 channel 닫힌목록과 일치(crown 만 실배선, 나머지는 선언·향후).
 EVIDENCE_TYPES = {
-    "audit":       "K8s 감사 로그",
-    "falco":       "Falco 런타임 탐지",
-    "state_query": "클러스터 상태 질의",
-    "db_app_log":  "DB·앱 접근 기록",
-    "value_match": "값 대조(보정군)",
+    "crown":         "크라운 반출 자백(app·db 통로 합집합)",
+    "audit":         "K8s 감사 로그",
+    "falco":         "Falco 런타임 탐지",
+    "cluster_state": "클러스터 상태 질의",
 }
 
 

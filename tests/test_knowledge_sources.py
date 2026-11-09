@@ -165,14 +165,15 @@ CORE_SAMPLE = {
     "env": "demo", "technique": "T1059", "cve": "CVE-DEMO",
     "procedure": {"id": "PROC-demo", "name": "p", "description": "d", "status": "AUTHORED"},
     "preconditions": [{"id": "PRE-demo", "name": "pre",
-                       "config": {"key": "demo_enabled", "expected_value": "true", "operator": "equals"}}],
+                       "config": {"key": "demo_enabled", "expected_value": "true", "operator": "eq"}}],
     "expected_results": [
         {"id": "ER-crown", "name": "crown", "kind": "crown", "outcome": {"id": "AO-x", "name": "x"},
          "conditions": [
-             {"channel": "db_app_log", "field": "table", "operator": "is_one_of", "expected": ["a", "b"]},
-             {"channel": "db_app_log", "field": "action", "operator": "equals", "expected": "read"}]},
+             {"channel": "crown", "field": "asset", "operator": "in",
+              "expected": ["internal_secrets", "customers_pii"]}]},
         {"id": "ER-prog", "name": "prog", "kind": "progress",
-         "conditions": [{"channel": "falco", "field": "rule", "operator": "equals", "expected": "shell"}]}],
+         "conditions": [{"channel": "falco", "field": "rule", "operator": "eq",
+                         "expected": "Terminal shell in container"}]}],
 }
 
 
@@ -196,16 +197,17 @@ def test_core_expected_results_and_conditions():
     assert ("PROC-demo", "ER-crown") in _rels(rels, "PRODUCES")
     assert ("ER-crown", "AO-x") in _rels(rels, "HAS_OUTCOME")
     cons = [t for t in _rels(rels, "CONSTRAINED_BY") if t[0] == "ER-crown"]
-    assert len(cons) == 2                                         # 조건 2개 → ResultCondition 2개(그리고)
-    assert [t for t in _rels(rels, "EVIDENCED_BY") if t[0] == "ER-crown"] == [("ER-crown", "db_app_log")]
+    assert len(cons) == 1                                         # 조건마다 ResultCondition 노드
+    assert [t for t in _rels(rels, "EVIDENCED_BY") if t[0] == "ER-crown"] == [("ER-crown", "crown")]
     rc0 = _node(nodes, "ResultCondition", "ER-crown-c0")["props"]
-    assert rc0["operator"] == "is_one_of" and rc0["expected"] == ["a", "b"]   # list expected 보존
+    assert rc0["channel"] == "crown" and rc0["field"] == "asset" and rc0["operator"] == "in"
+    assert rc0["expected"] == ["internal_secrets", "customers_pii"]   # list expected(in) 보존
 
 
 def test_core_evidence_type_constants():
     nodes, _ = build_core_layer(CORE_SAMPLE)
     ids = {n["id"] for n in nodes if n["label"] == "EvidenceType"}
-    assert ids == {"audit", "falco", "state_query", "db_app_log", "value_match"}
+    assert ids == {"crown", "audit", "falco", "cluster_state"}   # objectives.py 채널 닫힌목록과 일치
 
 
 def test_core_real_postgres_file():
