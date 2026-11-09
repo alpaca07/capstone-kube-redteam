@@ -6,6 +6,7 @@ parse_attack 의 Platform 속성, parse_nvd 의 AttackVector·C/I/A 영향·공�
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -14,7 +15,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from knowledge import schema  # noqa: E402
-from knowledge.sources import parse_attack, parse_nvd  # noqa: E402
+from knowledge.sources import parse_allowlist, parse_attack, parse_nvd  # noqa: E402
 
 
 def _node(nodes, label, nid):
@@ -64,6 +65,15 @@ NVD_SAMPLE = {"vulnerabilities": [
     }},
 ]}
 
+ALLOWLIST_SAMPLE = {
+    "service_types": {"database": {"name": "데이터베이스"},
+                      "web-server": {"name": "웹서버·리버스프록시"}},
+    "products": [
+        {"product": "mysql", "vendors": ["oracle"], "service_type": "database"},
+        {"product": "nginx", "vendors": ["f5", "nginx"], "service_type": "web-server"},
+    ],
+}
+
 
 # ───────────── parse_attack: Platform 속성 ─────────────
 def test_attack_technique_has_platforms():
@@ -110,9 +120,45 @@ def test_nvd_classified_as_still_works():
     assert ("CVE-2017-5638", "CWE-755") in edges    # enrich 가 기존 관계를 안 깨뜨림
 
 
+# ───────────── parse_allowlist: Product · ServiceType · PROVIDES_SERVICE ─────────────
+def test_allowlist_product_and_servicetype():
+    nodes, rels = parse_allowlist(ALLOWLIST_SAMPLE)
+    mysql = _node(nodes, "Product", "mysql")["props"]
+    assert mysql["cpe_vendor_product"] == ["oracle:mysql"]          # 직관불일치 vendor 교정
+    nginx = _node(nodes, "Product", "nginx")["props"]
+    assert nginx["cpe_vendor_product"] == ["f5:nginx", "nginx:nginx"]   # 한 제품 여러 vendor
+    assert _node(nodes, "ServiceType", "database")["props"]["name"] == "데이터베이스"
+    provides = [(r["from_id"], r["to_id"]) for r in rels if r["type"] == "PROVIDES_SERVICE"]
+    assert ("mysql", "database") in provides and ("nginx", "web-server") in provides
+
+
+def test_allowlist_makes_no_cpe_nodes():
+    nodes, _ = parse_allowlist(ALLOWLIST_SAMPLE)
+    assert not any(n["label"] == "CPE" for n in nodes)             # 설계 안-가: CPE 노드 안 만듦
+
+
+def test_allowlist_real_file_loads_and_valid():
+    path = _ROOT / "knowledge" / "cpe_allowlist.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    nodes, rels = parse_allowlist(raw)
+    for n in nodes:
+        schema.check_node(n)
+    for r in rels:
+        schema.check_rel(r)
+    # 전수대조로 교정한 대표 조인키 몇 개가 실제로 들어갔나
+    joins = {n["id"]: n["props"]["cpe_vendor_product"]
+             for n in nodes if n["label"] == "Product"}
+    assert joins.get("mysql") == ["oracle:mysql"]
+    assert joins.get("kong_gateway") == ["konghq:kong_gateway"]
+    assert "f5:nginx" in joins.get("nginx", []) and "nginx:nginx" in joins.get("nginx", [])
+    prod_count = sum(1 for n in nodes if n["label"] == "Product")
+    assert prod_count >= 30                                        # 재생성본 규모 하한
+
+
 # ───────────── 스키마 적합성(enrich 가 잘못된 라벨/관계 안 만들었나) ─────────────
 def test_all_nodes_and_rels_pass_schema():
-    for raw, parse in [(ATTACK_SAMPLE, parse_attack), (NVD_SAMPLE, parse_nvd)]:
+    for raw, parse in [(ATTACK_SAMPLE, parse_attack), (NVD_SAMPLE, parse_nvd),
+                       (ALLOWLIST_SAMPLE, parse_allowlist)]:
         nodes, rels = parse(raw)
         for n in nodes:
             schema.check_node(n)

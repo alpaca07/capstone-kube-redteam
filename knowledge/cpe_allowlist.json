@@ -1,0 +1,62 @@
+{
+  "_note": "바닥층 CPE allowlist — 서버/컨테이너 생태계 핵심 제품을 vendor:product 쌍 명시로 큐레이트. NVD CPE 사전 전수 대조로 vendor 교정(동명이인·직관불일치 다수: oracle:mysql, konghq:kong_gateway, nginx=f5+nginx 등). 적재: python -m knowledge --sources allowlist --allowlist knowledge/cpe_allowlist.json. vendors 가 여럿이면 같은 제품이 여러 vendor CPE 로 분산된 것. service_type 은 ServiceType 라벨 id. ★이 파일은 확정 vendor 목록 기준 재생성본 — 중간 규모 제품 1~3개가 원본 40쌍 대비 빠졌을 수 있음(원본 kg-cpe-allowlist 있으면 같은 모양으로 덮어쓰면 됨).",
+
+  "service_types": {
+    "web-server":     {"name": "웹서버·리버스프록시"},
+    "app-server":     {"name": "앱서버·런타임"},
+    "web-framework":  {"name": "웹프레임워크"},
+    "database":       {"name": "데이터베이스"},
+    "message-cache":  {"name": "메시지큐·캐시"},
+    "container-orch": {"name": "컨테이너·오케스트레이션"},
+    "cicd-devtool":   {"name": "CICD·개발도구"},
+    "auth-gateway":   {"name": "인증·게이트웨이"},
+    "monitoring-log": {"name": "모니터링·로깅"}
+  },
+
+  "products": [
+    {"product": "nginx",            "vendors": ["f5", "nginx"],                "service_type": "web-server"},
+    {"product": "httpd",            "vendors": ["apache"],                     "service_type": "web-server"},
+    {"product": "haproxy",          "vendors": ["haproxy"],                    "service_type": "web-server"},
+    {"product": "traefik",          "vendors": ["traefik"],                    "service_type": "web-server"},
+
+    {"product": "tomcat",           "vendors": ["apache"],                     "service_type": "app-server"},
+    {"product": "jetty",            "vendors": ["eclipse"],                    "service_type": "app-server"},
+    {"product": "php",              "vendors": ["php"],                        "service_type": "app-server"},
+
+    {"product": "spring_framework", "vendors": ["vmware"],                     "service_type": "web-framework"},
+    {"product": "struts",           "vendors": ["apache"],                     "service_type": "web-framework"},
+    {"product": "django",           "vendors": ["djangoproject"],              "service_type": "web-framework"},
+    {"product": "flask",            "vendors": ["palletsprojects"],            "service_type": "web-framework"},
+
+    {"product": "mysql",            "vendors": ["oracle"],                     "service_type": "database"},
+    {"product": "postgresql",       "vendors": ["postgresql"],                "service_type": "database"},
+    {"product": "mariadb",          "vendors": ["mariadb"],                    "service_type": "database"},
+    {"product": "mongodb",          "vendors": ["mongodb"],                    "service_type": "database"},
+
+    {"product": "redis",            "vendors": ["redis"],                      "service_type": "message-cache"},
+    {"product": "memcached",        "vendors": ["memcached"],                  "service_type": "message-cache"},
+    {"product": "kafka",            "vendors": ["apache"],                     "service_type": "message-cache"},
+    {"product": "rabbitmq",         "vendors": ["pivotal_software", "vmware"], "service_type": "message-cache"},
+
+    {"product": "containerd",       "vendors": ["linuxfoundation"],            "service_type": "container-orch"},
+    {"product": "docker",           "vendors": ["docker"],                     "service_type": "container-orch"},
+    {"product": "kubernetes",       "vendors": ["kubernetes"],                 "service_type": "container-orch"},
+    {"product": "helm",             "vendors": ["helm"],                       "service_type": "container-orch"},
+    {"product": "etcd",             "vendors": ["etcd"],                       "service_type": "container-orch"},
+
+    {"product": "jenkins",          "vendors": ["jenkins"],                    "service_type": "cicd-devtool"},
+    {"product": "gitlab",           "vendors": ["gitlab"],                     "service_type": "cicd-devtool"},
+    {"product": "gitea",            "vendors": ["gitea"],                      "service_type": "cicd-devtool"},
+    {"product": "sonarqube",        "vendors": ["sonarsource"],                "service_type": "cicd-devtool"},
+    {"product": "nexus",            "vendors": ["sonatype"],                   "service_type": "cicd-devtool"},
+
+    {"product": "keycloak",         "vendors": ["redhat"],                     "service_type": "auth-gateway"},
+    {"product": "kong_gateway",     "vendors": ["konghq"],                     "service_type": "auth-gateway"},
+
+    {"product": "prometheus",       "vendors": ["prometheus"],                 "service_type": "monitoring-log"},
+    {"product": "grafana",          "vendors": ["grafana"],                    "service_type": "monitoring-log"},
+    {"product": "fluentd",          "vendors": ["fluentd"],                    "service_type": "monitoring-log"},
+    {"product": "elasticsearch",    "vendors": ["elastic"],                    "service_type": "monitoring-log"},
+    {"product": "kibana",           "vendors": ["elastic"],                    "service_type": "monitoring-log"}
+  ]
+}

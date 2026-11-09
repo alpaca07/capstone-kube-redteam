@@ -240,6 +240,17 @@ def fetch_cve_attack(args) -> dict:
     return {"mappings": mappings}
 
 
+# --- 바닥층 CPE allowlist 로드 (자산 카탈로그) --------------------------------
+def fetch_allowlist(args) -> dict:
+    """CPE allowlist JSON 로드. 우선순위: --allowlist > <data-dir>/cpe_allowlist.json > 패키지 기본 파일."""
+    path = args.allowlist or (os.path.join(args.data_dir, "cpe_allowlist.json") if args.data_dir else None)
+    if not path or not os.path.exists(path):
+        path = os.path.join(os.path.dirname(__file__), "cpe_allowlist.json")
+    if not os.path.exists(path):
+        raise SystemExit("allowlist: cpe_allowlist.json 을 못 찾음 (--allowlist 로 경로 지정)")
+    return json.load(open(path))
+
+
 def connect(args):
     """Neo4j 세션. neo4j 드라이버는 여기서만 import(없어도 dry-run 됨)."""
     from neo4j import GraphDatabase
@@ -270,6 +281,8 @@ def run(args) -> None:
             raw = fetch_nvd(args)
         elif source == "cve_attack":
             raw = fetch_cve_attack(args)
+        elif source == "allowlist":
+            raw = fetch_allowlist(args)
         else:
             raw = fetch(source, args.data_dir)
         nodes, rels = sources.PARSERS[source](raw)
@@ -295,6 +308,7 @@ def main() -> None:
     ap.add_argument("--nvd-cpe", default=[], type=_csv, help="NVD 타깃 제품 CPE/virtualMatchString (예: cpe:2.3:a:apache:log4j)")
     ap.add_argument("--nvd-targets", default=None, help="타깃 JSON 파일 경로({\"cve_ids\":[...],\"cpe_matches\":[...]})")
     ap.add_argument("--nvd-cpe-nodes", action="store_true", help="NVD CPE 열거도 적재(기본 꺼짐 — 벤더 제품 노이즈 차단)")
+    ap.add_argument("--allowlist", default=None, help="바닥층 CPE allowlist JSON 경로(allowlist 소스, 기본=knowledge/cpe_allowlist.json)")
     ap.add_argument("--cve-map", default=None, help="CVE->ATT&CK 큐레이트 매핑 JSON 경로(cve_attack 소스)")
     ap.add_argument("--kev-json", default=None, help="CTID KEV->ATT&CK 매핑 JSON 경로(없으면 data-dir 에서 최신 자동탐색)")
     run(ap.parse_args())

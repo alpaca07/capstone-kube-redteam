@@ -56,6 +56,9 @@ KNOWLEDGE_SOURCES = {
                 "url": "https://github.com/center-for-threat-informed-defense/mappings-explorer"},
     "curated": {"id": "KS-curated-cve-attack", "name": "직접 큐레이트 CVE→ATT&CK", "source_type": "CURATED",
                 "url": ""},
+    # 바닥층 CPE allowlist(자산 카탈로그) 출처
+    "allowlist": {"id": "KS-cpe-allowlist", "name": "바닥층 CPE allowlist(큐레이트)", "source_type": "CURATED",
+                  "url": ""},
 }
 
 # =============================================================================
