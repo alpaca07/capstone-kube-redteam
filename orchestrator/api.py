@@ -77,6 +77,25 @@ def episodes() -> JSONResponse:
     return JSONResponse(_read_jsonl(_LOGS / "episodes.jsonl"))
 
 
+@app.get("/api/events")
+def events(limit: int = 500) -> JSONResponse:
+    """행위 이벤트 스트림(events.jsonl) — 이벤트 로그·사건 타임라인 소스. 최신 limit개."""
+    evs = _read_jsonl(_LOGS / "events.jsonl")
+    return JSONResponse(evs[-limit:] if limit and limit > 0 else evs)
+
+
+@app.get("/api/round/{episode}/{rnd}")
+def round_detail(episode: int, rnd: int) -> JSONResponse:
+    """라운드 상세 원자료(대본·탐지·패치·검증) — 방어 그래프·패치세트·보고서 드릴다운 소스."""
+    return JSONResponse(_read_json(_LOGS / "round_detail" / f"{episode}-{rnd}.json"))
+
+
+@app.get("/api/topology/{episode}/{rnd}")
+def topology(episode: int, rnd: int) -> JSONResponse:
+    """방어 관점 타깃 토폴로지 — 타깃 아키텍처 자동 생성(P7) 소스."""
+    return JSONResponse(_read_json(_LOGS / "defense_topology" / f"{episode}-{rnd}.json"))
+
+
 @app.get("/api/runs")
 def runs_list() -> JSONResponse:
     """실험 런 레지스트리 — run_start 가 runs.jsonl 에 append 한 기록. 최신순,

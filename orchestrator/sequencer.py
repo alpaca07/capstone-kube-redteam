@@ -37,8 +37,10 @@ from common.messages import (
 )
 
 from .clients import AttackerClient, DefenderClient
+from .events import EventSink, record_round_events
 from .flags import FlagRegistry
 from .logs import LogSource
+from .round_detail import write_round_detail
 from .objectives import ObjectiveRegistry
 from .scorer import EpisodeSummary, Scorer
 from .snapshot import SnapshotManager
@@ -97,6 +99,7 @@ class TurnSequencer:
                  objectives: ObjectiveRegistry, truth: TruthLog,
                  params: RunParams, sink: Optional[Callable[[dict], None]] = None,
                  progress: Optional[Callable[[dict], None]] = None,
+                 events: Optional[EventSink] = None, detail_dir: Optional[str] = None,
                  kill_switch: Optional[Callable[[], bool]] = None,
                  sleeper: Callable[[float], None] = time.sleep) -> None:
         self.attacker = attacker
@@ -110,6 +113,8 @@ class TurnSequencer:
         self.params = params
         self.sink = sink
         self.progress = progress          # 실시간 진행 sink(/api/status 소스) — 없으면 무시
+        self.events = events              # 행위 이벤트 sink(events.jsonl) — 없으면 무시
+        self.detail_dir = detail_dir      # 라운드 상세 출력 디렉토리(round_detail/) — 없으면 무시
         self.kill_switch = kill_switch
         self._sleep = sleeper              # 테스트에서 주입 가능(실제론 time.sleep)
 
@@ -302,10 +307,23 @@ class TurnSequencer:
                    crowns_by_channel={k: sorted(v) for k, v in crown_ch.items()},
                    goals_reached=sorted({self.objectives.get(f).goal for f in crowns}))
 
+        # 대시보드 계측(보조): 행위 이벤트 스트림 + 라운드 상세 원자료. 생략 라운드도 공격 활동 기록.
+        self._record_round(episode, rnd, attack, defense, verification)
+
         return RoundOutcome(round=rnd, verdict=verification.verdict,
                             defense_succeeded=verification.defense_succeeded(),
                             flags_reached=verification.flags_still_reachable,
                             flag_found=flag_found)
+
+    # ───────────── 대시보드 계측(이벤트·상세) — 보조, 실패해도 라운드 불변 ─────────────
+    def _record_round(self, episode: int, rnd: int, attack, defense, verification) -> None:
+        try:
+            record_round_events(self.events, episode=episode, round=rnd,
+                                attack=attack, defense=defense, verification=verification)
+        except Exception:                  # noqa: BLE001 — 계측 실패가 실험을 멈추면 안 됨
+            pass
+        write_round_detail(self.detail_dir, episode, rnd,
+                           attack=attack, defense=defense, verification=verification)
 
     # ───────────── god-view 정답 구축 ─────────────
     def _build_truth(self, episode: int, rnd: int, attack: AttackTurnResult,

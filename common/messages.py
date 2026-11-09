@@ -151,6 +151,7 @@ class DefenseTurnResult(Payload):
     error: str = ""                    # end_reason=ERROR면 '하네스 오류: <타입>: <메시지>' — 디버깅용(심판 기록, 방어자 자력추론과 무관)
     patch_attempts: list[str] = Field(default_factory=list)  # 디버그: 제안된 패치별 결과 "action → target [applied|skip] detail"(noop 원인 규명용)
     patch_note: str = ""               # 디버그: 패치 세트 메모(dry-run 실패 사유·"적용할 패치 없음" 등)
+    topology: Optional[dict] = None    # 방어자가 대상을 훑어 재구성한 토폴로지(대시보드 타깃 아키텍처 자동생성용). 판정 무관·표시 전용
     elapsed_sec: float = 0.0
 
 

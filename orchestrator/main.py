@@ -31,6 +31,7 @@ from orchestrator.http_clients import HttpAttackerClient, HttpDefenderClient  # 
 from orchestrator.log_source import AuditFalcoLogSource, file_line_reader  # noqa: E402
 from orchestrator.app_log_source import AppLogSource, CompositeLogSource  # noqa: E402
 from orchestrator.db_log_source import DbLogSource  # noqa: E402
+from orchestrator.events import EventSink, jsonl_event_sink  # noqa: E402
 from orchestrator.progress import ProgressSink  # noqa: E402
 from orchestrator.scorer import jsonl_file_sink  # noqa: E402
 from orchestrator.sequencer import RunParams, TurnSequencer  # noqa: E402
@@ -87,8 +88,8 @@ def _build_snapshots(cfg: Config):
                                govc_env={"GOVC_URL": cfg.vmware.vcenter_or_esxi})
 
 
-def build_sequencer(cfg: Config, *, sink=None, progress=None,
-                    params: Optional[RunParams] = None) -> TurnSequencer:
+def build_sequencer(cfg: Config, *, sink=None, progress=None, events=None,
+                    detail_dir=None, params: Optional[RunParams] = None) -> TurnSequencer:
     """config + 실 어댑터로 턴 시퀀서 조립(I/O 없음 — 실제 연결은 run_experiment에서)."""
     attacker = HttpAttackerClient(cfg.network.attacker_url, token=cfg.network.shared_token)
     defender = HttpDefenderClient(cfg.network.defender_url, token=cfg.network.shared_token)
@@ -127,7 +128,8 @@ def build_sequencer(cfg: Config, *, sink=None, progress=None,
     return TurnSequencer(attacker=attacker, defender=defender, snapshots=baseline,
                          verifier=verifier, logs=logs, registry=registry,
                          objectives=objectives, truth=truth,
-                         params=params, sink=sink, progress=progress)
+                         params=params, sink=sink, progress=progress,
+                         events=events, detail_dir=detail_dir)
 
 
 def _params_from_args(cfg: Config, args: argparse.Namespace) -> RunParams:
@@ -170,10 +172,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     rounds_path = os.path.join(args.out_dir, "rounds.jsonl")
     episodes_path = os.path.join(args.out_dir, "episodes.jsonl")
     progress_path = os.path.join(args.out_dir, "progress.json")
+    events_path = os.path.join(args.out_dir, "events.jsonl")
     sink = jsonl_file_sink(rounds_path)
     progress = ProgressSink(progress_path)       # 실시간 진행 상태(/api/status 소스)
+    events = EventSink(jsonl_event_sink(events_path))   # 행위 이벤트 스트림(이벤트 로그·타임라인 소스)
+    detail_dir = args.out_dir                    # round_detail/ · defense_topology/ 를 여기 아래 떨굼
 
-    seq = build_sequencer(cfg, sink=sink, progress=progress, params=params)
+    seq = build_sequencer(cfg, sink=sink, progress=progress,
+                          events=events, detail_dir=detail_dir, params=params)
 
     # god-view ④ 값(크라운 DB 플래그·노드 호스트 플래그) 로드 — secret 파일 없으면 None(배너가
     # '없음'으로 표기, 리플레이로만 ④판정). 배너가 참조하는데 로드 호출이 빠져 NameError 였음.
