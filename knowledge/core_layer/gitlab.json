@@ -1,0 +1,43 @@
+{
+  "_note": "핵심층 환경 — GitLab CVE-2021-22205 (미인증 이미지 업로드 → ExifTool 명령실행). 조건 문법은 postgres.json(canonical) 참고. RCE 3환경 공통: 명령실행(진행도 T1059) 후 호스트/인접 민감파일 read(크라운 T1611). technique=T1190. CWE-94(코드 주입). gitlab:gitlab(바닥층 CVE 최다).",
+
+  "env": "gitlab",
+  "technique": "T1190",
+  "cve": "CVE-2021-22205",
+
+  "procedure": {
+    "id": "PROC-gitlab-exiftool-rce",
+    "name": "미인증 업로드 ExifTool 명령 실행",
+    "description": "인증 없이 조작한 이미지를 업로드하면 GitLab 이 ExifTool 로 메타데이터를 처리하며 DjVu 취약점으로 임의 명령을 실행한다.",
+    "status": "REVIEW_REQUIRED"
+  },
+
+  "preconditions": [
+    {
+      "id": "PRE-gitlab-vuln-version",
+      "name": "취약 GitLab 버전 + 미인증 업로드 경로 접근",
+      "description": "취약 ExifTool 번들 버전(GitLab 11.9~13.8.7, 13.9~13.9.5, 13.10~13.10.2)과 미인증 이미지 업로드 엔드포인트 도달 가능."
+    }
+  ],
+
+  "expected_results": [
+    {
+      "id": "ER-gitlab-progress-exec",
+      "name": "컨테이너 내 명령 실행 흔적 (진행도)",
+      "kind": "progress",
+      "outcome": {"id": "AO-command-execution", "name": "명령 실행"},
+      "conditions": [
+        {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1059"}
+      ]
+    },
+    {
+      "id": "ER-gitlab-crown-hostfile",
+      "name": "호스트/인접 민감파일 read (크라운)",
+      "kind": "crown",
+      "outcome": {"id": "AO-data-exposure", "name": "민감 데이터 유출"},
+      "conditions": [
+        {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1611"}
+      ]
+    }
+  ]
+}

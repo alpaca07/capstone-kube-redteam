@@ -172,8 +172,8 @@ CORE_SAMPLE = {
              {"channel": "crown", "field": "asset", "operator": "in",
               "expected": ["internal_secrets", "customers_pii"]}]},
         {"id": "ER-prog", "name": "prog", "kind": "progress",
-         "conditions": [{"channel": "falco", "field": "rule", "operator": "eq",
-                         "expected": "Terminal shell in container"}]}],
+         "conditions": [{"channel": "falco", "field": "technique", "operator": "eq",
+                         "expected": "T1059"}]}],
 }
 
 
@@ -210,17 +210,40 @@ def test_core_evidence_type_constants():
     assert ids == {"crown", "audit", "falco", "cluster_state"}   # objectives.py 채널 닫힌목록과 일치
 
 
-def test_core_real_postgres_file():
-    env = json.loads((_ROOT / "knowledge" / "core_layer" / "postgres.json").read_text(encoding="utf-8"))
-    nodes, rels = build_core_layer(env)
+def _load_all_core_envs():
+    import glob
+    envs = []
+    for f in sorted(glob.glob(str(_ROOT / "knowledge" / "core_layer" / "*.json"))):
+        d = json.loads(Path(f).read_text(encoding="utf-8"))
+        envs.append(d)
+    return envs
+
+
+def test_core_real_all_envs_valid():
+    """실제 8경로 환경 파일 전부 로드 → 스키마 유효 + 핵심 불변식."""
+    envs = _load_all_core_envs()
+    names = {e["env"] for e in envs}
+    assert {"postgres", "struts2", "gitlab", "spring",
+            "killchain-1", "killchain-2", "killchain-3", "killchain-4"} <= names   # 8경로
+    nodes, rels = build_core_layer({"environments": envs})
     for n in nodes:
         schema.check_node(n)
     for r in rels:
         schema.check_rel(r)
-    assert ("T1059", "PROC-postgres-copy-program") in _rels(rels, "REALIZED_BY")
-    kinds = {n["id"]: n["props"]["kind"] for n in nodes if n["label"] == "ExpectedResult"}
-    assert kinds.get("ER-postgres-crown-read") == "crown"        # 경로 A 크라운
-    assert kinds.get("ER-postgres-progress-exec") == "progress"  # 경로 B 진행도
+    # 모든 Procedure 가 Technique 에 REALIZED_BY 로 붙음(고아 Procedure 없음)
+    procs = {n["id"] for n in nodes if n["label"] == "Procedure"}
+    realized = {to for _f, to in _rels(rels, "REALIZED_BY")}
+    assert procs == realized
+    # 크라운 조건은 크라운 상수만(internal_secrets·customers_pii) — 실제 app_signals 와 일치
+    from common.app_signals import CROWN_INTERNAL_SECRETS, CROWN_CUSTOMERS_PII
+    crown_exp = [n["props"]["expected"] for n in nodes
+                 if n["label"] == "ResultCondition" and n["props"]["channel"] == "crown"]
+    for exp in crown_exp:
+        assert set(exp) <= {CROWN_INTERNAL_SECRETS, CROWN_CUSTOMERS_PII}
+    # RCE 3환경 크라운 = T1611(Escape to host filesystem, log_source 매핑 실재)
+    rce_crowns = [n for n in nodes if n["label"] == "ResultCondition"
+                  and n["props"]["channel"] == "falco" and n["props"]["expected"] == "T1611"]
+    assert len(rce_crowns) == 3
 
 
 # ───────────── 스키마 적합성(enrich 가 잘못된 라벨/관계 안 만들었나) ─────────────

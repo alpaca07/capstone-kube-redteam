@@ -429,7 +429,8 @@ def _build_env(env: dict, nodes: list[Node], rels: list[Rel]) -> None:
     # Procedure — bottom layer 의 Technique 에 REALIZED_BY (Technique 없으면 조용히 스킵)
     proc = env["procedure"]
     pprops = {"name": proc.get("name", ""), "description": proc.get("description", ""), "env": env_id}
-    if env.get("cve"):     pprops["cve"] = env["cve"]
+    if env.get("cve"):     pprops["cve"] = env["cve"]   # VulHub 경로(킬체인은 CVE 없어 생략)
+    if env.get("cwe"):     pprops["cwe"] = env["cwe"]   # 약점유형(특히 CVE 없는 킬체인 traceability)
     if proc.get("status"): pprops["status"] = proc["status"]
     mint("Procedure", proc["id"], pprops)
     if env.get("technique"):

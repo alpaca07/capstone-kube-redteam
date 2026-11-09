@@ -1,5 +1,5 @@
 {
-  "_note": "핵심층 환경 — PostgreSQL CVE-2019-9193 (COPY FROM PROGRAM 명령실행). 고수준 스키마 → build_core_layer 가 ④⑤ 노드/관계로 펼침. technique 는 bottom layer(attack) 선적재 필요(REALIZED_BY). ★ResultCondition 문법은 orchestrator/objectives.py 실제 조건표와 1:1 — operator=eq|in|exists, channel=닫힌목록(crown[실배선] · 향후 audit/falco/cluster_state), 한 ExpectedResult 의 조건들은 '그리고'(전부 참=성공). 크라운(경로 A)=민감 자산 반출: channel=crown·field=asset·expected=크라운 상수(common/app_signals: internal_secrets·customers_pii). 공격 롤 좁히기(legacy_admin)·민감테이블 read 분류는 DbLogSource.crowns_in_window 가 crown asset 로 이미 해소하므로 조건은 asset 멤버십만. 진행도(경로 B)=명령실행 흔적: channel=falco(Falco 룰 'Terminal shell in container' → log_source 가 기법 매핑). ★주의: 현재 verifier.py 는 crown 채널만 평가(falco/audit/cluster_state 는 선언만·미배선) → 경로 B 조건은 선저작(진행도 측정용), 심판 평가 합류는 그 채널 배선 후.",
+  "_note": "핵심층 환경 — PostgreSQL CVE-2019-9193 (COPY FROM PROGRAM 명령실행). ★이 파일이 조건 문법의 기준(canonical). build_core_layer 가 ④⑤ 노드/관계로 펼침, technique 는 bottom layer(attack) 선적재 필요. ResultCondition 문법은 orchestrator/objectives.py·log_source.py 실제 구현과 정렬: operator=eq|in|exists. 채널별 field: crown→asset(크라운 반출 자산, expected=common/app_signals 크라운 상수 internal_secrets·customers_pii; 공격 롤 좁히기·민감테이블 분류는 DbLogSource.crowns_in_window 가 해소) / audit·falco→technique(log_source.map_*_event 가 감사·Falco 이벤트를 기법으로 매핑, techniques_in_window 집합과 대조). 경로 A(크라운)=DB 민감자산 반출 / 경로 B(진행도)=명령실행 흔적(Falco 'Terminal shell in container'→T1059). ★주의: 현재 verifier.py 는 crown 채널만 평가(audit/falco 기법관측은 log_source 에 있으나 objectives 합류 미배선) → 경로 B 등 비크라운 조건은 선저작, 심판 평가 합류는 그 배선 후.",
 
   "env": "postgres",
   "technique": "T1059",
@@ -37,7 +37,7 @@
       "kind": "progress",
       "outcome": {"id": "AO-command-execution", "name": "명령 실행"},
       "conditions": [
-        {"channel": "falco", "field": "rule", "operator": "eq", "expected": "Terminal shell in container"}
+        {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1059"}
       ]
     }
   ]

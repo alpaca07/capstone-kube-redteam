@@ -1,0 +1,43 @@
+{
+  "_note": "핵심층 환경 — Apache Struts2 CVE-2017-5638 (Content-Type OGNL 주입 → 명령실행). 조건 문법은 postgres.json(canonical) 참고. RCE 3환경 공통: 명령실행(진행도 T1059)으로 수렴 후 호스트/인접 민감파일 read(크라운 T1611='Escape to host filesystem'). technique(exploitation)=T1190 (cve_attack.vulhub.json 과 일치). CWE-755 는 CAPEC 공백이라 CVE→기법 직접매핑(cve_attack.vulhub.json)으로 스파인 연결.",
+
+  "env": "struts2",
+  "technique": "T1190",
+  "cve": "CVE-2017-5638",
+
+  "procedure": {
+    "id": "PROC-struts2-ognl-cmdi",
+    "name": "Content-Type OGNL 주입 명령 실행",
+    "description": "조작한 Content-Type 헤더의 OGNL 식을 Jakarta 멀티파트 파서가 평가해 컨테이너에서 임의 명령을 실행한다.",
+    "status": "REVIEW_REQUIRED"
+  },
+
+  "preconditions": [
+    {
+      "id": "PRE-struts2-vuln-version",
+      "name": "취약 Struts2 버전 + 멀티파트 엔드포인트 접근",
+      "description": "Jakarta 멀티파트 파서를 쓰는 취약 버전(2.3.5~2.3.31, 2.5~2.5.10)과 파일 업로드 등 멀티파트 처리 엔드포인트 도달 가능."
+    }
+  ],
+
+  "expected_results": [
+    {
+      "id": "ER-struts2-progress-exec",
+      "name": "컨테이너 내 명령 실행 흔적 (진행도)",
+      "kind": "progress",
+      "outcome": {"id": "AO-command-execution", "name": "명령 실행"},
+      "conditions": [
+        {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1059"}
+      ]
+    },
+    {
+      "id": "ER-struts2-crown-hostfile",
+      "name": "호스트/인접 민감파일 read (크라운)",
+      "kind": "crown",
+      "outcome": {"id": "AO-data-exposure", "name": "민감 데이터 유출"},
+      "conditions": [
+        {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1611"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "_note": "핵심층 환경 — 킬체인 ③ 측면이동(네임스페이스/네트워크 격리 미흡). 조건 문법은 postgres.json(canonical) 참고. 심은 취약점이라 cve 없음(cwe 만). 진행도. NetworkPolicy 부재로 frontend 발판에서 database 네임스페이스 postgres:5432 로 직접 연결 → Falco 'Lateral movement to database'→T1210.",
+
+  "env": "killchain-3",
+  "technique": "T1210",
+  "cwe": "CWE-306",
+
+  "procedure": {
+    "id": "PROC-kc3-lateral-to-db",
+    "name": "발판에서 database 네임스페이스 직접 연결",
+    "description": "NetworkPolicy 가 없어 frontend 발판 파드에서 database 네임스페이스의 postgres:5432 로 직접 네트워크 연결을 맺는다.",
+    "status": "AUTHORED"
+  },
+
+  "preconditions": [
+    {
+      "id": "PRE-kc3-no-networkpolicy",
+      "name": "frontend↔database NetworkPolicy 부재",
+      "description": "두 네임스페이스 사이를 막는 NetworkPolicy 가 없어(또는 느슨해) 발판에서 DB 포트로 egress 가능.",
+      "config": {"key": "db_networkpolicy_present", "expected_value": "false", "operator": "eq"}
+    }
+  ],
+
+  "expected_results": [
+    {
+      "id": "ER-kc3-progress-lateral",
+      "name": "database 네임스페이스 직접 연결 흔적 (진행도)",
+      "kind": "progress",
+      "outcome": {"id": "AO-lateral-movement", "name": "측면 이동"},
+      "conditions": [
+        {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1210"}
+      ]
+    }
+  ]
+}
