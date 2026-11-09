@@ -157,8 +157,11 @@ class AttackRound:
             episode=episode, round=round, flag_value_id=self.cfg.flag_value_id,
             step_timeout=self.cfg.step_timeout)
 
+        # 의도 목표 수 = 워커 수. 워커를 늘리면 의도도 따라 늘어 병렬 포화. 단 억지 패딩은
+        # 플래너 프롬프트에서 막는다(탐색 표면이 얇으면 목표보다 적게 내는 게 정상).
         planner = Planner(self.planner_llm, goal=start.goal,
-                          max_tokens=self.cfg.planner_max_tokens)
+                          max_tokens=self.cfg.planner_max_tokens,
+                          target_intents=self.cfg.n_workers)
         intent_runner = IntentRunner(
             self.attacker_llm,
             IntentRunnerConfig(

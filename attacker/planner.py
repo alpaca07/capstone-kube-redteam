@@ -39,8 +39,12 @@ sentence describing WHAT to investigate or verify next and on WHICH asset — ne
 actual command, payload, or exploit. Writing commands/payloads is a different module's job.
 
 Rules:
-- Propose 2-4 intents, non-overlapping with each other AND with intents already in \
-flight (listed below). Do not restate directions that are already open or running.
+- Propose intents UP TO the target count given in the situation (TARGET INTENTS), \
+non-overlapping with each other AND with intents already in flight (listed below). Do \
+not restate directions that are already open or running. Produce as many distinct, \
+genuinely worthwhile directions as actually exist — proposing FEWER than the target is \
+expected and correct when the surface is thin. NEVER invent filler, vague, or redundant \
+directions just to reach the target number: quality over quantity.
 - KNOWN ASSETS is the discovered terrain (host > service > endpoint), each tagged \
 [explored] (a worker already probed it) or [untouched]. Prefer [untouched] assets, and \
 ones not already covered by recent facts or in-flight intents — spend new intents on \
@@ -109,8 +113,8 @@ def _intent_line(n: Node) -> str:
 
 def build_situation(graph: ExplorationGraph, *, goal: str, assets_block: str = "",
                     kg_block: str = "", prior_findings_block: str = "",
-                    facts_limit: int = 20) -> str:
-    """플래너가 보는 태세: 목표 + 자산 지형 + KG 후보 + 최근 사실 + 지난 라운드 침해 + 진행 중 의도.
+                    facts_limit: int = 20, target_intents: Optional[int] = None) -> str:
+    """플래너가 보는 태세: 목표 + 자산 지형 + KG 후보 + 최근 사실 + 지난 라운드 침해(재검증) + 진행 중 의도.
 
     assets_block: 자산 그래프를 렌더한 '대상 지형'(라운드 엔진이 만들어 넣음).
     kg_block: 그 자산들을 지식 그래프에 느슨 매칭한 '후보 기법'(knowledge.query.render_kg_candidates).
@@ -141,6 +145,14 @@ def build_situation(graph: ExplorationGraph, *, goal: str, assets_block: str = "
                      + "\n".join(_intent_line(n) for n in inflight))
     else:
         parts.append("INTENTS ALREADY IN FLIGHT: (none)")
+
+    if target_intents:                       # 워커 수만큼 목표 — 단 억지 패딩 금지
+        parts.append(
+            f"TARGET INTENTS THIS WAVE: up to {target_intents} "
+            f"({target_intents} parallel workers will drain them). Give as many distinct, "
+            "genuinely worthwhile directions as the current surface supports — fewer than "
+            f"{target_intents} is correct when there isn't that much worth probing. Do NOT "
+            "pad to the number with filler or near-duplicate directions.")
     return "\n\n".join(parts)
 
 
@@ -207,11 +219,12 @@ class PlanResult:
 
 class Planner:
     def __init__(self, llm: _LLM, *, goal: str, max_tokens: int = 3000,
-                 retries: int = 1) -> None:
+                 retries: int = 1, target_intents: int = 4) -> None:
         self.llm = llm
         self.goal = goal
         self.max_tokens = max_tokens      # 정렬=추론 모델이라 넉넉히(JSON 잘림 방지)
         self.retries = retries
+        self.target_intents = max(1, int(target_intents))   # 웨이브당 의도 목표 수(=워커 수)
 
     def plan(self, graph: ExplorationGraph, *, assets_block: str = "",
              kg_block: str = "", prior_findings_block: str = "",
@@ -228,7 +241,8 @@ class Planner:
         (재검증 후보) — 둘 다 라운드 엔진이 자산 그래프를 읽어 만들어 넣는다.
         """
         user = build_situation(graph, goal=self.goal, assets_block=assets_block,
-                               kg_block=kg_block, prior_findings_block=prior_findings_block)
+                               kg_block=kg_block, prior_findings_block=prior_findings_block,
+                               target_intents=self.target_intents)
         # 플래너가 헛 id를 낼 수 있으니 현존 사실·의도 id만 유효 출처로 인정
         valid = {n.id for n in graph.recent_facts(limit=10_000)}
         valid |= {n.id for n in graph.running_intents()}

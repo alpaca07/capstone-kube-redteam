@@ -115,6 +115,29 @@ def test_situation_omits_empty_blocks():
     assert "PREVIOUSLY BREACHED" not in s
 
 
+# ── 태세: 의도 목표 수(=워커 수)가 들어가고 억지 패딩 금지 취지가 붙는다 ──
+def test_situation_includes_target_intents():
+    g = InMemoryGraph()
+    s = build_situation(g, goal="x", target_intents=4)
+    assert "TARGET INTENTS" in s and "up to 4" in s
+    assert "4 parallel workers" in s
+    assert "Do NOT" in s and "pad" in s            # 패딩 금지 문구
+
+
+# ── 태세: target_intents 없으면 TARGET 줄은 안 뜬다(기존 호환) ──
+def test_situation_omits_target_when_unset():
+    g = InMemoryGraph()
+    assert "TARGET INTENTS" not in build_situation(g, goal="x")
+
+
+# ── plan: Planner 가 target_intents 를 프롬프트에 실어 보낸다(워커 수 연동) ──
+def test_plan_passes_target_intents_to_prompt():
+    g = InMemoryGraph()
+    llm = _FakeLLM([_TWO_INTENTS])
+    Planner(llm, goal="x", target_intents=5).plan(g)
+    assert "up to 5" in llm.calls[0][1]            # LLM 이 본 user 프롬프트에 목표 수
+
+
 # ── 플래너 시스템 프롬프트: 공진화 재검증 규칙이 박혀 있어야 ──
 def test_planner_system_prompt_has_reverify_rule():
     from attacker.planner import PLANNER_SYSTEM
