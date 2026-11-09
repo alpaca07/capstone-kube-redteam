@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>공수 공진화 관제</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-text">공수 공진화<small>관제 · VM C</small></span>
+      </div>
+      <nav class="nav" id="nav" aria-label="주 메뉴"></nav>
+      <div class="sidebar-foot">
+        <span class="mono" id="conn-dot"></span>
+        <span id="conn-text" class="mono">연결 확인 중</span>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar" id="topbar">
+        <button class="nav-toggle" id="nav-toggle" aria-label="메뉴" aria-expanded="false">≡</button>
+        <div class="topbar-title" id="page-title">보안 태세 개요</div>
+        <div class="topbar-status" id="run-status">
+          <span class="run-pill" id="run-pill"><span class="run-dot"></span><span id="run-pill-text">대기</span></span>
+        </div>
+      </header>
+      <div class="view" id="view"></div>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
