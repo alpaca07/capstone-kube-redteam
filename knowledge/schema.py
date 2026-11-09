@@ -147,3 +147,15 @@ def check_rel(rel: dict) -> None:
     for key in ("from_label", "to_label"):
         if rel[key] not in LABELS:
             raise ValueError(f"unknown label in rel: {rel[key]!r}")
+
+
+def constraint_statements() -> list[str]:
+    """각 KG 라벨의 id 유일성 제약(= 조회 색인 겸용)을 LABELS 에서 자동 생성.
+    적재 전에 적용하면 MERGE 가 색인을 타서 빠르고, 중복 노드가 DB 차원에서 막힌다.
+    Neo4j 5.x 문법(REQUIRE). 4.x 라면 REQUIRE 를 ASSERT 로 바꾼다. Community 에서도 단일속성 유일성 제약은 지원.
+    """
+    return [
+        f"CREATE CONSTRAINT kg_{label.lower()}_id IF NOT EXISTS "
+        f"FOR (n:{label}) REQUIRE n.id IS UNIQUE"
+        for label in sorted(LABELS)
+    ]

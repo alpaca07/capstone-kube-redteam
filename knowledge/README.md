@@ -7,7 +7,8 @@ Neo4j에 적재한다. **대상 안 가리는 재사용 지식 라이브러리**
 ## 구성
 | 파일 | 역할 |
 |---|---|
-| `schema.py` | KG 라벨·관계 허용목록 + 공식 소스→KG 매핑 계약(이 파일이 설계 핵심) |
+| `schema.py` | KG 라벨·관계 허용목록 + 공식 소스→KG 매핑 계약 + 제약조건 생성(이 파일이 설계 핵심) |
+| `bootstrap.cypher` | 라벨 id 유일성 제약·색인 — `schema.LABELS`에서 자동생성(`--bootstrap` 로도 적용) |
 | `graph_writer.py` | 라벨별 `UNWIND` 멱등 `MERGE` 적재 엔진(파라미터 바인딩, 세션 주입) |
 | `sources.py` | 소스별 `parse_*(raw) -> (nodes, rels)` — ATT&CK/CAPEC/NVD/cve_attack. generic CWE 꼬리표·NVD CPE 토글도 여기 |
 | `__main__.py` | CLI — 받기(fetch)·접속(connect)·적재 |
@@ -18,13 +19,14 @@ Neo4j에 적재한다. **대상 안 가리는 재사용 지식 라이브러리**
 ## 실행 (VM-A, 개발모드 인터넷 ON)
 ```bash
 pip install neo4j
-export NEO4J_PASSWORD='<password>'
-python -m knowledge --sources cwe,attack,capec          # 순서 중요: cwe → attack → capec
-# VulHub 4 타깃(바닥층 CVE/CPE → 직접 매핑). attack 적재 뒤에 돌려야 Technique 노드에 붙는다.
+export NEO4J_PASSWORD=네_실제_비번
+python -m knowledge --bootstrap                          # 1) 제약조건·색인 먼저(1회)
+python -m knowledge --sources cwe,attack,capec           # 2) 기반: cwe → attack → capec
+# 3) VulHub 4 타깃(바닥층 CVE/CPE → 직접 매핑). attack 적재 뒤에 돌려야 Technique 노드에 붙는다.
 python -m knowledge --sources nvd       --nvd-targets knowledge/nvd_targets.vulhub.json
 python -m knowledge --sources cve_attack --cve-map    knowledge/cve_attack.vulhub.json
 ```
-`kg-bootstrap.cypher`의 제약조건·색인을 먼저 적용해 두면 적재가 빠르고 중복이 안 생긴다.
+제약조건·색인은 `python -m knowledge --bootstrap`(또는 `cypher-shell -u neo4j -p $NEO4J_PASSWORD < knowledge/bootstrap.cypher`)으로 적재 전 1회. 25개 라벨의 id 유일성(=조회 색인 겸용)이라 적재가 빠르고 중복이 안 생긴다. `bootstrap.cypher`는 `schema.LABELS`에서 자동 생성(수정 말고 재생성).
 
 ## 로컬 파일로 적재 (인터넷 제한 환경)
 미리 받아두고 `--data-dir` 로 가리킨다. 파일명 규칙: `enterprise-attack.json` / `stix-capec.json` / `cwec*.xml(.zip)`

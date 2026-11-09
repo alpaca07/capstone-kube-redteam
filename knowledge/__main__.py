@@ -28,7 +28,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
 
-from . import graph_writer, sources
+from . import graph_writer, schema, sources
 
 # 공식 소스 URL (개발모드에서 직접 받기)
 URLS = {
@@ -253,6 +253,13 @@ def connect(args):
 
 
 def run(args) -> None:
+    if args.bootstrap:
+        session = connect(args)
+        stmts = schema.constraint_statements()
+        for st in stmts:
+            session.run(st)
+        print(f"[bootstrap] 제약조건·색인 {len(stmts)}개 적용 완료 (적재 전에 한 번만)")
+        return
     source_list = [s.strip() for s in args.sources.split(",") if s.strip()]
     sources.LOAD_NVD_CPE = bool(args.nvd_cpe_nodes)   # NVD CPE 열거 적재 여부(기본 False)
     session = graph_writer.DryRunSession() if args.dry_run else connect(args)
@@ -279,6 +286,7 @@ def main() -> None:
                     help="적재 소스 쉼표구분 (cwe,attack,capec,nvd,cve_attack). 순서 cwe->attack->capec, nvd/cve_attack 은 그 뒤")
     ap.add_argument("--data-dir", default=None, help="로컬 원본 파일 디렉토리(없으면 공식 URL 다운로드)")
     ap.add_argument("--dry-run", action="store_true", help="적재 없이 건수만")
+    ap.add_argument("--bootstrap", action="store_true", help="라벨 id 유일성 제약·색인만 적용하고 종료(적재 전 1회)")
     ap.add_argument("--uri", default=None); ap.add_argument("--user", default=None)
     ap.add_argument("--password", default=None)
     # nvd 타깃(VM-B 에 심은 취약점 기준) — 쉼표구분. targets 파일로도 줄 수 있음.
