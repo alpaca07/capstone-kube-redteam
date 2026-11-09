@@ -118,6 +118,9 @@ def fetch_nvd(args) -> dict:
 
     cve_ids = list(args.nvd_cve or [])
     cpe_matches = list(args.nvd_cpe or [])
+    if args.nvd_from_allowlist:   # 바닥층 커버리지 — allowlist 40 제품을 NVD 타깃으로
+        cpe_matches += cpe_targets_from_allowlist(
+            args.allowlist or os.path.join(os.path.dirname(__file__), "cpe_allowlist.json"))
     tgt = args.nvd_targets or (os.path.join(args.data_dir, "nvd_targets.json") if args.data_dir else "nvd_targets.json")
     if os.path.exists(tgt):
         t = json.load(open(tgt))
@@ -251,6 +254,20 @@ def fetch_allowlist(args) -> dict:
     return json.load(open(path))
 
 
+def cpe_targets_from_allowlist(path: str) -> list[str]:
+    """바닥층 allowlist(cpe_allowlist.json) → NVD virtualMatchString 목록(cpe:2.3:a:vendor:product).
+    40 제품의 CVE 를 NVD 에서 당기는 바닥층 '커버리지' 수집용. 단일 출처=allowlist(중복 타깃 파일 없음)."""
+    al = json.load(open(path))
+    out: list[str] = []
+    for p in al.get("products", []):
+        prod = p.get("product")
+        if not prod:
+            continue
+        for v in (p.get("vendors") or []):
+            out.append(f"cpe:2.3:a:{v}:{prod}")
+    return out
+
+
 # --- 핵심층 환경 로드 (④⑤ 수기 저작) ----------------------------------------
 def fetch_core(args) -> dict:
     """핵심층 환경 JSON 로드. --core <파일|디렉토리>, 없으면 패키지 knowledge/core_layer/ 전체(*.json)."""
@@ -329,7 +346,8 @@ def main() -> None:
     ap.add_argument("--nvd-cve", default=[], type=_csv, help="NVD 타깃 CVE id (예: CVE-2021-44228,CVE-2021-45046)")
     ap.add_argument("--nvd-cpe", default=[], type=_csv, help="NVD 타깃 제품 CPE/virtualMatchString (예: cpe:2.3:a:apache:log4j)")
     ap.add_argument("--nvd-targets", default=None, help="타깃 JSON 파일 경로({\"cve_ids\":[...],\"cpe_matches\":[...]})")
-    ap.add_argument("--nvd-cpe-nodes", action="store_true", help="NVD CPE 열거도 적재(기본 꺼짐 — 벤더 제품 노이즈 차단)")
+    ap.add_argument("--nvd-cpe-nodes", action="store_true", help="NVD CPE 열거도 적재(기본 꺼짐 — 벤더 제품 노이즈 차단). 바닥층 Product↔CVE 조인하려면 켜야 함")
+    ap.add_argument("--nvd-from-allowlist", action="store_true", help="바닥층 — cpe_allowlist.json 40 제품을 NVD 타깃으로 자동 변환해 그 CVE 전부 수집")
     ap.add_argument("--allowlist", default=None, help="바닥층 CPE allowlist JSON 경로(allowlist 소스, 기본=knowledge/cpe_allowlist.json)")
     ap.add_argument("--core", default=None, help="핵심층 환경 JSON 파일/디렉토리(core 소스, 기본=knowledge/core_layer/)")
     ap.add_argument("--cve-map", default=None, help="CVE->ATT&CK 큐레이트 매핑 JSON 경로(cve_attack 소스)")

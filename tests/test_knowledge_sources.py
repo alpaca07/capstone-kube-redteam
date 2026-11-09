@@ -142,6 +142,15 @@ def test_allowlist_makes_no_cpe_nodes():
     assert not any(n["label"] == "CPE" for n in nodes)             # 설계 안-가: CPE 노드 안 만듦
 
 
+def test_nvd_targets_from_allowlist():
+    """바닥층 커버리지 — allowlist → NVD virtualMatchString 변환(단일 출처)."""
+    from knowledge.__main__ import cpe_targets_from_allowlist
+    t = cpe_targets_from_allowlist(str(_ROOT / "knowledge" / "cpe_allowlist.json"))
+    assert len(t) >= 36 and all(s.startswith("cpe:2.3:a:") for s in t)
+    assert "cpe:2.3:a:oracle:mysql" in t                            # 직관불일치 vendor 반영
+    assert "cpe:2.3:a:f5:nginx" in t and "cpe:2.3:a:nginx:nginx" in t   # 한 제품 여러 vendor
+
+
 def test_allowlist_real_file_loads_and_valid():
     path = _ROOT / "knowledge" / "cpe_allowlist.json"
     raw = json.loads(path.read_text(encoding="utf-8"))
