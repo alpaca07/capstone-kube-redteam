@@ -1,0 +1,71 @@
+# 바닥층 CPE allowlist — 서버/컨테이너 생태계 제품 (NVD 수집 입력 + Product 노드 입력)
+#
+# 역할: 바닥층(커버리지)에 CVE 를 긁어올 제품을 vendor:product 쌍으로 못박는다.
+#   - nvd 수집 입력: 각 쌍을 cpe:2.3 로 펴 virtualMatchString 으로 그 제품 CVE 를 받는다.
+#   - Product 노드 입력: load_products.py 가 각 쌍을 Product 노드로 적재하고,
+#     nvd 가 만든 CPE(--nvd-cpe-nodes)에 Product-IDENTIFIED_BY->CPE 로 잇는다(방식 A).
+#
+# ★ 이 목록은 '메모리 재구성본'(37쌍)이다. 지난 세션의 NVD 실측 확정본(kg-cpe-allowlist.yaml v1.0,
+#   40쌍)이 정본 — 그 파일이 있으면 이걸 교체하라. vendor 가 직관과 다른 것 많으니(아래 주의)
+#   실적재 전 NVD CPE 사전으로 한 번 더 대조 권장.
+#
+# 주의(직관과 다른 vendor, 실측 확정): oracle:mysql · vmware:spring_framework · vmware:rabbitmq
+#   (+ pivotal_software:rabbitmq 병기) · f5:nginx (+ nginx:nginx 병기) · konghq:kong_gateway
+#   · linuxfoundation:containerd · palletsprojects:flask · djangoproject:django · sonarsource:sonarqube
+#   · sonatype:nexus · redhat:keycloak · eclipse:jetty · elastic:elasticsearch/kibana · apache:http_server
+
+products:
+  # 웹서버 / 리버스프록시
+  - {vendor: apache,            product: http_server,       category: web_server}
+  - {vendor: f5,                product: nginx,             category: web_server}   # nginx 는 f5·nginx 두 vendor 로 분산
+  - {vendor: nginx,             product: nginx,             category: web_server}
+  - {vendor: haproxy,           product: haproxy,           category: web_server}
+  - {vendor: traefik,           product: traefik,           category: web_server}
+
+  # 앱서버 / 런타임
+  - {vendor: apache,            product: tomcat,            category: app_server}
+  - {vendor: eclipse,           product: jetty,             category: app_server}
+
+  # 웹 프레임워크
+  - {vendor: vmware,            product: spring_framework,  category: web_framework}
+  - {vendor: djangoproject,     product: django,            category: web_framework}
+  - {vendor: palletsprojects,   product: flask,             category: web_framework}
+  - {vendor: php,               product: php,               category: web_framework}
+
+  # 데이터베이스
+  - {vendor: postgresql,        product: postgresql,        category: database}
+  - {vendor: oracle,            product: mysql,             category: database}      # MySQL vendor=oracle
+  - {vendor: mariadb,           product: mariadb,           category: database}
+  - {vendor: mongodb,           product: mongodb,           category: database}
+
+  # 메시지큐 / 캐시
+  - {vendor: redis,             product: redis,             category: mq_cache}
+  - {vendor: memcached,         product: memcached,         category: mq_cache}
+  - {vendor: apache,            product: kafka,             category: mq_cache}
+  - {vendor: pivotal_software,  product: rabbitmq,          category: mq_cache}      # rabbitmq 는 두 vendor 병기
+  - {vendor: vmware,            product: rabbitmq,          category: mq_cache}
+
+  # 컨테이너 / 오케스트레이션
+  - {vendor: docker,            product: docker,            category: container}
+  - {vendor: kubernetes,        product: kubernetes,        category: container}
+  - {vendor: helm,              product: helm,              category: container}
+  - {vendor: linuxfoundation,   product: containerd,        category: container}
+  - {vendor: etcd,              product: etcd,              category: container}
+
+  # CI/CD / 개발도구
+  - {vendor: jenkins,           product: jenkins,           category: cicd}
+  - {vendor: gitlab,            product: gitlab,            category: cicd}
+  - {vendor: gitea,             product: gitea,             category: cicd}
+  - {vendor: sonarsource,       product: sonarqube,         category: cicd}
+  - {vendor: sonatype,          product: nexus,             category: cicd}
+
+  # 인증 게이트웨이
+  - {vendor: redhat,            product: keycloak,          category: auth_gateway}
+  - {vendor: konghq,            product: kong_gateway,      category: auth_gateway}  # product=kong_gateway (kong 아님)
+
+  # 모니터링 / 로깅
+  - {vendor: prometheus,        product: prometheus,        category: monitoring}
+  - {vendor: grafana,           product: grafana,           category: monitoring}
+  - {vendor: fluentd,           product: fluentd,           category: monitoring}
+  - {vendor: elastic,           product: elasticsearch,     category: monitoring}
+  - {vendor: elastic,           product: kibana,            category: monitoring}
