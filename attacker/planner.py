@@ -49,6 +49,12 @@ directions just to reach the target number: quality over quantity.
 [explored] (a worker already probed it) or [untouched]. Prefer [untouched] assets, and \
 ones not already covered by recent facts or in-flight intents — spend new intents on \
 unexplored surface, not ground already walked.
+- BALANCE breadth with DEPTH — do not spend every intent opening new ground. Whenever a \
+recent fact or known asset is a concrete lead toward the GOAL (a secret/credential/token \
+endpoint, a reachable service on the path to the crown), dedicate at least one intent to \
+DRIVING THAT LEAD to an actual compromise: retrieve the secret, authenticate with it, and \
+reach the goal — pursue it end-to-end rather than only noting it exists. A single path \
+finished to the goal is worth more than ten new assets merely mapped.
 - Each intent gets a MITRE ATT&CK technique id in a "technique" field when one fits \
 (e.g. T1552, T1078, T1046); use "" if none fits.
 - RELEVANT KNOWLEDGE, when shown, lists candidate ATT&CK techniques the knowledge base \

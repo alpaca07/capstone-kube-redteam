@@ -260,6 +260,17 @@ class IntentRunner:
             self.log(f"{tag} 정착 실패({type(e).__name__}) → 폴백 fact")
             facts, finding = [], None
 
+        # 기계적 침해 트리거 — 정착 LLM 이 finding 을 놓쳤어도(null/타임아웃) 출력에 실제 돌파
+        # 신호(획득한 flag 값·크레덴셜·토큰)가 있으면 침해로 기록한다. 공격이 '넓게 훑다' 돌파를
+        # 결론 못 짓는 경우 ④(지난라운드침해)가 소실되던 걸 값 기반으로 보강.
+        if finding is None:
+            ev = history.breach_evidence()
+            if ev:
+                sev = "critical" if ev.startswith("flag") else "high"
+                finding = FindingDraft(summary=f"Secret/flag retrieved from target — {ev}",
+                                       severity=sev, evidence=ev, technique="T1552")
+                self.log(f"{tag} 기계적 침해 신호 → finding({sev})")
+
         if not facts:
             # 폴백: 기계적 요약이라도 남겨 의도가 빈손으로 끝나지 않게(음성 결론 포함)
             facts = [FactDraft(summary=f"의도 #{intent.id} 탐색 결과",

@@ -108,6 +108,35 @@ def test_run_one_intent_writes_fact_linked():
     assert len(yields) == 1 and yields[0].dst_id == facts[0].id
 
 
+# ── 기계적 침해 트리거: 정착 LLM 이 finding=null 이어도 출력에 값이 있으면 침해 기록(④ 보강) ──
+def test_mechanical_finding_when_settle_returns_null():
+    from attacker.exec_lane import WorkerContext
+    g = InMemoryGraph()
+    iid = g.add_intent({"summary": "probe db", "target": "db"})
+    g.claim_next("w")
+    # 워커 출력에 크레덴셜 '값'이 나옴, 정착 LLM 은 finding=null(놓침)
+    llm = _ScriptLLM([_ACT_GET], '{"facts":[{"summary":"fetched"}],"finding":null}')
+    lane = _lane(_R("connected: db password=devpass123 host=pg"))
+    runner = IntentRunner(llm, IntentRunnerConfig(system_prompt="s", round_goal="g"))
+    runner(g, WorkerContext(lane, "w"), g.get_node(iid))
+    findings = g.recent_findings()
+    assert findings, "출력에 크레덴셜 값이 있는데 finding 이 기록 안 됨"
+    assert (findings[0].payload.get("technique") or "") == "T1552"
+
+
+# ── 거짓양성 방지: 값 없이 막히기만 하면(403 등) 기계적 트리거는 finding 안 만듦 ──
+def test_no_mechanical_finding_without_value():
+    from attacker.exec_lane import WorkerContext
+    g = InMemoryGraph()
+    iid = g.add_intent({"summary": "probe db", "target": "db"})
+    g.claim_next("w")
+    llm = _ScriptLLM([_ACT_GET], '{"facts":[{"summary":"blocked"}],"finding":null}')
+    lane = _lane(_R("HTTP/1.1 403 Forbidden"))        # 값 없음(막힘)
+    runner = IntentRunner(llm, IntentRunnerConfig(system_prompt="s", round_goal="g"))
+    runner(g, WorkerContext(lane, "w"), g.get_node(iid))
+    assert not g.recent_findings(), "값이 없는데 finding 이 잘못 생성됨(거짓양성)"
+
+
 # ── finding이 나오면 finding 노드 + PROVES 엣지 + 기법 태그 ──
 def test_finding_own_technique_wins_over_intent():
     # 실 런 사례: 의도는 T1046(서비스 탐색)인데 실제 달성은 크레덴셜 탈취(T1552).

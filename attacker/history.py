@@ -65,6 +65,20 @@ class AttackHistory:
                         return seen
         return seen
 
+    def breach_evidence(self) -> Optional[str]:
+        """출력에서 '실제 돌파' 신호(획득한 flag 값·크레덴셜·토큰)가 있으면 짧은 증거 문자열, 없으면 None.
+
+        정착 LLM 이 finding 을 놓쳐도(null 반환) 이 기계적 신호로 침해를 기록하기 위함.
+        값 꼴(커넥션 스트링·key=value·FLAG·flag 값 매칭)만 보므로 거짓양성이 낮다 — 엔드포인트
+        경로에 'credentials'가 있는 것만으론 안 잡히고, 실제로 값이 출력에 나와야 잡힌다."""
+        for e in self.entries:
+            if e.flag_found:                       # exec_lane 이 flag 값 매칭을 이미 확인
+                return f"flag value obtained: {str(e.flag_found)[:80]}"
+        secrets = self._pinned_secrets(max_items=2)
+        if secrets:
+            return "credential/secret retrieved: " + "; ".join(s[:80] for s in secrets)
+        return None
+
     def render(self, *, max_entries: int = 12, recent_full: int = 2,
                full_chars: int = 1500, old_chars: int = 200) -> str:
         """프롬프트용 최근 맥락. 방금 실행한 명령의 출력(최근 recent_full개)은 넉넉히 보여줘,
