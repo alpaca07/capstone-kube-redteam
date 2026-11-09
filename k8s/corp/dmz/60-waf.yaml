@@ -76,7 +76,7 @@ spec:
     spec:
       containers:
         - name: waf
-          image: owasp/modsecurity-crs:3.3.0-nginx
+          image: owasp/modsecurity-crs:nginx          # 임시: 3.3.0-nginx 태그 없음 → 실존 태그. 취약버전(CRS 3.3.x) 정밀화 추후
           ports:
             - { containerPort: 8080 }
           volumeMounts:
@@ -88,7 +88,7 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 5
         - name: ids
-          image: jasonish/suricata:4.0.3
+          image: jasonish/suricata:latest          # 임시: 4.0.3 태그 없음 → 실존 태그. 취약버전(Suricata 4.0.x) 정밀화 추후
           args: ["-i", "eth0"]
           securityContext:
             capabilities:
