@@ -25,7 +25,7 @@ _LOGS = Path(os.environ.get("CAPSTONE_LOGS", str(_HERE.parent / "logs")))
 _STATIC = _HERE / "static"
 _RUN_LOG = _LOGS / "run.out"
 
-app = FastAPI(title="K8s 공수 공진화 관제 대시보드")
+app = FastAPI(title="Crucible — K8s 자동 공수 관제 대시보드")
 
 # 실험 프로세스 상태(단일 워커 전제: 한 번에 하나만).
 _run: dict = {"proc": None, "started": None, "params": None, "id": None}
