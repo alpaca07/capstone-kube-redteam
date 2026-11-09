@@ -125,7 +125,11 @@ def main(argv=None) -> int:
     ap.add_argument("--probe", action="store_true", help="먼저 앱 민감 요청으로 자백 유발")
     ap.add_argument("--db-probe", action="store_true", help="직접 DB 접속까지 유발(--db-cred 필요)")
     ap.add_argument("--db-cred", default="", help="postgres 접속 문자열(공격자 관점)")
+    ap.add_argument("--attacker-roles", default="",
+                    help="DB 크라운 actor 스코핑(쉼표구분 role, 예: legacy_admin) — 주면 그 role "
+                         "접속 쿼리만 직접DB 크라운으로 센다. 대시보드 config 의 attacker_db_roles 와 맞춰라")
     args = ap.parse_args(argv)
+    roles = {r.strip() for r in args.attacker_roles.split(",") if r.strip()} or None
 
     if args.probe:
         _probe_app(args.app_ns, args.kubeconfig)
@@ -145,22 +149,23 @@ def main(argv=None) -> int:
     app_crowns = _check("앱 통로(AppLogSource)", app_lines,
                         AppLogSource(lambda: iter(app_lines)), args.since)
 
-    # DB 통로: postgres statement 로그 → DbLogSource
+    # DB 통로: postgres statement 로그 → DbLogSource (roles 주면 공격 role 접속만 — 대시보드와 동일)
     db_lines = _logs("postgres", args.db_ns, since=args.since, kubeconfig=args.kubeconfig)
-    db_crowns = _check("DB 통로(DbLogSource)", db_lines,
-                       DbLogSource(lambda: iter(db_lines)), args.since)
+    db_crowns = _check("DB 통로(DbLogSource)" + (f" · 스코핑 {sorted(roles)}" if roles else ""),
+                       db_lines, DbLogSource(lambda: iter(db_lines), attacker_roles=roles), args.since)
 
     # 통로 귀속(새 crowns_by_channel_in_window) — 대시보드가 보는 '{자산: [통로]}' 그대로.
     # 판정은 아래 합집합이 하고, 이 맵은 '어느 통로로 빠졌나'를 표시만 한다(심판 결정 불변).
     t0w, t1w = _window(args.since)
     comp = CompositeLogSource(AppLogSource(lambda: iter(app_lines)),
-                              DbLogSource(lambda: iter(db_lines)))
+                              DbLogSource(lambda: iter(db_lines), attacker_roles=roles))
     by_ch = comp.crowns_by_channel_in_window(since_ts=t0w, until_ts=t1w)
     per_asset: dict[str, list[str]] = {}
     for ch, assets in by_ch.items():
         for a in assets:
             per_asset.setdefault(a, []).append("앱" if ch == "app" else "직접DB" if ch == "db" else ch)
-    print("\n=== 통로 귀속(대시보드와 동일 축) ===")
+    _scope = f" · 스코핑: {', '.join(sorted(roles))}" if roles else " · 스코핑 없음(전부)"
+    print(f"\n=== 통로 귀속(대시보드와 동일 축{_scope}) ===")
     if per_asset:
         for a, chs in sorted(per_asset.items()):
             print(f"  {a}: {sorted(chs)}")
