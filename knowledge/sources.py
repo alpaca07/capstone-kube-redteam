@@ -96,6 +96,12 @@ def parse_attack(raw: dict) -> tuple[list[Node], list[Rel]]:
         props = {"name": o.get("name", "")}
         if label == "Technique":
             props["description"] = o.get("description", "")
+        # Platform(기법이 통하는 운영 플랫폼) — ATT&CK 번들의 x_mitre_platforms 를 속성으로.
+        # 노드로 안 만드는 이유: 기법→플랫폼 관계가 스키마에 없고, 자산측 Platform 은 자산 그래프 몫이라
+        # KG 엔 '기법 범위 좁히기'용 참고 속성으로만 둔다. Neo4j 는 문자열 리스트 속성을 허용.
+        platforms = o.get("x_mitre_platforms") or []
+        if platforms:
+            props["platforms"] = platforms
         nodes.append({"label": label, "id": tid, "props": props})
         rels.append(_supported_by("attack", label, tid))
         # Technique -> Tactic (서브는 부모를 통해 전술에 닿으므로 생략)
@@ -204,15 +210,32 @@ def _cve_description(cve: dict) -> str:
     return ""
 
 
-def _cve_cvss(cve: dict) -> tuple[float | None, str]:
-    """가장 최신 CVSS 한 벌에서 점수·심각도 뽑기(3.1 -> 3.0 -> 2.0 순)."""
+def _newest_cvss(cve: dict) -> dict:
+    """최신 CVSS metric 한 벌(바깥 객체)을 고른다(3.1 -> 3.0 -> 2.0). 없으면 {}.
+    실제 지표(attackVector·영향도 등)는 반환값의 'cvssData' 키 안에 있다
+    (v2 는 baseSeverity 가 바깥에 오기도 함)."""
     metrics = cve.get("metrics", {})
     for key in ("cvssMetricV31", "cvssMetricV30", "cvssMetricV2"):
         arr = metrics.get(key) or []
         if arr:
-            data = arr[0].get("cvssData", {})
-            return data.get("baseScore"), data.get("baseSeverity") or arr[0].get("baseSeverity", "")
-    return None, ""
+            return arr[0]
+    return {}
+
+
+def _cve_cvss(cve: dict) -> tuple[float | None, str]:
+    """가장 최신 CVSS 한 벌에서 점수·심각도 뽑기(3.1 -> 3.0 -> 2.0 순)."""
+    m = _newest_cvss(cve)
+    data = m.get("cvssData", {})
+    return data.get("baseScore"), data.get("baseSeverity") or m.get("baseSeverity", "")
+
+
+def _cve_has_public_exploit(cve: dict) -> bool:
+    """references[] 에 'Exploit' 태그가 있으면 공개 PoC/익스플로잇 존재 신호
+    (CWE→CAPEC 사슬이 끊긴 CVE 라도 '말로만 아닌 실제로 터지는 것'이라 플래너 가중치↑)."""
+    for ref in cve.get("references", []):
+        if "Exploit" in (ref.get("tags") or []):
+            return True
+    return False
 
 
 def _version_range(m: dict) -> str:
@@ -262,6 +285,17 @@ def parse_nvd(raw) -> tuple[list[Node], list[Rel]]:
         if cve.get("published"): props["published"] = cve["published"]
         if score is not None:    props["cvss_score"] = score
         if severity:             props["cvss_severity"] = severity
+        # --- 바닥층 enrich (전부 CVE 자체 속성, 새 노드/자료원 없음) ---
+        cvss = _newest_cvss(cve).get("cvssData", {})
+        # 도달성: v3=attackVector(NETWORK/ADJACENT/LOCAL/PHYSICAL), v2=accessVector(값 어휘 다름, best-effort)
+        av = cvss.get("attackVector") or cvss.get("accessVector")
+        if av:                                props["attack_vector"] = av
+        # 보안영향 C/I/A(거친층) — 정밀 AttackOutcome 노드는 핵심층 ⑤ 수기
+        if cvss.get("confidentialityImpact"): props["impact_conf"]  = cvss["confidentialityImpact"]
+        if cvss.get("integrityImpact"):       props["impact_integ"] = cvss["integrityImpact"]
+        if cvss.get("availabilityImpact"):    props["impact_avail"] = cvss["availabilityImpact"]
+        # 공개 익스플로잇 존재 플래그(references 태그)
+        if _cve_has_public_exploit(cve):      props["has_public_exploit"] = True
         nodes.append({"label": "CVE", "id": cve_id, "props": props})
         rels.append(_supported_by("nvd", "CVE", cve_id))
 
