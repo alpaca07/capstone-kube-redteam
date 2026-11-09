@@ -11,7 +11,7 @@ import time
 from typing import Callable, Optional, Protocol
 
 from common.llm_client import LLMTimeout
-from common.messages import AttackEndReason, AttackTurnResult, FlagObtained
+from common.messages import AttackEndReason, AttackTurnResult
 from common.replay_schema import hash_normalized
 
 from .actions import AttackAction, ParseError, parse_action
@@ -45,9 +45,9 @@ class _LLM(Protocol):
         ...
 
 
-def build_user_prompt(*, goal: str, flag_format: str, history: AttackHistory,
+def build_user_prompt(*, goal: str, history: AttackHistory,
                       foothold: Optional[dict] = None, first: bool = False) -> str:
-    parts = [f"[목표] {goal}", f"[플래그 형식] {flag_format}"]
+    parts = [f"[목표] {goal}"]
     if first and foothold:
         parts.append(f"[발판(이번 라운드 시작점)] {foothold}")
     parts.append("[지금까지의 관측]\n" + history.render())
@@ -56,7 +56,7 @@ def build_user_prompt(*, goal: str, flag_format: str, history: AttackHistory,
         # '이미 했다'로 포기하면 안 된다 — 목표는 매 라운드 '다시' 달성해야 한다.
         parts.append(
             "※ [지난 라운드 요약]은 '성과(이미 끝남)'가 아니라 '정보(통했던 경로)'다. 방어자가 그 "
-            "사이 패치했을 수 있으니, 목표(FLAG)를 이번 라운드에 '다시' 달성하라 — 알려진 경로를 "
+            "사이 패치했을 수 있으니, 목표(중요자산 반출)를 이번 라운드에 '다시' 달성하라 — 알려진 경로를 "
             "직접 재실행해 아직 통하는지 확인하되, 같은 명령이 반복 실패(차단·연결거부·forbidden)하면 "
             "그 경로는 방어된 것이다: 똑같은 명령을 반복하지 말고 다른 서비스·경로를 탐색하라. "
             "'지난 라운드에 이미 획득'은 포기 사유가 아니다.")
@@ -72,7 +72,7 @@ def build_user_prompt(*, goal: str, flag_format: str, history: AttackHistory,
 
 class ReActLoop:
     def __init__(self, llm: _LLM, executor: ActionExecutor, history: AttackHistory, *,
-                 system_prompt: str, goal: str, flag_format: str = "FLAG{...}",
+                 system_prompt: str, goal: str,
                  time_limit_sec: float = 300.0, max_steps: int = 40,
                  parse_retries: int = 2, max_tokens: Optional[int] = None,
                  log: Optional[Callable[[str], None]] = None) -> None:
@@ -81,7 +81,6 @@ class ReActLoop:
         self.history = history
         self.system_prompt = system_prompt
         self.goal = goal
-        self.flag_format = flag_format
         self.time_limit_sec = time_limit_sec
         self.max_steps = max_steps
         self.parse_retries = parse_retries
@@ -92,7 +91,6 @@ class ReActLoop:
         t0 = time.time()
         deadline = t0 + self.time_limit_sec      # 턴 예산 마감 시각(호출을 이 안으로 묶음)
         end = AttackEndReason.DEADEND            # max_steps 소진도 막다른 길로 취급
-        flags: list[FlagObtained] = []
         consec_fail = 0                          # 연속 파싱 실패 횟수(가드용)
         consec_exec_fail = 0                      # 연속 실행 실패 횟수(perseveration 가드용)
         consec_no_progress = 0                    # 연속 '진전 없음'(반복·동일결과) 횟수(낭비 가드용)
@@ -104,7 +102,7 @@ class ReActLoop:
             if deadline - time.time() <= _TIME_FLOOR:   # 남은 예산 없음 → 정상 타임아웃
                 end = AttackEndReason.TIMEOUT
                 break
-            user = build_user_prompt(goal=self.goal, flag_format=self.flag_format,
+            user = build_user_prompt(goal=self.goal,
                                      history=self.history, foothold=foothold, first=(i == 0))
             if nudge:                            # 직전이 반복·동일결과 → 다른 경로로 유도(낭비 차단)
                 user += ("\n\n(직전 명령은 '진전 없음'이었다 — 같은 명령/같은 결과의 반복은 예산만 "
@@ -145,16 +143,6 @@ class ReActLoop:
                 _full = (action.tool + " " + " ".join(action.args)).strip()
                 self.log(f"[raw step {i+1}] thought={action.thought!r}")
                 self.log(f"[raw step {i+1}] cmd={_full!r}")
-            new_flag = False
-            if obs.flag_found:
-                # [멀티-objective] 첫 FLAG 에서 멈추지 않는다 — 목표가 여럿(DB FLAG + 노드 호스트
-                # FLAG 등)일 수 있으므로, 예산이 남는 한 계속 탐색해 추가 objective 를 노린다.
-                # 종료는 timeout/max_steps/give_up/perseveration 이 담당. 같은 값 FLAG 는 재기록 안 함
-                # (god-view 는 값으로 objective 를 식별하므로 서로 다른 값만 의미 있음).
-                if obs.flag_found not in {f.value for f in flags}:
-                    flags.append(FlagObtained(flag_id="4", value=obs.flag_found, step=obs.step))
-                    end = AttackEndReason.FLAG
-                    new_flag = True              # FLAG 획득은 '진전' — 반복 가드 대상에서 제외
             # perseveration 가드: 성공(exit0)하면 실패카운터 리셋, 실패(차단·거부·오류) 누적. 연속
             # 실패가 한계면 '방어된 경로에 갇힘'으로 조기 종료(막힌 명령 반복으로 라운드를 안 갈아먹게).
             # + 진전 없음(no-progress) 가드: 성공했지만 '같은 명령' 또는 '같은 출력'의 반복은 디코드
@@ -164,8 +152,7 @@ class ReActLoop:
             out_hash = hash_normalized(obs.stdout) if (obs.stdout and obs.stdout.strip()) else None
             if obs.success:
                 consec_exec_fail = 0
-                dup = (not new_flag) and (
-                    sig in seen_sigs or (out_hash is not None and out_hash in seen_hashes))
+                dup = sig in seen_sigs or (out_hash is not None and out_hash in seen_hashes)
                 if dup:
                     consec_no_progress += 1
                     nudge = True
@@ -173,8 +160,7 @@ class ReActLoop:
                              f"{consec_no_progress}/{_MAX_NO_PROGRESS} | {_action_hint(action)}")
                     if consec_no_progress >= _MAX_NO_PROGRESS:
                         self.log(f"[공격] 연속 진전 없음 {consec_no_progress}회(반복 낭비) → 턴 종료")
-                        if not flags:            # 이미 FLAG 를 집었으면 성과 유지(조기정지는 강등 아님)
-                            end = AttackEndReason.DEADEND
+                        end = AttackEndReason.DEADEND
                         break
                 else:
                     consec_no_progress = 0
@@ -187,12 +173,11 @@ class ReActLoop:
                 consec_exec_fail += 1
                 if consec_exec_fail >= _MAX_EXEC_FAILS:
                     self.log(f"[공격] 연속 실행 실패 {consec_exec_fail}회(경로 차단 추정) → 턴 종료")
-                    if not flags:                # FLAG 획득 후의 조기정지는 FLAG 유지
-                        end = AttackEndReason.DEADEND
+                    end = AttackEndReason.DEADEND
                     break
 
         return AttackTurnResult(
-            end_reason=end, flags_obtained=flags,
+            end_reason=end,
             replay_script=self.executor.script,
             attack_summary=self.history.summarize(),
             elapsed_sec=time.time() - t0)

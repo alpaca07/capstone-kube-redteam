@@ -35,7 +35,6 @@ def _poke_attack(cfg, *, episode: int, round: int, time_limit=None, max_tokens=N
     client = HttpAttackerClient(cfg.network.attacker_url, token=cfg.network.shared_token)
     start = AttackTurnStart(
         time_limit_sec=tl,
-        flag_format=cfg.flags.format,
         foothold=Foothold(attack_endpoint=cfg.target.attack_endpoint),
         max_tokens=mt)
     t0 = time.time()
@@ -45,8 +44,10 @@ def _poke_attack(cfg, *, episode: int, round: int, time_limit=None, max_tokens=N
         print(f"  \033[31m✗ 전송 실패\033[0m ({time.time() - t0:.1f}s): {type(e).__name__}: {e}")
         return
     tag = "\033[31m✗\033[0m" if res.end_reason.value == "error" else "\033[32m✓\033[0m"
+    steps = len(res.replay_script.steps) if res.replay_script else 0
+    # 플래그리스: 공격자는 성공을 자기보고하지 않는다(크라운 판정은 심판 몫) → 종료사유·대본 스텝만.
     print(f"  {tag} end_reason={res.end_reason.value}  elapsed={time.time() - t0:.1f}s  "
-          f"flags={[f.value for f in res.flags_obtained]}")
+          f"steps={steps}")
     print(f"    attack_summary: {res.attack_summary!r}")
 
 

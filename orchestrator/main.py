@@ -123,8 +123,7 @@ def build_sequencer(cfg: Config, *, sink=None, progress=None, events=None,
             max_tokens=cfg.dgx.max_tokens,
             baseline_snapshot=cfg.vmware.baseline_snapshot,
             # exec_mode면 발판은 외부 URL 이 아니라 '클러스터 내부 파드'라 endpoint 를 비운다.
-            attack_endpoint=(None if cfg.attack.exec_mode else cfg.target.attack_endpoint),
-            flag_format=cfg.flags.format)
+            attack_endpoint=(None if cfg.attack.exec_mode else cfg.target.attack_endpoint))
     return TurnSequencer(attacker=attacker, defender=defender, snapshots=baseline,
                          verifier=verifier, logs=logs, registry=registry,
                          objectives=objectives, truth=truth,
@@ -143,7 +142,6 @@ def _params_from_args(cfg: Config, args: argparse.Namespace) -> RunParams:
         baseline_snapshot=cfg.vmware.baseline_snapshot,
         # exec_mode면 발판은 외부 URL 이 아니라 '클러스터 내부 파드'라 endpoint 를 비운다.
         attack_endpoint=(None if cfg.attack.exec_mode else cfg.target.attack_endpoint),
-        flag_format=cfg.flags.format,
         skip_revert=args.no_revert)
 
 

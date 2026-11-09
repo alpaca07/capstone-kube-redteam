@@ -128,7 +128,6 @@ _SETTLE_MAX = 60.0          # 정착 LLM 호출 상한(초). 공유 모델이 �
 class IntentRunnerConfig:
     system_prompt: str                      # 탈옥 공격 시스템 프롬프트(ReAct용)
     round_goal: str                         # 이 라운드의 크라운 목표(배경)
-    flag_format: str = "FLAG{...}"
     intent_budget_sec: float = 120.0        # 의도 하나당 시간 예산
     max_steps: int = 20
     react_max_tokens: Optional[int] = None
@@ -173,7 +172,6 @@ class IntentRunner:
             self.llm, wctx, history,
             system_prompt=self.cfg.system_prompt,
             goal=_intent_goal(self.cfg.round_goal, intent),
-            flag_format=self.cfg.flag_format,
             time_limit_sec=budget,
             max_steps=self.cfg.max_steps,
             max_tokens=self.cfg.react_max_tokens,

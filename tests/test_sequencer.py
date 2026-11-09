@@ -15,9 +15,9 @@ if str(_ROOT) not in sys.path:
 from common.messages import (  # noqa: E402
     AgentRole, AgentState, AgentStatus,
     AttackEndReason, AttackTurnResult, DefenseEndReason, DefenseTurnResult,
-    Detection, FlagObtained, ReplayPhase, ReplayResult, StepReplayRec,
+    Detection, ReplayPhase, ReplayResult, StepReplayRec,
 )
-from common.replay_schema import Command, FlagCheck, ReplayScript, Step  # noqa: E402
+from common.replay_schema import Command, ReplayScript, Step  # noqa: E402
 from orchestrator.fakes import (  # noqa: E402
     FakeAttackerClient, FakeDefenderClient, FakeLogSource, FakeBaseline,
 )
@@ -35,14 +35,13 @@ PRE, POST = ReplayPhase.PRE, ReplayPhase.POST
 def _script() -> ReplayScript:
     return ReplayScript(session_id="s", episode=1, round=1, steps=[
         Step(step=1, command=Command(tool="kubectl", args=["get", "secret"])),
-        Step(step=2, command=Command(tool="psql", args=["-c", "SELECT value"]),
-             flag_check=FlagCheck(flag_id="4", obtained=True))])
+        Step(step=2, command=Command(tool="psql", args=["-c", "SELECT value"]))])
 
 
 def _attack_result() -> AttackTurnResult:
+    # 플래그리스: 공격자는 성공을 자기보고하지 않는다. 크라운은 심판의 로그원이 주입(_seq 참조).
     return AttackTurnResult(
-        end_reason=AttackEndReason.FLAG,
-        flags_obtained=[FlagObtained(flag_id="4", value="FLAG{win}", step=2)],
+        end_reason=AttackEndReason.DEADEND,
         replay_script=_script(), attack_summary="② SA→DB", elapsed_sec=1.0)
 
 
@@ -227,9 +226,9 @@ def test_run_experiment_multiple_episodes():
 
 # ───────────── 게이팅(플래그 획득 시에만 방어+검증) ─────────────
 def _no_flag_result(reason: AttackEndReason = AttackEndReason.DEADEND) -> AttackTurnResult:
-    """플래그 미획득 공격 결과(정찰/막다른 길) — 방어·검증이 생략돼야 한다."""
-    return AttackTurnResult(end_reason=reason, flags_obtained=[], replay_script=None,
-                            attack_summary="정찰만 하고 플래그 못 찾음", elapsed_sec=1.0)
+    """크라운 미반출 공격 결과(정찰/막다른 길) — 방어·검증이 생략돼야 한다."""
+    return AttackTurnResult(end_reason=reason, replay_script=None,
+                            attack_summary="정찰만 하고 크라운 미반출", elapsed_sec=1.0)
 
 
 class _ScriptedAttacker(FakeAttackerClient):
@@ -243,7 +242,7 @@ class _ScriptedAttacker(FakeAttackerClient):
         return self._results[min(round - 1, len(self._results) - 1)]
 
 
-def _gating_seq(results, *, n_consec=2, max_rounds=10):
+def _gating_seq(results, *, crown_rounds, n_consec=2, max_rounds=10):
     attacker = _ScriptedAttacker(
         results, replay_by_phase={PRE: _replay(PRE, True), POST: _replay(POST, False)})
     defender = FakeDefenderClient(defense_result=_defense_result(),
@@ -256,11 +255,12 @@ def _gating_seq(results, *, n_consec=2, max_rounds=10):
     captured: list[dict] = []
     params = RunParams(episodes=1, max_rounds=max_rounds, n_consecutive_defense=n_consec,
                        baseline_snapshot="clean-baseline", attack_endpoint="10.0.0.5")
-    # 게이팅이 접근기록(crowns) 기반이므로 공격 결과(flags_obtained)에 맞춰 공격창 crown 을 심는다.
+    # 플래그리스: 게이팅은 접근기록(crowns) 기반 — 공격자 자기보고가 아니라 심판이 로그원으로 판정한다.
+    # crown_rounds[i] 는 그 라운드에 중요자산이 반출됐는지(심판 관측)를 시뮬레이션한다.
     # seq logs 는 라운드당 crown 을 2회 조회(게이팅 + _build_truth)하므로 각 라운드값을 2번 넣는다.
     cw: list[set] = []
-    for r in results:
-        c = {CROWN_INTERNAL_SECRETS} if r.flags_obtained else set()
+    for has_crown in crown_rounds:
+        c = {CROWN_INTERNAL_SECRETS} if has_crown else set()
         cw += [set(c), set(c)]
     seq = TurnSequencer(attacker=attacker, defender=defender, snapshots=snaps, verifier=verifier,
                         logs=FakeLogSource(constant=set(), crown_windows=cw), registry=registry,
@@ -271,7 +271,7 @@ def _gating_seq(results, *, n_consec=2, max_rounds=10):
 
 def test_no_flag_round_skips_defense_verify_snapshot():
     # 플래그 미획득 → 공격후 스냅샷·방어·검증 전부 생략, 라운드 기록만 남는다.
-    seq, ctx = _gating_seq([_no_flag_result()], n_consec=99, max_rounds=1)
+    seq, ctx = _gating_seq([_no_flag_result()], crown_rounds=[False], n_consec=99, max_rounds=1)
     s = seq.run_episode(1)
     snaps, defender, attacker, captured = (ctx["snaps"], ctx["defender"],
                                            ctx["attacker"], ctx["captured"])
@@ -289,7 +289,7 @@ def test_gating_ladder_no_flag_before_and_after_breakthrough():
     # 과거 돌파가 있어 방어유지로 consec=2 → CONSECUTIVE_DEFENSE 종료.
     seq, ctx = _gating_seq(
         [_no_flag_result(), _no_flag_result(), _attack_result(), _no_flag_result()],
-        n_consec=2, max_rounds=10)
+        crown_rounds=[False, False, True, False], n_consec=2, max_rounds=10)
     s = seq.run_episode(1)
     assert s.end_reason == "consecutive_defense"
     assert s.rounds == 4                                        # R4에서 종료

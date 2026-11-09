@@ -23,14 +23,14 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from common.replay_schema import (
-    Command, FlagCheck, Step, StepResultRec, ReplayScript,
+    Command, Step, StepResultRec, ReplayScript,
     classify_determinism, hash_normalized, make_step_id,
 )
 
 from .actions import AttackAction
 from .execute_action import (
     _EXCERPT, _OBS_STDOUT, CommandRunner, Observation,
-    extract_value, find_flag, resolve_args,
+    extract_value, resolve_args,
 )
 from .scope import ScopePolicy, check_scope
 from common.replay_schema import InputSource
@@ -85,7 +85,6 @@ class LaneResult:
     stderr: str = ""
     blocked: bool = False
     block_reason: str = ""
-    flag_found: Optional[str] = None
 
 
 class ExecutionLane:
@@ -94,14 +93,12 @@ class ExecutionLane:
     def __init__(self, runner: CommandRunner, *, scope_policy: ScopePolicy,
                  session_id: str, episode: int, round: int,
                  base_snapshot: Optional[str] = None,
-                 flag_value_id: str = "4", step_timeout: Optional[float] = None) -> None:
+                 step_timeout: Optional[float] = None) -> None:
         self.runner = runner
         self.scope = scope_policy
         self.script = ReplayScript(session_id=session_id, episode=episode, round=round,
                                    base_snapshot=base_snapshot, steps=[])
-        self.flag_value_id = flag_value_id
         self.step_timeout = step_timeout
-        self.flags_found: list[tuple[str, str]] = []   # (flag 값, step_id) — 라운드 결과 조립용
         self._step = 0
         self._lock = threading.Lock()
 
@@ -131,24 +128,18 @@ class ExecutionLane:
 
             res = self.runner.run(tool, resolved_args, timeout=self.step_timeout)
 
-            flag_found = find_flag(res.stdout)
-            if flag_found:
-                self.flags_found.append((flag_found, sid))
-
             success = res.exit_code == 0
             rec = StepResultRec(
                 exit_code=res.exit_code, success=success,
                 stdout_hash=hash_normalized(res.stdout),
-                stdout_excerpt=res.stdout[:_EXCERPT],
-                stdout_full=(res.stdout if flag_found else None))
-            flag_check = FlagCheck(flag_id=self.flag_value_id, obtained=True) if flag_found else None
+                stdout_excerpt=res.stdout[:_EXCERPT])
             det = classify_determinism(command, inputs)
             self.script.steps.append(Step(
                 step=n, step_id=sid, command=command, inputs=inputs, produces=produces,
-                result=rec, flag_check=flag_check, determinism=det))
+                result=rec, determinism=det))
 
             return LaneResult(step=n, step_id=sid, exit_code=res.exit_code, success=success,
-                              stdout=res.stdout, stderr=res.stderr, flag_found=flag_found)
+                              stdout=res.stdout, stderr=res.stderr)
 
 
 # ───────────── 워커별 값 맥락 ─────────────
@@ -199,8 +190,7 @@ class WorkerContext:
             step=res.step, step_id=res.step_id, tool=action.tool,
             exit_code=res.exit_code, success=res.success,
             stdout=res.stdout[:_OBS_STDOUT], stderr=res.stderr[:_EXCERPT],
-            blocked=res.blocked, block_reason=res.block_reason,
-            flag_found=res.flag_found)
+            blocked=res.blocked, block_reason=res.block_reason)
 
 
 __all__ = ["ExecutionLane", "WorkerContext", "LaneResult", "namespace_action"]

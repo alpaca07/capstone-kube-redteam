@@ -51,7 +51,7 @@ class AttackHarness:
     """공격 턴(새 수 생성) + 리플레이 턴(결정론 재생) 로직."""
 
     def __init__(self, *, llm, runner: CommandRunner, scope_policy: ScopePolicy,
-                 system_prompt: str, flag_value_id: str = "4", session_id: str = "vmA",
+                 system_prompt: str, session_id: str = "vmA",
                  max_steps: int = 40, step_timeout: float = 60.0,
                  mode: str = "single", planner_llm=None, round_cfg=None,
                  graph_backend: str = "memory", neo4j_driver=None,
@@ -62,7 +62,6 @@ class AttackHarness:
         self.scope = scope_policy
         self.system_prompt = system_prompt
         self.log = log or _harness_log      # 병렬 경로 가시성(주입 가능 → 테스트에서 캡처)
-        self.flag_value_id = flag_value_id
         self.session_id = session_id
         self.max_steps = max_steps
         self.step_timeout = step_timeout
@@ -154,11 +153,11 @@ class AttackHarness:
             executor = ActionExecutor(
                 self.runner, scope_policy=self.scope, session_id=self.session_id,
                 episode=episode, round=round, base_snapshot=None,
-                flag_value_id=self.flag_value_id, step_timeout=self.step_timeout)
+                step_timeout=self.step_timeout)
             history = AttackHistory(prior_summary=self._prior_summary)
             loop = ReActLoop(
                 self.llm, executor, history, system_prompt=self.system_prompt,
-                goal=start.goal, flag_format=start.flag_format,
+                goal=start.goal,
                 time_limit_sec=float(start.time_limit_sec), max_steps=self.max_steps,
                 max_tokens=start.max_tokens)      # None이면 ReActLoop→client config 기본값으로 폴백
             foothold = ({"attack_endpoint": start.foothold.attack_endpoint}
@@ -260,7 +259,7 @@ def create_harness(cfg, *, prompt: Optional[str] = None, runner=None, llm=None) 
                                    temperature=cfg.dgx.temperature, timeout=req_timeout,
                                    max_tokens=None)
         round_cfg = RoundConfig(
-            system_prompt=sys_prompt, session_id=session_id, flag_value_id="4",
+            system_prompt=sys_prompt, session_id=session_id,
             step_timeout=step_to, n_workers=cfg.attack.n_workers,
             intent_budget_sec=cfg.attack.intent_budget_sec,
             intent_max_steps=cfg.attack.intent_max_steps,
@@ -278,7 +277,7 @@ def create_harness(cfg, *, prompt: Optional[str] = None, runner=None, llm=None) 
         llm=llm, runner=runner,
         scope_policy=default_policy(protected_paths=[repo_root]),
         system_prompt=sys_prompt,
-        flag_value_id="4", session_id=session_id,
+        session_id=session_id,
         step_timeout=step_to,
         mode=mode, planner_llm=planner_llm, round_cfg=round_cfg,
         graph_backend=graph_backend, neo4j_driver=neo4j_driver,

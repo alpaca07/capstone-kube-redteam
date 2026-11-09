@@ -88,7 +88,6 @@ def _emit_attack(sink: EventSink, episode: int, round: int, attack) -> None:
     for st in steps:
         cmd = getattr(st, "command", None)
         res = getattr(st, "result", None)
-        fc = getattr(st, "flag_check", None)
         det = getattr(st, "determinism", None)
         sink.emit("attack_step", actor=ATTACKER, episode=episode, round=round, phase=1,
                   payload={
@@ -98,12 +97,10 @@ def _emit_attack(sink: EventSink, episode: int, round: int, attack) -> None:
                       "args": list(getattr(cmd, "args", []) or []) if cmd else [],
                       "success": bool(getattr(res, "success", False)) if res else False,
                       "determinism": _enum_val(det),
-                      "flag": bool(getattr(fc, "obtained", False)) if fc else False,
                   })
     sink.emit("attack_turn", actor=ATTACKER, episode=episode, round=round, phase=1,
               payload={
                   "end_reason": _enum_val(getattr(attack, "end_reason", None)),
-                  "flags": len(getattr(attack, "flags_obtained", []) or []),
                   "steps": len(steps),
                   "summary": getattr(attack, "attack_summary", "") or "",
                   "elapsed_sec": getattr(attack, "elapsed_sec", 0.0),

@@ -24,14 +24,14 @@ from common.messages import (  # noqa: E402
     AgentRole, AgentState, AgentStatus,
     AttackEndReason, AttackTurnResult, AttackTurnStart,
     DefenseEndReason, DefenseTurnResult, DefenseTurnStart,
-    Detection, Envelope, FlagObtained, Foothold,
+    Detection, Envelope, Foothold,
     HealthCheck, HealthResult, MsgType, PAYLOAD_TYPE, PatchItem,
     ReplayPhase, ReplayRequest, ReplayResult,
     StateCheck, StateCheckResult, StateQuery, StateQueryResult,
     StepReplayRec, parse_envelope, wrap,
 )
 from common.replay_schema import (  # noqa: E402
-    Command, Determinism, Extract, ExtractMethod, FlagCheck, InputRef,
+    Command, Determinism, Extract, ExtractMethod, InputRef,
     InputSource, ProducesRef, ReplayScript, Step,
     classify_determinism, hash_normalized, normalize_output,
 )
@@ -53,7 +53,6 @@ def _sample_replay_script() -> ReplayScript:
         command=Command(tool="psql", args=["-c", "SELECT value FROM internal_secrets"]),
         inputs={"pw": InputRef(source=InputSource.STEP_OUTPUT, from_step=1,
                                extract=Extract(method=ExtractMethod.JSONPATH, path="$.data.password"))},
-        flag_check=FlagCheck(flag_id="4", obtained=True),
     )
     return ReplayScript(session_id="s-001", episode=1, round=2,
                         base_snapshot="clean-baseline", steps=[step1, step2])
@@ -65,8 +64,7 @@ def _one_of_each() -> list:
     return [
         AttackTurnStart(time_limit_sec=300,
                         foothold=Foothold(attack_endpoint="10.0.0.5", notes="nginx NodePort")),
-        AttackTurnResult(end_reason=AttackEndReason.FLAG,
-                         flags_obtained=[FlagObtained(flag_id="4", value="FLAG{x}", step=2)],
+        AttackTurnResult(end_reason=AttackEndReason.DEADEND,
                          replay_script=rs, attack_summary="② over-perm SA → DB", elapsed_sec=42.0),
         DefenseTurnStart(time_limit_sec=300),
         DefenseTurnResult(patch_applied=True, end_reason=DefenseEndReason.PATCHED,
@@ -79,7 +77,7 @@ def _one_of_each() -> list:
         ReplayResult(phase=ReplayPhase.POST,
                      steps_result=[StepReplayRec(step=1, success=True),
                                    StepReplayRec(step=2, success=False, note="RBAC blocked")],
-                     overall_success=False, flags_reached=[]),
+                     overall_success=False),
         StateQuery(checks=[StateCheck(check_id="2", query="admin-sa cluster-wide secret get?")]),
         StateQueryResult(results=[StateCheckResult(check_id="2", vulnerable=False,
                                                    detail="forbidden after patch")]),
@@ -126,7 +124,7 @@ def test_info_asymmetry_defense_start_has_no_attack_fields():
     """★ 방어 턴 시작 payload엔 공격 관련 필드가 아예 없다(스키마로 강제)."""
     fields = set(DefenseTurnStart.model_fields.keys())
     assert fields == {"time_limit_sec"}, f"방어 시작에 과한 필드: {fields}"
-    forbidden = {"foothold", "replay_script", "attack_summary", "flags_obtained",
+    forbidden = {"foothold", "replay_script", "attack_summary",
                  "detected", "technique", "goal"}
     assert not (fields & forbidden)
 
@@ -191,7 +189,7 @@ def test_replay_script_nested_json_roundtrip():
     rs = _sample_replay_script()
     env = wrap(ReplayRequest(replay_script=rs, phase=ReplayPhase.PRE))
     back = parse_envelope(env.model_dump_json()).payload_as(ReplayRequest)
-    assert back.replay_script.steps[1].flag_check.flag_id == "4"
+    assert back.replay_script.steps[1].command.tool == "psql"
     assert back.replay_script.steps[1].inputs["pw"].from_step == 1
 
 

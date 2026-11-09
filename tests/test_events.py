@@ -13,10 +13,10 @@ if str(_ROOT) not in sys.path:
 
 from common.messages import (  # noqa: E402
     AttackEndReason, AttackTurnResult, DefenseEndReason, DefenseTurnResult,
-    Detection, FlagObtained, PatchItem,
+    Detection, PatchItem,
 )
 from common.replay_schema import (  # noqa: E402
-    Command, FlagCheck, ReplayScript, Step, StepResultRec,
+    Command, ReplayScript, Step, StepResultRec,
 )
 from orchestrator.events import (  # noqa: E402
     EventSink, record_round_events, ATTACKER, DEFENDER, JUDGE,
@@ -30,15 +30,13 @@ def _script() -> ReplayScript:
         Step(step=0, step_id="1.0", command=Command(tool="kubectl", args=["get", "pods"]),
              result=StepResultRec(success=True, exit_code=0)),
         Step(step=1, step_id="1.1", command=Command(tool="curl", args=["http://x"]),
-             result=StepResultRec(success=False),
-             flag_check=FlagCheck(flag_id="4", obtained=True)),
+             result=StepResultRec(success=False)),
     ])
 
 
 def _attack() -> AttackTurnResult:
     return AttackTurnResult(
-        end_reason=AttackEndReason.FLAG, replay_script=_script(),
-        flags_obtained=[FlagObtained(flag_id="4", value="FLAG{x}", step=1)],
+        end_reason=AttackEndReason.DEADEND, replay_script=_script(),
         attack_summary="요약", elapsed_sec=2.0)
 
 
@@ -91,9 +89,9 @@ def test_attack_events_per_step_plus_summary():
     assert len(steps) == 2 and len(turns) == 1
     assert all(e["actor"] == ATTACKER for e in evs)
     assert steps[0]["payload"]["tool"] == "kubectl" and steps[0]["payload"]["success"] is True
-    assert steps[1]["payload"]["flag"] is True       # flag_check.obtained 반영
-    assert turns[0]["payload"]["flags"] == 1 and turns[0]["payload"]["steps"] == 2
-    assert turns[0]["payload"]["end_reason"] == "flag"
+    assert steps[1]["payload"]["tool"] == "curl" and steps[1]["payload"]["success"] is False
+    assert turns[0]["payload"]["steps"] == 2          # 플래그리스: 심판이 크라운으로 판정
+    assert turns[0]["payload"]["end_reason"] == "deadend"
 
 
 def test_defense_events_detection_patch_summary():

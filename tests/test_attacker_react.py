@@ -21,7 +21,6 @@ from attacker.react_loop import ReActLoop                    # noqa: E402
 from attacker.scope import default_policy                    # noqa: E402
 
 _ACTION = '{"thought":"정찰","action":{"tool":"kubectl","args":["get","pods"]}}'
-_FLAG_ACTION = '{"thought":"덤프","action":{"tool":"kubectl","args":["get","secret"]}}'
 _BAD = "이건 JSON이 아니다"      # 파싱 실패 유발(모든 재시도에서 깨진 출력)
 
 
@@ -35,18 +34,6 @@ class FakeRunner:
     def run(self, tool, args, *, stdin=None, timeout=None):
         self.calls += 1
         return CommandResult(exit_code=0, stdout=self.stdout)
-
-
-class TwoFlagRunner:
-    """1번째 호출은 DB FLAG, 이후는 호스트 FLAG stdout — 멀티 objective 수집 테스트용."""
-
-    def __init__(self):
-        self.calls = 0
-
-    def run(self, tool, args, *, stdin=None, timeout=None):
-        self.calls += 1
-        out = "db=FLAG{db1}" if self.calls == 1 else "host=FLAG{host1}"
-        return CommandResult(exit_code=0, stdout=out)
 
 
 class FakeLLM:
@@ -132,27 +119,6 @@ def test_zero_budget_skips_llm():
     assert llm.calls == 0, llm.calls
 
 
-def test_flag_found_still_terminates_flag():
-    # 정상 경로 회귀: stdout 에 FLAG{} 나오면 FLAG 로 종료(타임아웃 변경이 정상 흐름 안 깸).
-    llm = FakeLLM([("ok", _FLAG_ACTION)])
-    res = _loop(llm, stdout="secret=FLAG{smoke}").run(foothold={"attack_endpoint": "10.0.0.1"})
-    assert res.end_reason == AttackEndReason.FLAG, res.end_reason
-    assert any(f.value == "FLAG{smoke}" for f in res.flags_obtained)
-
-
-def test_multi_objective_does_not_stop_on_first_flag():
-    # [멀티-objective] 첫 FLAG(DB) 에서 멈추지 않고 계속 탐색 → 두 번째 FLAG(호스트)도 수집.
-    #   (예전엔 첫 FLAG 에서 break → 호스트 탈출을 시도조차 못 했음.)
-    llm = FakeLLM([("ok", _FLAG_ACTION)])
-    ex = ActionExecutor(TwoFlagRunner(), scope_policy=default_policy(),
-                        session_id="t", episode=1, round=1)
-    res = ReActLoop(llm, ex, AttackHistory(), system_prompt="s", goal="g",
-                    time_limit_sec=300.0, max_steps=4).run(foothold={"attack_endpoint": "10.0.0.1"})
-    vals = [f.value for f in res.flags_obtained]
-    assert "FLAG{db1}" in vals and "FLAG{host1}" in vals, vals     # 두 objective 다 수집
-    assert vals.count("FLAG{host1}") == 1                          # 중복 재기록 안 함(값 단위 dedup)
-
-
 def test_persistent_parse_fail_is_deadend_not_error():
     # 모든 호출이 깨진 JSON → 스텝마다 스킵, 연속 가드로 DEADEND(ERROR 아님), 대본 0스텝.
     llm = FakeLLM([("ok", _BAD)])
@@ -162,11 +128,12 @@ def test_persistent_parse_fail_is_deadend_not_error():
 
 
 def test_single_parse_fail_then_recovers():
-    # 1스텝 파싱 실패(3회 재시도 모두 실패) → 스킵 후 다음 스텝 정상 → FLAG. 한 번 실패가 턴을 안 죽임.
-    llm = FailThenOkLLM(fails=3, good=_FLAG_ACTION)
-    res = _loop(llm, stdout="secret=FLAG{recover}").run(foothold={"attack_endpoint": "10.0.0.1"})
-    assert res.end_reason == AttackEndReason.FLAG, res.end_reason
-    assert any(f.value == "FLAG{recover}" for f in res.flags_obtained)
+    # 1스텝 파싱 실패(3회 재시도 모두 실패) → 스킵 후 다음 스텝 정상 실행 → 대본에 기록. 한 번
+    # 실패가 턴을 안 죽인다(플래그리스: 성공 자기보고 없음 → 플래너 고갈로 DEADEND 로 끝난다).
+    llm = FailThenOkLLM(fails=3, good=_ACTION)
+    res = _loop(llm, stdout="ok").run(foothold={"attack_endpoint": "10.0.0.1"})
+    assert res.end_reason == AttackEndReason.DEADEND, res.end_reason
+    assert len(res.replay_script.steps) >= 1, len(res.replay_script.steps)   # 복구 후 스텝 기록됨
 
 
 def test_truncation_keeps_cap_and_nags_terse():
@@ -368,21 +335,11 @@ def test_no_progress_nudge_injected_into_next_prompt():
     assert any("진전 없음" in u for u in llm.users_seen), "넛지가 후속 프롬프트에 안 실림"
 
 
-def test_flag_outcome_survives_no_progress_stop():
-    # FLAG 를 집은 뒤 같은 명령을 반복해 진전 없음으로 조기정지해도 종료사유는 FLAG 로 유지된다
-    # (조기정지는 효율 차원이지 '실패'가 아님 — 크라운 주얼을 집었으면 성과를 강등하지 않음).
-    llm = FakeLLM([("ok", _FLAG_ACTION)])   # 매번 같은 액션, 러너는 항상 같은 FLAG 출력
-    res = _loop(llm, stdout="secret=FLAG{keep}", max_steps=40).run(
-        foothold={"attack_endpoint": "10.0.0.1"})
-    assert res.end_reason == AttackEndReason.FLAG, res.end_reason
-    assert any(f.value == "FLAG{keep}" for f in res.flags_obtained)
-
-
 def test_prior_summary_triggers_reattempt_framing():
     # R2+ (carry-forward 있음): '이미 했다'로 포기 안 하게 '매 라운드 재달성' 프레이밍이 붙어야.
     from attacker.react_loop import build_user_prompt
-    h = AttackHistory(prior_summary="[R1] psql로 internal_secrets 덤프. 플래그 획득: ['4']")
-    p = build_user_prompt(goal="FLAG 획득", flag_format="FLAG{...}", history=h)
+    h = AttackHistory(prior_summary="[R1] psql로 internal_secrets 덤프 — 내부비밀 반출 경로 확인.")
+    p = build_user_prompt(goal="중요자산 반출", history=h)
     assert "다시" in p and "포기 사유가 아니다" in p, p      # 재시도 지시
     assert "정보(통했던 경로)" in p, p                        # 성과가 아니라 정보로 프레이밍
 
@@ -390,7 +347,7 @@ def test_prior_summary_triggers_reattempt_framing():
 def test_first_round_no_reattempt_framing():
     # 첫 라운드(prior 없음)엔 재시도 프레이밍이 없어야(불필요).
     from attacker.react_loop import build_user_prompt
-    p = build_user_prompt(goal="FLAG 획득", flag_format="FLAG{...}", history=AttackHistory())
+    p = build_user_prompt(goal="중요자산 반출", history=AttackHistory())
     assert "포기 사유가 아니다" not in p
 
 

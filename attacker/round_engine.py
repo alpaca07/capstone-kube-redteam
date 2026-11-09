@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from common.messages import AttackEndReason, AttackTurnResult, AttackTurnStart, FlagObtained
+from common.messages import AttackEndReason, AttackTurnResult, AttackTurnStart
 
 from .exec_lane import ExecutionLane
 from .graph import ExplorationGraph
@@ -35,7 +35,6 @@ from .worker_pool import WorkerPool
 class RoundConfig:
     system_prompt: str                       # 탈옥 공격 시스템 프롬프트(워커 ReAct)
     session_id: str = "vmA"
-    flag_value_id: str = "4"
     step_timeout: float = 60.0
     n_workers: int = 2
     intent_budget_sec: float = 120.0         # 의도 하나당 시간 예산
@@ -154,7 +153,7 @@ class AttackRound:
         # 대본은 라운드당 하나(레인). 그래프는 회차 스코프(주입).
         lane = ExecutionLane(
             self.runner, scope_policy=self.scope, session_id=self.cfg.session_id,
-            episode=episode, round=round, flag_value_id=self.cfg.flag_value_id,
+            episode=episode, round=round,
             step_timeout=self.cfg.step_timeout)
 
         # 의도 목표 수 = 워커 수. 워커를 늘리면 의도도 따라 늘어 병렬 포화. 단 억지 패딩은
@@ -166,7 +165,6 @@ class AttackRound:
             self.attacker_llm,
             IntentRunnerConfig(
                 system_prompt=self.cfg.system_prompt, round_goal=start.goal,
-                flag_format=start.flag_format,
                 intent_budget_sec=self.cfg.intent_budget_sec,
                 max_steps=self.cfg.intent_max_steps,
                 react_max_tokens=(start.max_tokens or self.cfg.react_max_tokens)),
@@ -233,26 +231,15 @@ class AttackRound:
     def _assemble(self, lane: ExecutionLane, graph: ExplorationGraph,
                   start: AttackTurnStart, t0: float, waves: int,
                   planner_empty: bool) -> AttackTurnResult:
-        # 플래그: 레인이 (값, step_id)로 모았고, 값 중복은 한 번만(god-view는 값으로 식별)
-        flags: list[FlagObtained] = []
-        seen: set[str] = set()
-        for value, sid in lane.flags_found:
-            if value in seen:
-                continue
-            seen.add(value)
-            step_no = int(sid.split(".")[-1]) if "." in sid else 0
-            flags.append(FlagObtained(flag_id=self.cfg.flag_value_id, value=value, step=step_no))
-
-        # 종료사유: 플래그 있으면 FLAG, 시간 소진이면 TIMEOUT, 아니면 DEADEND(플래너 고갈)
-        if flags:
-            end = AttackEndReason.FLAG
-        elif self.clock() >= t0 + float(start.time_limit_sec):
+        # 종료사유: 시간 소진이면 TIMEOUT, 아니면 DEADEND(플래너 고갈).
+        # 성공 판정은 공격자 자기보고가 아니라 심판이 접근기록(크라운)으로 내린다 — 플래그리스.
+        if self.clock() >= t0 + float(start.time_limit_sec):
             end = AttackEndReason.TIMEOUT
         else:
             end = AttackEndReason.DEADEND
 
         return AttackTurnResult(
-            end_reason=end, flags_obtained=flags, replay_script=lane.script,
+            end_reason=end, replay_script=lane.script,
             attack_summary=self._summary(graph, lane, waves),
             elapsed_sec=self.clock() - t0)
 

@@ -182,7 +182,7 @@ def main() -> int:
     start = AttackTurnStart(
         goal="reach the crown jewel: read customer PII rows in the 'customers' table "
              "of the postgres database in namespace 'database'",
-        flag_format="FLAG{...}", time_limit_sec=int(args.time_limit),
+        time_limit_sec=int(args.time_limit),
         foothold=Foothold(attack_endpoint="10.0.0.5:8080"))
 
     # ── 그래프 백엔드 (탐색 + 자산, 짝) ──
@@ -225,7 +225,8 @@ def main() -> int:
     print(f"  종료사유   : {res.end_reason.value}")
     print(f"  경과       : {dt:.1f}s (하네스 보고 {res.elapsed_sec:.1f}s)")
     print(f"  대본 스텝  : {len(res.replay_script.steps) if res.replay_script else 0}개")
-    print(f"  플래그     : {[f.value for f in res.flags_obtained]}")
+    # 플래그리스: 공격자는 성공을 자기보고하지 않는다. 최종 침해 판정은 심판(VM C)이 접근기록(크라운)으로.
+    print(f"  판정       : 플래그리스 — 크라운 판정은 심판(VM C) 몫(이 스모크는 공격 단독 실행)")
     facts = graph.recent_facts(limit=1000)
     findings = graph.recent_findings(limit=1000)
     intents = [n for n in graph.running_intents()] + graph.frontier(limit=1000)

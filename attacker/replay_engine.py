@@ -10,8 +10,8 @@ VM C(검증 엔진)가 replay_request(phase=pre|post)를 보내면, 저장된 Re
 - 그래서 execute_action은 args를 '템플릿'(원본 {name})으로 기록한다. 여기서 fresh 값으로 재치환.
 
 판정 기여(최종 판정은 VM C verifier):
-- 플래그 스텝 success = '재생에서 FLAG{}를 실제로 다시 봤나'(녹음된 success 아님).
-  패치 후(post) 경로가 막혀 플래그가 안 나오면 success=False → VM C가 BLOCKED 판정.
+- 플래그리스: 스텝 success = 종료코드 0(재생에서 명령이 통했나). 공격자측 flag 재탐지는 없다.
+  패치 후(post) 경로가 막혀 명령이 실패하면 success=False → VM C가 크라운 재도달로 BLOCKED 판정.
 - matched_baseline = 정규화 stdout 해시가 기록본과 같나 → success의 보조 지표(해시 노이즈 대응).
 - 킬스위치 범위검사는 재생에도 적용(scope_policy 주입 시) — 대본이 범위를 벗어나면 실행 안 함.
 """
@@ -23,7 +23,7 @@ from common.messages import ReplayPhase, ReplayRequest, ReplayResult, StepReplay
 from common.replay_schema import ReplayScript, hash_normalized
 
 from .execute_action import (
-    CommandRunner, extract_value, find_flag, resolve_args,
+    CommandRunner, extract_value, resolve_args,
 )
 from .scope import ScopePolicy, check_scope
 
@@ -48,8 +48,6 @@ class ReplayEngine:
                foothold: Optional[dict] = None, target: Optional[str] = None) -> ReplayResult:
         values: dict[str, str] = {}        # produces 이름 → '이번 재생'에서 새로 얻은 값(fresh)
         recs: list[StepReplayRec] = []
-        flags_reached: list[str] = []
-        expected = [s.flag_check.flag_id for s in script.steps if s.flag_check is not None]
 
         for step in script.steps:
             resolved = resolve_args(step.command.args, step.inputs, values,
@@ -76,27 +74,16 @@ class ReplayEngine:
             baseline = step.result.stdout_hash
             matched = (replay_hash == baseline) if baseline else None
 
-            if step.flag_check is not None:
-                flag = find_flag(res.stdout)
-                success = flag is not None                  # ★ 플래그는 '다시 봤나'로 판정
-                if success:
-                    flags_reached.append(step.flag_check.flag_id)
-                note = "flag:found" if success else "flag:absent"
-            else:
-                success = res.exit_code == 0
-                note = ""
+            # 플래그리스: 스텝 재현 성공은 종료코드 0 — 최종 침해 판정은 심판이 크라운으로.
+            success = res.exit_code == 0
 
             recs.append(StepReplayRec(
                 step=step.step, exit_code=res.exit_code, success=success,
-                stdout_hash=replay_hash, matched_baseline=matched, note=note))
+                stdout_hash=replay_hash, matched_baseline=matched, note=""))
 
-        if expected:
-            overall = all(fid in flags_reached for fid in expected)
-        else:
-            overall = bool(recs) and all(r.success for r in recs)
+        overall = bool(recs) and all(r.success for r in recs)
 
-        return ReplayResult(phase=phase, steps_result=recs,
-                            overall_success=overall, flags_reached=flags_reached)
+        return ReplayResult(phase=phase, steps_result=recs, overall_success=overall)
 
 
 __all__ = ["ReplayEngine"]

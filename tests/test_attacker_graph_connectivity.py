@@ -122,7 +122,7 @@ def test_round_builds_connected_tree():
     cfg = RoundConfig(system_prompt="s", n_workers=2, max_waves=4)
     rnd = AttackRound(attacker_llm=_WorkLLM(), planner_llm=_PlanLLM(), runner=_R(),
                       scope_policy=default_policy(), cfg=cfg)
-    start = AttackTurnStart(goal="read PII", flag_format="F", time_limit_sec=300,
+    start = AttackTurnStart(goal="read PII", time_limit_sec=300,
                             foothold=Foothold(attack_endpoint="10.0.0.5"))
     rnd.run(start, episode=1, round=1, graph=g)
 

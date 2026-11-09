@@ -60,7 +60,7 @@ def _harness(mode="parallel"):
 
 
 def _start():
-    return AttackTurnStart(goal="read PII", flag_format="FLAG{...}", time_limit_sec=300,
+    return AttackTurnStart(goal="read PII", time_limit_sec=300,
                            foothold=Foothold(attack_endpoint="10.0.0.5"))
 
 

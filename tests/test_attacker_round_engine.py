@@ -55,7 +55,7 @@ class _WorkLLM:
 
 
 def _start(goal="read customer PII", t=300.0):
-    return AttackTurnStart(goal=goal, flag_format="FLAG{...}",
+    return AttackTurnStart(goal=goal,
                            time_limit_sec=int(t),
                            foothold=Foothold(attack_endpoint="10.0.0.5:8080"))
 
@@ -98,24 +98,24 @@ def test_multiple_waves_accumulate():
     assert res.attack_summary.startswith("2개 웨이브")
 
 
-# ── finding이 나오면 결과·요약에 반영 + FLAG 탐지 ──
-def test_flag_found_sets_end_reason_flag():
-    # 워커가 정찰에서 FLAG{...}를 보게 runner가 플래그 출력
-    class _FlagWork(_WorkLLM):
+# ── 플래그리스: 공격자는 성공을 자기보고하지 않는다 — 시간 안 소진이면 플래너 고갈로 DEADEND ──
+def test_planner_exhaustion_ends_deadend():
+    # 워커가 정찰만 하고 플래너가 고갈되면, 공격자는 FLAG 를 못 "보고"하고 DEADEND 로 끝난다.
+    # (최종 침해 판정은 심판이 접근기록=크라운으로 내린다 — 공격자 결과엔 성공 플래그가 없다.)
+    class _ProbeWork(_WorkLLM):
         def chat_text_meta(self, system, user, **kw):
             if "아직 행동 없음" in user:
-                return '{"thought":"p","action":{"tool":"cat","args":["/flag"]}}', "stop"
+                return '{"thought":"p","action":{"tool":"cat","args":["/etc/passwd"]}}', "stop"
             return '{"thought":"done","action":{"tool":"give_up","args":[]}}', "stop"
 
-    plan = _PlanLLM(['{"intents":[{"summary":"grab flag","target":"db"}]}'])
-    rnd = AttackRound(attacker_llm=_FlagWork(), planner_llm=plan,
-                      runner=_R(stdout="here: FLAG{secret123}"),
+    plan = _PlanLLM(['{"intents":[{"summary":"grab secret","target":"db"}]}'])
+    rnd = AttackRound(attacker_llm=_ProbeWork(), planner_llm=plan,
+                      runner=_R(stdout="here: s0me-secret-value"),
                       scope_policy=default_policy(), cfg=_cfg(n_workers=1))
     g = InMemoryGraph(episode=1)
     res = rnd.run(_start(), episode=1, round=1, graph=g)
-    assert res.end_reason == AttackEndReason.FLAG
-    assert len(res.flags_obtained) == 1
-    assert res.flags_obtained[0].value == "FLAG{secret123}"
+    assert res.end_reason == AttackEndReason.DEADEND
+    assert res.replay_script is not None and len(res.replay_script.steps) >= 1
 
 
 # ── 회차 그래프 지속: 같은 그래프로 2라운드 → 사실 누적, 대본은 라운드별 ──

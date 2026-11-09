@@ -21,9 +21,9 @@ if str(_ROOT) not in sys.path:
 
 from common.messages import (  # noqa: E402
     AttackEndReason, AttackTurnResult, DefenseEndReason, DefenseTurnResult,
-    Detection, FlagObtained, ReplayPhase, ReplayResult, StepReplayRec,
+    Detection, ReplayPhase, ReplayResult, StepReplayRec,
 )
-from common.replay_schema import Command, FlagCheck, ReplayScript, Step  # noqa: E402
+from common.replay_schema import Command, ReplayScript, Step  # noqa: E402
 from orchestrator.fakes import FakeAttackerClient, FakeBaseline, FakeDefenderClient, FakeLogSource  # noqa: E402
 from orchestrator.flags import default_registry  # noqa: E402
 from orchestrator.objectives import default_objectives  # noqa: E402
@@ -80,20 +80,19 @@ def test_real_logsource_extracts_all_wave1_techniques():
 
 # ───────────── (2)(3) 실 시퀀서→truth→채점 (공격자/방어자/클러스터만 fake) ─────────────
 def _escape_script() -> ReplayScript:
-    # 토큰탈취 → T1610 파드배포 → ④ DB FLAG. flag_check 는 ④(검증 판정 기준).
+    # 토큰탈취 → T1610 파드배포 → ④ 내부비밀 SELECT. 플래그리스: 반출 판정은 심판이 크라운으로.
     return ReplayScript(session_id="s", episode=1, round=1, steps=[
         Step(step=1, command=Command(tool="sh", args=["-c", "wget .../internal/secret/internal/admin-sa-token"])),
         Step(step=2, command=Command(tool="sh", args=["-c", "wget --post-data=@pod .../pods"])),
-        Step(step=3, command=Command(tool="psql", args=["-c", "SELECT value FROM internal_secrets"]),
-             flag_check=FlagCheck(flag_id="4", obtained=True))])
+        Step(step=3, command=Command(tool="psql", args=["-c", "SELECT value FROM internal_secrets"]))])
 
 
 def _escape_attack() -> AttackTurnResult:
+    # 공격자는 성공을 자기보고하지 않는다(플래그리스). 크라운은 심판의 로그원(crown_constant)이 주입.
     return AttackTurnResult(
-        end_reason=AttackEndReason.FLAG,
-        flags_obtained=[FlagObtained(flag_id="4", value="FLAG{win}", step=3)],
+        end_reason=AttackEndReason.DEADEND,
         replay_script=_escape_script(),
-        attack_summary="②토큰탈취→T1610 배포→T1611 탈출 + ④ FLAG", elapsed_sec=1.0)
+        attack_summary="②토큰탈취→T1610 배포→T1611 탈출 + ④ 내부비밀 반출", elapsed_sec=1.0)
 
 
 def _seq(defense: DefenseTurnResult, *, attack: AttackTurnResult = None):

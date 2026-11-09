@@ -93,14 +93,17 @@ def test_produces_then_input_substitution():
     assert runner.calls[1] == ("sh", ["-c", "echo using SECRET"])   # {pw} 치환됨
 
 
-def test_flag_detection_records_flagcheck():
-    runner = _FakeRunner(by_tool={"psql": CommandResult(0, "value\nFLAG{shopflow_abc}\n")})
+def test_step_records_excerpt_and_hash_no_flag_fields():
+    # 플래그리스: 스텝은 발췌·해시만 기록한다. 공격자 쪽엔 플래그 탐지/필드가 존재하지 않는다
+    # (최종 침해 판정은 심판이 접근기록=크라운으로 내린다).
+    runner = _FakeRunner(by_tool={"psql": CommandResult(0, "value\ns0me-secret-value\n")})
     ex = _ex(runner)
     obs = ex.execute(AttackAction(thought="t", tool="psql", args=["-c", "SELECT value"]))
-    assert obs.flag_found == "FLAG{shopflow_abc}" and ex.flags_found == ["FLAG{shopflow_abc}"]
     step = ex.script.steps[0]
-    assert step.flag_check is not None and step.flag_check.obtained
-    assert step.result.stdout_full is not None              # 플래그 스텝은 전체 저장
+    assert step.result.stdout_excerpt and step.result.stdout_hash
+    assert not hasattr(obs, "flag_found")
+    assert not hasattr(step, "flag_check")
+    assert not hasattr(ex, "flags_found")
 
 
 def test_determinism_classified():
