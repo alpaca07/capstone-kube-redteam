@@ -53,7 +53,8 @@ def test_http_attacker_attack_turn():
     assert sent["body"]["type"] == "attack_turn_start"
     assert sent["body"]["episode"] == 1 and sent["body"]["round"] == 2
     assert sent["body"]["payload"]["time_limit_sec"] == 300
-    assert sent["timeout"] == 300 + 30                           # time_limit + 여유
+    from orchestrator.http_clients import _TURN_BUFFER
+    assert sent["timeout"] == 300 + _TURN_BUFFER                 # time_limit + 턴 여유(좀비 방지)
     assert out.end_reason == AttackEndReason.FLAG                # 응답 파싱
 
 

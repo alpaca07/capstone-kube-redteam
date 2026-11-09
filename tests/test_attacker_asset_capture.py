@@ -86,6 +86,31 @@ def test_runner_captures_and_anchors():
         assert ag.get_asset(aid) is not None
 
 
+# ── 앵커는 '겨냥한 자산(intent_target)'에만 — 발견 자산은 [untouched]로 남는다(③ 신호) ──
+def test_anchors_only_intent_target_not_discovered():
+    g = InMemoryGraph()
+    ag = InMemoryAssetGraph()
+    iid = g.add_intent({"summary": "probe pg", "target": "postgres.database.svc.cluster.local"})
+    g.claim_next("w")
+    # 출력/명령에 겨냥 자산 + 우연히 발견한 다른 자산(IP:포트)이 함께 관측됨
+    action = ('{"thought":"p","action":{"tool":"sh","args":["-c",'
+              '"wget -qO- http://10.43.183.240:80/ ; nslookup postgres.database.svc.cluster.local"]}}')
+    llm = _LLM(action, '{"facts":[{"summary":"o"}],"finding":null}')
+    lane = ExecutionLane(_R("resolved"), scope_policy=default_policy(),
+                         session_id="s", episode=1, round=1)
+    runner = IntentRunner(llm, IntentRunnerConfig(system_prompt="s", round_goal="g"),
+                          asset_graph=ag)
+    runner(g, WorkerContext(lane, "w"), g.get_node(iid))
+
+    by_name = {a.name: a.id for a in ag.assets()}
+    anchored = g.anchored_asset_ids()
+    # 둘 다 자산 그래프엔 들어감(KNOWN ASSETS에 보임)
+    assert "postgres.database.svc.cluster.local" in by_name and "10.43.183.240:80" in by_name
+    # 그러나 앵커(=explored)는 겨냥 자산에만
+    assert by_name["postgres.database.svc.cluster.local"] in anchored
+    assert by_name["10.43.183.240:80"] not in anchored   # 발견 자산 → [untouched] 유지
+
+
 # ── 자산 그래프 없으면 조용히 건너뜀(앵커 없음, 에러 없음) ──
 def test_no_asset_graph_skips():
     g = InMemoryGraph()

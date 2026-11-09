@@ -119,7 +119,9 @@ def parse_settlement(text: str) -> tuple[list[FactDraft], Optional[FindingDraft]
 
 
 _SETTLE_RESERVE = 25.0      # 의도 ReAct 예산에서 정착용으로 남겨둘 시간(초) — 라운드 마감 클램프 시
-_SETTLE_MAX = 30.0          # 정착 LLM 호출 상한(초) — 라운드 마감 초과 방지
+_SETTLE_MAX = 60.0          # 정착 LLM 호출 상한(초). 공유 모델이 경합 중엔 30초로도 모자라
+                            # finding 생성이 타임아웃→폴백fact로 떨어져 '침해'가 0이 됐다(④ 소실).
+                            # 넉넉히 둔다 — 마지막 정착이 마감을 넘겨도 클라이언트 턴 버퍼가 흡수.
 
 
 @dataclass
@@ -185,12 +187,10 @@ class IntentRunner:
         # 자산 기계 포집(하이브리드 D 1단계) — 관측 자산을 미식별로 쌓고 의도를 거기 앵커
         asset_ids = self._capture_assets(graph, intent, history, tag=tag)
 
-        # 정착 호출도 남은 라운드 시간으로 묶는다(마감 넘겨 턴이 늘어지는 걸 방지).
-        st = _SETTLE_MAX
-        if rd is not None and clk is not None:
-            st = max(5.0, min(_SETTLE_MAX, rd - clk()))
+        # 정착은 고정 여유(_SETTLE_MAX)를 준다 — finding 생성이 핵심이라 마감 임박에도
+        # 쥐어짜지 않는다. 마지막 정착이 마감을 다소 넘겨도 클라이언트 턴 버퍼(120초)가 흡수.
         self._settle(graph, intent, history, source_step_ids, tag=tag,
-                     asset_ids=asset_ids, timeout=st)
+                     asset_ids=asset_ids, timeout=_SETTLE_MAX)
 
         # 종료사유 → 의도 정착 상태. TIMEOUT만 EXHAUSTED(부분결과 보존), 나머지는 DONE.
         state = (IntentState.EXHAUSTED if result.end_reason == AttackEndReason.TIMEOUT
@@ -222,8 +222,14 @@ class IntentRunner:
                 p = o.get("parent")
                 if p and p in name_to_id and name_to_id[p] != name_to_id[o["name"]]:
                     self.asset_graph.link_contains(name_to_id[p], name_to_id[o["name"]])
-            if ids:
-                graph.anchor_to(intent.id, ids)       # 의도 → 관측 자산
+            # 앵커는 '직접 겨냥한 자산'(source=intent_target)에만 — 출력에서 우연히 발견한
+            # 자산은 앵커 안 함 → [untouched]로 남아 다음 라운드에 플래너가 겨냥할 미탐색 표면이 됨.
+            # (종전엔 관측 자산 전부를 앵커해 미탐색이 항상 0이었음 → ③ 자산겨냥 신호 소실.)
+            probed = [name_to_id[o["name"]] for o in obs
+                      if (o.get("attrs") or {}).get("source") == "intent_target"
+                      and o["name"] in name_to_id]
+            if probed:
+                graph.anchor_to(intent.id, probed)    # 의도 → 겨냥(탐색)한 자산만
             if obs:
                 self.log(f"{tag} ⟟ 자산 {len(obs)}개 포집: "
                          + ", ".join(o["name"] for o in obs[:4])

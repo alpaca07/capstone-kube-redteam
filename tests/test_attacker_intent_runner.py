@@ -208,15 +208,17 @@ def test_intent_budget_and_settle_clamped_to_round_deadline():
         g.get_node(1))
     assert far.react_timeouts[0] > 60, far.react_timeouts        # 클램프 안 됨(full)
 
-    # (2) 임박 마감(10s 남음) → ReAct 예산·정착 timeout 이 작게 클램프
+    # (2) 임박 마감(10s 남음) → ReAct 예산은 작게 클램프, 정착은 고정 여유 유지
+    #     (정착을 마감에 쥐어짜면 finding 생성이 타임아웃 → 침해0 → ④ 소실하므로)
+    from attacker.intent_runner import _SETTLE_MAX
     g2 = InMemoryGraph(); g2.add_intent({"summary": "x", "target": "t"}); g2.claim_next("w")
     near = _RecLLM()
     IntentRunner(near, IntentRunnerConfig(system_prompt="s", round_goal="g",
                  intent_budget_sec=120.0))(
         g2, WorkerContext(_lane(), "w", round_deadline=time.time() + 10, clock=time.time),
         g2.get_node(1))
-    assert near.react_timeouts[0] < 15, near.react_timeouts      # 120 이 아니라 남은시간으로
-    assert near.settle_timeout is not None and near.settle_timeout <= 30, near.settle_timeout
+    assert near.react_timeouts[0] < 15, near.react_timeouts      # ReAct 예산은 남은시간으로
+    assert near.settle_timeout == _SETTLE_MAX, near.settle_timeout  # 정착은 고정 여유(안 쥐어짜임)
 
     # (3) 마감 정보 없으면(기존 동작) full 예산
     g3 = InMemoryGraph(); g3.add_intent({"summary": "x", "target": "t"}); g3.claim_next("w")

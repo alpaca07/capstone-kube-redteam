@@ -70,7 +70,7 @@ def extract_assets(texts, *, intent_target: str = "") -> list[dict]:
             if m and _valid_ip(m.group(1)):
                 add("host", m.group(1))
                 add("service", f"{m.group(1)}:{m.group(2)}", parent=m.group(1),
-                    port=int(m.group(2)))
+                    port=int(m.group(2)), source="intent_target")
             elif t:
                 add("service", t, source="intent_target")
 
