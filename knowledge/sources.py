@@ -33,6 +33,10 @@ GENERIC_CWES: frozenset[str] = frozenset({
 # VM-B 스택 매칭을 CPE 노드로 하고 싶을 때만 __main__ 에서 True 로 켠다(--nvd-cpe-nodes).
 LOAD_NVD_CPE: bool = False
 
+# CPE 노드 생성 필터(바닥층). None=전부 / set=이 "cpe:2.3:a:vendor:product" 접두 중 하나로 시작하는
+# CPE 만 노드 생성(allowlist 제품만 남겨 열거 노이즈·메모리 차단). __main__ 이 --nvd-from-allowlist 때 채운다.
+CPE_FILTER: frozenset[str] | None = None
+
 
 def knowledge_source_node(source: str) -> Node:
     ks = schema.KNOWLEDGE_SOURCES[source]
@@ -313,6 +317,9 @@ def parse_nvd(raw) -> tuple[list[Node], list[Rel]]:
         if LOAD_NVD_CPE:
             ranges: dict[str, list[str]] = {}
             for criteria, vrange in _iter_cpe_matches(cve):
+                if CPE_FILTER is not None and not any(
+                        criteria.startswith(p + ":") for p in CPE_FILTER):
+                    continue   # allowlist 밖 벤더 제품 CPE 열거는 노드 안 만듦(노이즈·메모리 차단)
                 ranges.setdefault(criteria, [])
                 if vrange and vrange not in ranges[criteria]:
                     ranges[criteria].append(vrange)

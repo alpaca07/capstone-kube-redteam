@@ -310,6 +310,9 @@ def run(args) -> None:
         return
     source_list = [s.strip() for s in args.sources.split(",") if s.strip()]
     sources.LOAD_NVD_CPE = bool(args.nvd_cpe_nodes)   # NVD CPE 열거 적재 여부(기본 False)
+    if args.nvd_from_allowlist and args.nvd_cpe_nodes:   # 바닥층: CPE 노드를 allowlist 제품만으로 제한
+        sources.CPE_FILTER = frozenset(cpe_targets_from_allowlist(
+            args.allowlist or os.path.join(os.path.dirname(__file__), "cpe_allowlist.json")))
     session = graph_writer.DryRunSession() if args.dry_run else connect(args)
     for source in source_list:
         if source not in sources.PARSERS:

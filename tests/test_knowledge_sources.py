@@ -125,6 +125,26 @@ def test_nvd_classified_as_still_works():
     assert ("CVE-2017-5638", "CWE-755") in edges    # enrich 가 기존 관계를 안 깨뜨림
 
 
+def test_nvd_cpe_filter_keeps_only_allowlist():
+    """바닥층 CPE_FILTER — allowlist 매칭 CPE 만 노드 생성, 벤더 열거 노이즈 제외."""
+    import knowledge.sources as S
+    raw = {"vulnerabilities": [{"cve": {
+        "id": "CVE-FILT", "descriptions": [{"lang": "en", "value": "d"}],
+        "configurations": [{"nodes": [{"cpeMatch": [
+            {"vulnerable": True, "criteria": "cpe:2.3:a:oracle:mysql:8.0.1:*:*:*:*:*:*:*"},
+            {"vulnerable": True, "criteria": "cpe:2.3:o:canonical:ubuntu_linux:20.04:*:*:*:*:*:*:*"}]}]}],
+    }}]}
+    S.LOAD_NVD_CPE = True
+    S.CPE_FILTER = frozenset({"cpe:2.3:a:oracle:mysql"})
+    try:
+        nodes, _ = S.parse_nvd(raw)
+    finally:
+        S.LOAD_NVD_CPE = False
+        S.CPE_FILTER = None
+    cpe_ids = [n["id"] for n in nodes if n["label"] == "CPE"]
+    assert cpe_ids == ["cpe:2.3:a:oracle:mysql:8.0.1:*:*:*:*:*:*:*"]   # ubuntu 노이즈 제외
+
+
 # ───────────── parse_allowlist: Product · ServiceType · PROVIDES_SERVICE ─────────────
 def test_allowlist_product_and_servicetype():
     nodes, rels = parse_allowlist(ALLOWLIST_SAMPLE)
