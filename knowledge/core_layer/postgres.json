@@ -1,0 +1,47 @@
+{
+  "_note": "핵심층 환경 — PostgreSQL CVE-2019-9193 (COPY FROM PROGRAM 명령실행). 고수준 스키마: 절차·전제·예상결과를 도메인 말로 적으면 build_core_layer 가 ④⑤ 노드/관계(REALIZED_BY·REQUIRES·PRODUCES·HAS_OUTCOME·CONSTRAINED_BY·EVIDENCED_BY)로 펼친다. technique 는 bottom layer(attack 소스)에 이미 있어야 REALIZED_BY 가 붙음(없으면 조용히 스킵) → 적재순서 attack→core. ResultCondition 은 verifier 조건표 저작원본({channel·field·operator·expected}); 한 ExpectedResult 의 조건들은 '그리고'(전부 만족=성공), list 형 expected 는 '값집합 중 하나'. 경로 A(크라운)=민감 데이터 실제 read / 경로 B(진행도)=CVE 자체 명령실행 흔적.",
+
+  "env": "postgres",
+  "technique": "T1059",
+  "cve": "CVE-2019-9193",
+
+  "procedure": {
+    "id": "PROC-postgres-copy-program",
+    "name": "COPY FROM PROGRAM 명령 실행",
+    "description": "슈퍼유저 또는 pg_execute_server_program 권한 롤에서 COPY ... FROM PROGRAM 으로 DB 서버에서 임의 OS 명령을 실행한다.",
+    "status": "AUTHORED"
+  },
+
+  "preconditions": [
+    {
+      "id": "PRE-postgres-superuser",
+      "name": "슈퍼유저 또는 pg_execute_server_program 권한",
+      "description": "COPY FROM PROGRAM 은 해당 권한을 가진 롤에서만 가능.",
+      "config": {"key": "copy_program_enabled", "expected_value": "true", "operator": "equals"}
+    }
+  ],
+
+  "expected_results": [
+    {
+      "id": "ER-postgres-crown-read",
+      "name": "민감 테이블 실제 read (크라운)",
+      "kind": "crown",
+      "outcome": {"id": "AO-data-exposure", "name": "민감 데이터 유출"},
+      "conditions": [
+        {"channel": "db_app_log", "field": "actor",  "operator": "equals",   "expected": "legacy_admin"},
+        {"channel": "db_app_log", "field": "table",  "operator": "is_one_of", "expected": ["customers_pii", "internal_secrets"]},
+        {"channel": "db_app_log", "field": "action", "operator": "equals",   "expected": "read"}
+      ]
+    },
+    {
+      "id": "ER-postgres-progress-exec",
+      "name": "컨테이너 내 명령 실행 흔적 (진행도)",
+      "kind": "progress",
+      "outcome": {"id": "AO-command-execution", "name": "명령 실행"},
+      "conditions": [
+        {"channel": "falco", "field": "rule",    "operator": "equals",   "expected": "Terminal shell in container"},
+        {"channel": "falco", "field": "process", "operator": "contains", "expected": ["sh", "cp", "cat"]}
+      ]
+    }
+  ]
+}

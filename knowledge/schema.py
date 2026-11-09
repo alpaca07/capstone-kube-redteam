@@ -59,6 +59,9 @@ KNOWLEDGE_SOURCES = {
     # 바닥층 CPE allowlist(자산 카탈로그) 출처
     "allowlist": {"id": "KS-cpe-allowlist", "name": "바닥층 CPE allowlist(큐레이트)", "source_type": "CURATED",
                   "url": ""},
+    # 핵심층 ④⑤ 수기 저작 출처(Procedure·ExpectedResult·ResultCondition 등)
+    "core": {"id": "KS-core-layer", "name": "핵심층 수기 저작", "source_type": "CURATED",
+             "url": ""},
 }
 
 # =============================================================================

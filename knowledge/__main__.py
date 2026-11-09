@@ -251,6 +251,26 @@ def fetch_allowlist(args) -> dict:
     return json.load(open(path))
 
 
+# --- 핵심층 환경 로드 (④⑤ 수기 저작) ----------------------------------------
+def fetch_core(args) -> dict:
+    """핵심층 환경 JSON 로드. --core <파일|디렉토리>, 없으면 패키지 knowledge/core_layer/ 전체(*.json)."""
+    target = args.core or os.path.join(os.path.dirname(__file__), "core_layer")
+    if os.path.isdir(target):
+        files = sorted(glob.glob(os.path.join(target, "*.json")))
+    elif os.path.exists(target):
+        files = [target]
+    else:
+        raise SystemExit(f"core: {target} 없음 (--core 로 파일/디렉토리 지정)")
+    envs = []
+    for f in files:
+        d = json.load(open(f))
+        if d.get("environments"):
+            envs += d["environments"]
+        elif d.get("env"):
+            envs.append(d)
+    return {"environments": envs}
+
+
 def connect(args):
     """Neo4j 세션. neo4j 드라이버는 여기서만 import(없어도 dry-run 됨)."""
     from neo4j import GraphDatabase
@@ -283,6 +303,8 @@ def run(args) -> None:
             raw = fetch_cve_attack(args)
         elif source == "allowlist":
             raw = fetch_allowlist(args)
+        elif source == "core":
+            raw = fetch_core(args)
         else:
             raw = fetch(source, args.data_dir)
         nodes, rels = sources.PARSERS[source](raw)
@@ -309,6 +331,7 @@ def main() -> None:
     ap.add_argument("--nvd-targets", default=None, help="타깃 JSON 파일 경로({\"cve_ids\":[...],\"cpe_matches\":[...]})")
     ap.add_argument("--nvd-cpe-nodes", action="store_true", help="NVD CPE 열거도 적재(기본 꺼짐 — 벤더 제품 노이즈 차단)")
     ap.add_argument("--allowlist", default=None, help="바닥층 CPE allowlist JSON 경로(allowlist 소스, 기본=knowledge/cpe_allowlist.json)")
+    ap.add_argument("--core", default=None, help="핵심층 환경 JSON 파일/디렉토리(core 소스, 기본=knowledge/core_layer/)")
     ap.add_argument("--cve-map", default=None, help="CVE->ATT&CK 큐레이트 매핑 JSON 경로(cve_attack 소스)")
     ap.add_argument("--kev-json", default=None, help="CTID KEV->ATT&CK 매핑 JSON 경로(없으면 data-dir 에서 최신 자동탐색)")
     run(ap.parse_args())

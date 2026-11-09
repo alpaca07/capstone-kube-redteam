@@ -402,6 +402,98 @@ def parse_allowlist(raw) -> tuple[list[Node], list[Rel]]:
     return nodes, rels
 
 
+# --- 핵심층 ④⑤ 수기 저작 (고수준 환경 스키마 -> 노드/관계로 펼침) ----------------
+# EvidenceType 상수(증거 통로 셀렉터, 5개 고정) — ResultCondition.channel 이 가리키는 통로
+EVIDENCE_TYPES = {
+    "audit":       "K8s 감사 로그",
+    "falco":       "Falco 런타임 탐지",
+    "state_query": "클러스터 상태 질의",
+    "db_app_log":  "DB·앱 접근 기록",
+    "value_match": "값 대조(보정군)",
+}
+
+
+def _core_evidence_nodes() -> list[Node]:
+    return [{"label": "EvidenceType", "id": eid, "props": {"name": name}}
+            for eid, name in EVIDENCE_TYPES.items()]
+
+
+def _build_env(env: dict, nodes: list[Node], rels: list[Rel]) -> None:
+    """환경 1개를 ④⑤ 노드/관계로 펼쳐 nodes/rels 에 덧붙인다(공유 EvidenceType·KnowledgeSource 는 호출부에서 1회)."""
+    env_id = env.get("env", "")
+
+    def mint(label: str, nid: str, props: dict) -> None:
+        nodes.append({"label": label, "id": nid, "props": props})
+        rels.append(_supported_by("core", label, nid))
+
+    # Procedure — bottom layer 의 Technique 에 REALIZED_BY (Technique 없으면 조용히 스킵)
+    proc = env["procedure"]
+    pprops = {"name": proc.get("name", ""), "description": proc.get("description", ""), "env": env_id}
+    if env.get("cve"):     pprops["cve"] = env["cve"]
+    if proc.get("status"): pprops["status"] = proc["status"]
+    mint("Procedure", proc["id"], pprops)
+    if env.get("technique"):
+        rels.append({"type": "REALIZED_BY", "from_label": "Technique", "from_id": env["technique"],
+                     "to_label": "Procedure", "to_id": proc["id"], "props": {}})
+
+    # Precondition (+ REQUIRES_CONFIGURATION -> Configuration)
+    for pre in env.get("preconditions", []):
+        mint("Precondition", pre["id"],
+             {"name": pre.get("name", ""), "description": pre.get("description", "")})
+        rels.append({"type": "REQUIRES", "from_label": "Procedure", "from_id": proc["id"],
+                     "to_label": "Precondition", "to_id": pre["id"], "props": {}})
+        cfg = pre.get("config")
+        if cfg:
+            mint("Configuration", cfg["key"], {"name": cfg["key"], "config_key": cfg["key"]})
+            rels.append({"type": "REQUIRES_CONFIGURATION",
+                         "from_label": "Precondition", "from_id": pre["id"],
+                         "to_label": "Configuration", "to_id": cfg["key"],
+                         "props": {"expected_value": cfg.get("expected_value", ""),
+                                   "operator": cfg.get("operator", "equals")}})
+
+    # ExpectedResult (+ PRODUCES / HAS_OUTCOME / CONSTRAINED_BY(조건마다) / EVIDENCED_BY(채널마다))
+    for er in env.get("expected_results", []):
+        mint("ExpectedResult", er["id"], {"name": er.get("name", ""), "kind": er.get("kind", "")})
+        rels.append({"type": "PRODUCES", "from_label": "Procedure", "from_id": proc["id"],
+                     "to_label": "ExpectedResult", "to_id": er["id"], "props": {}})
+        out = er.get("outcome")
+        if out:
+            mint("AttackOutcome", out["id"], {"name": out.get("name", "")})
+            rels.append({"type": "HAS_OUTCOME", "from_label": "ExpectedResult", "from_id": er["id"],
+                         "to_label": "AttackOutcome", "to_id": out["id"], "props": {}})
+        channels: set[str] = set()
+        for i, c in enumerate(er.get("conditions", [])):
+            cid = f"{er['id']}-c{i}"
+            mint("ResultCondition", cid,
+                 {"channel": c.get("channel", ""), "field": c.get("field", ""),
+                  "operator": c.get("operator", ""), "expected": c.get("expected", "")})
+            rels.append({"type": "CONSTRAINED_BY", "from_label": "ExpectedResult", "from_id": er["id"],
+                         "to_label": "ResultCondition", "to_id": cid, "props": {}})
+            if c.get("channel"):
+                channels.add(c["channel"])
+        for ch in sorted(channels):
+            rels.append({"type": "EVIDENCED_BY", "from_label": "ExpectedResult", "from_id": er["id"],
+                         "to_label": "EvidenceType", "to_id": ch, "props": {}})
+
+
+def build_core_layer(raw) -> tuple[list[Node], list[Rel]]:
+    """핵심층 환경 고수준 스키마 -> ④⑤ 노드/관계.
+
+    raw: {"environments": [<env>, ...]} 또는 환경 1개({"env":..., "procedure":..., ...}).
+    EvidenceType 5 상수·KnowledgeSource 는 1회만, 환경별 ④⑤ 는 _build_env 로 펼친다.
+    적재순서 주의: attack(Technique) → core, 그래야 REALIZED_BY 가 붙는다.
+    """
+    envs = raw.get("environments")
+    if envs is None:
+        envs = [raw] if raw.get("env") else []
+    ev = _core_evidence_nodes()
+    nodes: list[Node] = [knowledge_source_node("core")] + ev
+    rels: list[Rel] = [_supported_by("core", "EvidenceType", n["id"]) for n in ev]
+    for env in envs:
+        _build_env(env, nodes, rels)
+    return nodes, rels
+
+
 PARSERS = {
     "attack": parse_attack,
     "capec": parse_capec,
@@ -409,4 +501,5 @@ PARSERS = {
     "nvd": parse_nvd,
     "cve_attack": parse_cve_attack,
     "allowlist": parse_allowlist,
+    "core": build_core_layer,
 }

@@ -15,7 +15,12 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from knowledge import schema  # noqa: E402
-from knowledge.sources import parse_allowlist, parse_attack, parse_nvd  # noqa: E402
+from knowledge.sources import (  # noqa: E402
+    build_core_layer, parse_allowlist, parse_attack, parse_nvd)
+
+
+def _rels(rels, rtype):
+    return [(r["from_id"], r["to_id"]) for r in rels if r["type"] == rtype]
 
 
 def _node(nodes, label, nid):
@@ -155,10 +160,71 @@ def test_allowlist_real_file_loads_and_valid():
     assert prod_count >= 30                                        # 재생성본 규모 하한
 
 
+# ───────────── build_core_layer: ④⑤ 펼치기 ─────────────
+CORE_SAMPLE = {
+    "env": "demo", "technique": "T1059", "cve": "CVE-DEMO",
+    "procedure": {"id": "PROC-demo", "name": "p", "description": "d", "status": "AUTHORED"},
+    "preconditions": [{"id": "PRE-demo", "name": "pre",
+                       "config": {"key": "demo_enabled", "expected_value": "true", "operator": "equals"}}],
+    "expected_results": [
+        {"id": "ER-crown", "name": "crown", "kind": "crown", "outcome": {"id": "AO-x", "name": "x"},
+         "conditions": [
+             {"channel": "db_app_log", "field": "table", "operator": "is_one_of", "expected": ["a", "b"]},
+             {"channel": "db_app_log", "field": "action", "operator": "equals", "expected": "read"}]},
+        {"id": "ER-prog", "name": "prog", "kind": "progress",
+         "conditions": [{"channel": "falco", "field": "rule", "operator": "equals", "expected": "shell"}]}],
+}
+
+
+def test_core_procedure_realized_by_technique():
+    nodes, rels = build_core_layer(CORE_SAMPLE)
+    proc = _node(nodes, "Procedure", "PROC-demo")["props"]
+    assert proc["env"] == "demo" and proc["cve"] == "CVE-DEMO" and proc["status"] == "AUTHORED"
+    assert ("T1059", "PROC-demo") in _rels(rels, "REALIZED_BY")
+
+
+def test_core_precondition_and_configuration():
+    nodes, rels = build_core_layer(CORE_SAMPLE)
+    assert ("PROC-demo", "PRE-demo") in _rels(rels, "REQUIRES")
+    _node(nodes, "Configuration", "demo_enabled")
+    rc = [r for r in rels if r["type"] == "REQUIRES_CONFIGURATION"]
+    assert rc and rc[0]["props"]["expected_value"] == "true"
+
+
+def test_core_expected_results_and_conditions():
+    nodes, rels = build_core_layer(CORE_SAMPLE)
+    assert ("PROC-demo", "ER-crown") in _rels(rels, "PRODUCES")
+    assert ("ER-crown", "AO-x") in _rels(rels, "HAS_OUTCOME")
+    cons = [t for t in _rels(rels, "CONSTRAINED_BY") if t[0] == "ER-crown"]
+    assert len(cons) == 2                                         # 조건 2개 → ResultCondition 2개(그리고)
+    assert [t for t in _rels(rels, "EVIDENCED_BY") if t[0] == "ER-crown"] == [("ER-crown", "db_app_log")]
+    rc0 = _node(nodes, "ResultCondition", "ER-crown-c0")["props"]
+    assert rc0["operator"] == "is_one_of" and rc0["expected"] == ["a", "b"]   # list expected 보존
+
+
+def test_core_evidence_type_constants():
+    nodes, _ = build_core_layer(CORE_SAMPLE)
+    ids = {n["id"] for n in nodes if n["label"] == "EvidenceType"}
+    assert ids == {"audit", "falco", "state_query", "db_app_log", "value_match"}
+
+
+def test_core_real_postgres_file():
+    env = json.loads((_ROOT / "knowledge" / "core_layer" / "postgres.json").read_text(encoding="utf-8"))
+    nodes, rels = build_core_layer(env)
+    for n in nodes:
+        schema.check_node(n)
+    for r in rels:
+        schema.check_rel(r)
+    assert ("T1059", "PROC-postgres-copy-program") in _rels(rels, "REALIZED_BY")
+    kinds = {n["id"]: n["props"]["kind"] for n in nodes if n["label"] == "ExpectedResult"}
+    assert kinds.get("ER-postgres-crown-read") == "crown"        # 경로 A 크라운
+    assert kinds.get("ER-postgres-progress-exec") == "progress"  # 경로 B 진행도
+
+
 # ───────────── 스키마 적합성(enrich 가 잘못된 라벨/관계 안 만들었나) ─────────────
 def test_all_nodes_and_rels_pass_schema():
     for raw, parse in [(ATTACK_SAMPLE, parse_attack), (NVD_SAMPLE, parse_nvd),
-                       (ALLOWLIST_SAMPLE, parse_allowlist)]:
+                       (ALLOWLIST_SAMPLE, parse_allowlist), (CORE_SAMPLE, build_core_layer)]:
         nodes, rels = parse(raw)
         for n in nodes:
             schema.check_node(n)
