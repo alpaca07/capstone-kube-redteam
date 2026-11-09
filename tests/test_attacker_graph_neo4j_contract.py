@@ -47,7 +47,7 @@ def _connect():
     except ImportError:
         return None, "neo4j 드라이버 미설치 (pip install neo4j)"
     from attacker.graph_neo4j import connect
-    ep = int(time.time())                      # 고유 에피소드(기존 데이터 보호)
+    ep = int(time.time())                      # 고유 회차(기존 데이터 보호)
     try:
         g = connect(uri, user, pw, database=db, episode=ep)
     except Exception as e:  # noqa: BLE001

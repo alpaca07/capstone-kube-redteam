@@ -13,7 +13,7 @@
 #   (admin-dashboard 는 자기 코드 ConfigMap 을 '볼륨 마운트'로 쓰지 API 로 get 하지 않으므로,
 #    admin-sa 의 configmap API 조회는 정상 트래픽에 없다 = 공격자 신호로 결정적.)
 #
-# 베이스라인 리셋: killchain/ 디렉터리째 재적용되므로 이 ConfigMap 도 매 에피소드 복구된다.
+# 베이스라인 리셋: killchain/ 디렉터리째 재적용되므로 이 ConfigMap 도 매 회차 복구된다.
 apiVersion: v1
 kind: ConfigMap
 metadata:

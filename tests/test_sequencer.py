@@ -1,4 +1,4 @@
-"""턴 시퀀서 테스트 — fake 이음새로 에피소드 전체 루프를 돌려 제어 로직 검증.
+"""턴 시퀀서 테스트 — fake 이음새로 회차 전체 루프를 돌려 제어 로직 검증.
 
     python3 tests/test_sequencer.py     # 자체 러너
 종료조건·라운드 흐름·크래시 복구·킬스위치·god-view 정답 구축을 독립 기댓값으로 확인.
@@ -106,7 +106,7 @@ def test_max_rounds_ends_episode():
 
 # ───────────── 라운드 흐름 ─────────────
 def test_skip_revert_omits_baseline_revert():
-    # --no-revert: 에피소드 init 의 baseline revert 를 생략한다(라이브 클러스터 그대로).
+    # --no-revert: 회차 init 의 baseline revert 를 생략한다(라이브 클러스터 그대로).
     seq, ctx = _make(post_success=False, n_consec=99, max_rounds=1, skip_revert=True)
     seq.run_episode(1)
     assert ("revert_to", "clean-baseline") not in ctx["snaps"].calls, ctx["snaps"].calls
@@ -116,11 +116,11 @@ def test_round_flow_and_cleanup():
     seq, ctx = _make(post_success=False, n_consec=99, max_rounds=1)
     seq.run_episode(1)
     snaps = ctx["snaps"]
-    assert snaps.calls[0] == ("revert_to", "clean-baseline")        # 0. 에피소드 init 리셋
+    assert snaps.calls[0] == ("revert_to", "clean-baseline")        # 0. 회차 init 리셋
     assert not any(op == "save" for op, _ in snaps.calls)           # A2: 공격후 VM 스냅샷 없음
     assert len(ctx["defender"].defense_calls) == 1                  # 2. 방어 턴
     assert [p for p, _, _ in ctx["attacker"].replay_calls] == [POST]  # 3. 검증(POST-only)
-    assert snaps.reset_calls == 1                                   # 에피소드 init 만(verify 는 리셋 안 함)
+    assert snaps.reset_calls == 1                                   # 회차 init 만(verify 는 리셋 안 함)
     assert len(ctx["truth"].entries(1)) == 1                        # 정답 기록
     assert len(ctx["captured"]) == 1                                # 채점(JSONL)
 
@@ -181,7 +181,7 @@ class _DeadDefender:
 
 
 def test_not_ready_after_revert_aborts_episode():
-    # VM B가 revert 후 안 깨어나면(공격자는 정상) 공격 턴도 안 가고 에피소드 중단.
+    # VM B가 revert 후 안 깨어나면(공격자는 정상) 공격 턴도 안 가고 회차 중단.
     attacker = FakeAttackerClient(
         replay_by_phase={PRE: _replay(PRE, True), POST: _replay(POST, False)},
         attack_result=_attack_result())
@@ -217,12 +217,12 @@ def test_kill_switch_stops_mid_episode():
     assert s.rounds == 1
 
 
-# ───────────── 다중 에피소드 ─────────────
+# ───────────── 다중 회차 ─────────────
 def test_run_experiment_multiple_episodes():
     seq, ctx = _make(post_success=True, max_rounds=1, episodes=2)
     res = seq.run_experiment()
     assert len(res) == 2 and all(r.rounds == 1 for r in res)
-    assert ctx["snaps"].calls.count(("revert_to", "clean-baseline")) == 2   # 에피소드마다 리셋
+    assert ctx["snaps"].calls.count(("revert_to", "clean-baseline")) == 2   # 회차마다 리셋
 
 
 # ───────────── 게이팅(플래그 획득 시에만 방어+검증) ─────────────
@@ -294,7 +294,7 @@ def test_gating_ladder_no_flag_before_and_after_breakthrough():
     assert s.end_reason == "consecutive_defense"
     assert s.rounds == 4                                        # R4에서 종료
     assert len(ctx["defender"].defense_calls) == 1              # 방어는 돌파한 R3에서만
-    assert ctx["snaps"].reset_calls == 1                        # 에피소드 init 만(verify 는 리셋 안 함)
+    assert ctx["snaps"].reset_calls == 1                        # 회차 init 만(verify 는 리셋 안 함)
 
 
 # ───────────── 자체 러너 ─────────────

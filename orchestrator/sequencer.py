@@ -1,10 +1,10 @@
 """① 턴 시퀀서 — 0~8단계 루프 제어 (오케스트레이터의 지휘자).
 
-검증 엔진·채점기·클라이언트·스냅샷을 조립해 한 에피소드를 돌린다. 순수 제어 로직이라
-fake 이음새로 에피소드 전체를 테스트할 수 있다(실제 VM/네트워크 불필요).
+검증 엔진·채점기·클라이언트·스냅샷을 조립해 한 회차를 돌린다. 순수 제어 로직이라
+fake 이음새로 회차 전체를 테스트할 수 있다(실제 VM/네트워크 불필요).
 
 라운드 0~8:
-  0 에피소드 init: VM B를 clean 베이스라인으로 revert
+  0 회차 init: VM B를 clean 베이스라인으로 revert
   1 공격 턴 (C→A): 탈옥 LLM ReAct → 결과 + 리플레이 대본
   ★ 게이팅: 2·3·4~5는 공격이 플래그를 획득한 라운드에서만 실행. 미획득이면 전부 생략하고
     바로 다음 라운드로 간다(공격 히스토리는 하네스가 라운드 간 자동 이월 → 이어서 더 깊이 판다).
@@ -16,12 +16,12 @@ fake 이음새로 에피소드 전체를 테스트할 수 있다(실제 VM/네�
   5.5 god-view 정답 기록 (로그·값대조로 '실제 무슨 공격'을 TruthLog에) — 생략 라운드도 기록
   6 채점: 정답 대조 → 라운드 기록(JSONL)
   7 종료조건 검사 → 다음 라운드
-  8 에피소드 종료: 요약 + 라운드 임시 스냅샷 정리
+  8 회차 종료: 요약 + 라운드 임시 스냅샷 정리
 
 복구/안전:
 - 타임아웃은 장애 아님(하네스가 end_reason=timeout로 정상 종료). 요청 타임아웃은 백스톱.
-- 크래시(예외/연결 끊김)는 그 턴 1회 재시도 → 또 실패면 에피소드 중단(ABORTED).
-  라운드 중간 상태는 오염되므로 다음 에피소드 init의 clean revert로 리셋.
+- 크래시(예외/연결 끊김)는 그 턴 1회 재시도 → 또 실패면 회차 중단(ABORTED).
+  라운드 중간 상태는 오염되므로 다음 회차 init의 clean revert로 리셋.
 - 킬스위치 훅: 범위 이탈·폭주 감지 콜백이 True면 즉시 중단(KILLED).
 """
 from __future__ import annotations
@@ -74,9 +74,9 @@ class RunParams:
     flag_format: str = "FLAG{...}"
     ready_timeout_sec: float = 180.0             # revert 후 VM B 응답 대기 상한(일시정지·재개 지연 흡수)
     ready_interval_sec: float = 3.0              # ready 폴링 간격
-    skip_revert: bool = False                    # True면 에피소드 init revert 생략(라이브 클러스터 그대로).
+    skip_revert: bool = False                    # True면 회차 init revert 생략(라이브 클러스터 그대로).
     #   vmrun 라이브 스냅샷 revert 가 k3s exec 경로를 느리게(재시도 백오프) 만드는 인프라 이슈 회피용 —
-    #   라이브 클러스터가 이미 베이스라인(취약) 상태일 때 단발 포획·디버그에 쓴다. 다중 에피소드 리셋은 불가.
+    #   라이브 클러스터가 이미 베이스라인(취약) 상태일 때 단발 포획·디버그에 쓴다. 다중 회차 리셋은 불가.
 
 
 @dataclass
@@ -89,7 +89,7 @@ class RoundOutcome:
 
 
 class RoundAbort(Exception):
-    """턴 재시도까지 실패 → 라운드/에피소드 중단 신호."""
+    """턴 재시도까지 실패 → 라운드/회차 중단 신호."""
 
 
 class TurnSequencer:
@@ -120,7 +120,7 @@ class TurnSequencer:
 
     # ───────────── public ─────────────
     def run_experiment(self) -> list[EpisodeSummary]:
-        """에피소드 여러 번 반복(통계용). 각 에피소드는 독립(baseline에서 시작)."""
+        """회차 여러 번 반복(통계용). 각 회차는 독립(baseline에서 시작)."""
         self._emit(status="running", total_episodes=self.params.episodes,
                    max_rounds=self.params.max_rounds,
                    time_limit_sec=self.params.time_limit_sec)
@@ -144,10 +144,10 @@ class TurnSequencer:
         self._emit(status="running", episode=episode, round=0, phase=0, active=None,
                    turn_started=None, last_verdict=None,
                    flags_reached=[], crowns_reached=[], crowns_by_channel={}, goals_reached=[])
-        # 0. init — clean 베이스라인으로 리셋(이전 에피소드 오염 제거)
+        # 0. init — clean 베이스라인으로 리셋(이전 회차 오염 제거)
         if self.params.skip_revert:
             # vmrun revert 가 k3s exec 경로를 느리게 만드는 인프라 이슈 회피 — 라이브(이미 베이스라인
-            # 상태인) 클러스터를 그대로 공격한다. 단발 포획·디버그용(다중 에피소드 리셋 안 됨).
+            # 상태인) 클러스터를 그대로 공격한다. 단발 포획·디버그용(다중 회차 리셋 안 됨).
             self._log(f"[ep{episode}] 0. revert 생략(--no-revert) — 라이브 클러스터 그대로 사용")
         else:
             self._log(f"[ep{episode}] 0. 베이스라인 revert → {self.params.baseline_snapshot} …")
@@ -157,12 +157,12 @@ class TurnSequencer:
         scorer = Scorer(self.truth, episode, self.objectives, sink=self.sink)
         created_snaps: list[str] = []
         consecutive = 0
-        attacker_broke_through = False   # 이 에피소드에서 공격자가 한 번이라도 플래그를 획득했나(게이팅 사다리 기준)
+        attacker_broke_through = False   # 이 회차에서 공격자가 한 번이라도 플래그를 획득했나(게이팅 사다리 기준)
         end_reason = EpisodeEndReason.MAX_ROUNDS
 
         # 0.5 revert 후 VM B 재개/기동 대기. 라이브 스냅샷 revert는 VM을 잠깐 일시정지로
         #     두거나 재개가 늦을 수 있어, 방어 하네스가 /status로 응답할 때까지 폴링한다.
-        #     상한 내 안 뜨면 이 에피소드는 못 돌리므로 크래시 대신 ABORTED로 깔끔히 종료.
+        #     상한 내 안 뜨면 이 회차는 못 돌리므로 크래시 대신 ABORTED로 깔끔히 종료.
         self._log(f"[ep{episode}] 0.5 VM B 준비 대기(revert 후 재개)…")
         _t = time.time()
         if not self._ready():
@@ -178,7 +178,7 @@ class TurnSequencer:
                 try:
                     outcome = self._run_round(episode, rnd, scorer, created_snaps)
                 except RoundAbort as e:
-                    self._log(f"[ep{episode} R{rnd}] ✗ 라운드 중단: {e} → 에피소드 ABORTED")
+                    self._log(f"[ep{episode} R{rnd}] ✗ 라운드 중단: {e} → 회차 ABORTED")
                     end_reason = EpisodeEndReason.ABORTED
                     break
 
@@ -204,7 +204,7 @@ class TurnSequencer:
 
     # ───────────── revert 후 대상 준비 대기 ─────────────
     def _ready(self) -> bool:
-        """VM B(방어 하네스)가 /status로 응답할 때까지 폴링. 상한 초과면 False(→ 에피소드 중단).
+        """VM B(방어 하네스)가 /status로 응답할 때까지 폴링. 상한 초과면 False(→ 회차 중단).
 
         revert→start 후 Workstation이 VM을 즉시 재개 못 하거나(일시정지) 서버 기동이 늦을 수
         있다. 응답을 확인하고 턴을 시작해야 'VM 안 깨어남'으로 공격·방어 턴이 헛도는 걸 막는다.
@@ -263,7 +263,7 @@ class TurnSequencer:
 
             # 3. 검증 (대본 있을 때만). POST-only: 검증엔진이 '패치된 라이브'에 공격 대본을 재생 →
             #    도달 성공=FAKE_PATCH / 실패=BLOCKED. 리셋 안 함 → 패치가 라이브에 남아 다음 라운드가
-            #    누적된 방어를 상대한다(공진화). 에피소드 경계 리셋만 시퀀서 init 이 담당.
+            #    누적된 방어를 상대한다(공진화). 회차 경계 리셋만 시퀀서 init 이 담당.
             script = attack.replay_script
             if script is not None and script.steps:
                 self._emit(phase=3, active=None, turn_started=time.time())

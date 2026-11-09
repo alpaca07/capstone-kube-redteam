@@ -9,7 +9,7 @@ VM C가 보내는 메시지에 응답한다:
 실행+대본기록), 리플레이 모드는 ReplayEngine(같은 CommandRunner·resolve_args, LLM만 제거).
 컴포넌트(llm/runner/scope)를 주입받는다 → fake로 전 파이프라인 테스트.
 
-상태: 라운드 간 요약(prior_summary)만 보유(에피소드 바뀌면 리셋). 대본은 VM C가 보관했다가
+상태: 라운드 간 요약(prior_summary)만 보유(회차 바뀌면 리셋). 대본은 VM C가 보관했다가
 replay_request로 되돌려주므로 하네스는 저장하지 않는다(stateless 지향).
 """
 from __future__ import annotations
@@ -67,14 +67,14 @@ class AttackHarness:
         self.max_steps = max_steps
         self.step_timeout = step_timeout
         self._episode: Optional[int] = None
-        self._prior_summary = ""             # 라운드 간 기억(에피소드 내에서만 누적)
+        self._prior_summary = ""             # 라운드 간 기억(회차 내에서만 누적)
         self._round_digests: list[str] = []  # 라운드별 요약 누적(최근 N라운드)
         # ── 병렬 워커 모드 ──
         self.mode = mode                     # single | parallel
         self.planner_llm = planner_llm       # 정렬 모델(플래너 전용). parallel에서만 필요
         self.round_cfg = round_cfg           # RoundConfig(system_prompt 포함). parallel에서만
-        self._graph = None                   # 에피소드 스코프 탐색 그래프(라운드 넘어 지속)
-        self._asset_graph = None             # 에피소드 스코프 자산 그래프(짝)
+        self._graph = None                   # 회차 스코프 탐색 그래프(라운드 넘어 지속)
+        self._asset_graph = None             # 회차 스코프 자산 그래프(짝)
         self._graph_episode: Optional[int] = None
         self._graph_backend = graph_backend  # memory | neo4j
         self._neo4j_driver = neo4j_driver    # neo4j 백엔드일 때 공유 드라이버
@@ -95,8 +95,8 @@ class AttackHarness:
 
     # ── 병렬 워커 턴(ARTEX식: 플래너+워커 N) ──
     def _new_episode_graph(self, episode: int):
-        """에피소드 스코프 탐색 그래프 생성(백엔드별). neo4j는 공유 드라이버로 episode별
-        Neo4jGraph를 만들고 그 episode만 reset(새 에피소드 시작=깨끗한 상태)."""
+        """회차 스코프 탐색 그래프 생성(백엔드별). neo4j는 공유 드라이버로 episode별
+        Neo4jGraph를 만들고 그 episode만 reset(새 회차 시작=깨끗한 상태)."""
         if self._graph_backend == "neo4j":
             from .graph_neo4j import Neo4jGraph
             g = Neo4jGraph(self._neo4j_driver, episode=episode,
@@ -107,7 +107,7 @@ class AttackHarness:
         return InMemoryGraph(episode=episode)
 
     def _new_episode_asset_graph(self, episode: int):
-        """에피소드 스코프 자산 그래프(탐색 그래프와 짝). 백엔드 동일."""
+        """회차 스코프 자산 그래프(탐색 그래프와 짝). 백엔드 동일."""
         if self._graph_backend == "neo4j":
             from .assets_neo4j import Neo4jAssetGraph
             ag = Neo4jAssetGraph(self._neo4j_driver, episode=episode,
@@ -121,7 +121,7 @@ class AttackHarness:
     def _attack_turn_parallel(self, start: AttackTurnStart, *, episode: int,
                               round: int) -> AttackTurnResult:
         from .round_engine import AttackRound
-        # 그래프는 에피소드 스코프: 새 에피소드이거나 에피소드 첫 라운드(R1)면 새로.
+        # 그래프는 회차 스코프: 새 회차이거나 회차 첫 라운드(R1)면 새로.
         # (단일 경로의 리셋 조건과 동일 사상 — 상주 하네스의 런 간 기억 유출 방지)
         if episode != self._graph_episode or round <= 1 or self._graph is None:
             self._graph = self._new_episode_graph(episode)
@@ -142,9 +142,9 @@ class AttackHarness:
 
     # ── 단일 ReAct 턴(기존 경로) ──
     def _attack_turn_single(self, start: AttackTurnStart, *, episode: int, round: int) -> AttackTurnResult:
-        # 라운드 간 기억 리셋: 새 에피소드이거나 '에피소드 첫 라운드(R1)'면 초기화.
+        # 라운드 간 기억 리셋: 새 회차이거나 '회차 첫 라운드(R1)'면 초기화.
         # 하네스는 systemd로 상주 → 매 런이 episode=1 로 들어오므로 'episode 바뀜'만
-        # 보면 이전 런의 요약("이미 FLAG 획득")이 새어 즉시 give_up 됨. R1=에피소드
+        # 보면 이전 런의 요약("이미 FLAG 획득")이 새어 즉시 give_up 됨. R1=회차
         # 시작엔 이월할 과거가 없으므로 여기서 비워 매 런이 깨끗한 정찰로 출발하게 한다.
         if episode != self._episode or round <= 1:
             self._episode = episode
@@ -224,7 +224,7 @@ def create_harness(cfg, *, prompt: Optional[str] = None, runner=None, llm=None) 
                            max_tokens=cfg.dgx.max_tokens)
     # 개별 exec 타임아웃: 정상 명령은 <1s. 방어로 차단된 뒤 nc/psql/wget 가 매달리는데(NetworkPolicy
     # 가 SYN 을 DROP → 커넥트 대기) 이게 크면 한 스텝이 턴 예산·오케스트레이터 read timeout(=예산+30)을
-    # 넘겨 에피소드를 ABORT 시킨다(2026-10-17 다중에피소드: nc 5432 가 120s 매달려 E2·E3 중단). → 15s 캡.
+    # 넘겨 회차를 ABORT 시킨다(2026-10-17 다중회차: nc 5432 가 120s 매달려 E2·E3 중단). → 15s 캡.
     step_to = float(min(cfg.experiment.time_limit_sec, 15))
     if runner is None:
         if cfg.attack.exec_mode:
@@ -266,7 +266,7 @@ def create_harness(cfg, *, prompt: Optional[str] = None, runner=None, llm=None) 
             intent_max_steps=cfg.attack.intent_max_steps,
             react_max_tokens=cfg.dgx.max_tokens, planner_max_tokens=3000,
             max_waves=cfg.attack.max_waves)
-        # 탐색 그래프 백엔드: memory(기본) | neo4j(영속·에피소드 넘어 지속)
+        # 탐색 그래프 백엔드: memory(기본) | neo4j(영속·회차 넘어 지속)
         graph_backend = getattr(cfg.attack, "graph_backend", "memory")
         if graph_backend == "neo4j":
             from .graph_neo4j import Neo4jGraph, connect_driver

@@ -12,8 +12,8 @@ ARTEX의 exploration 그래프를 차용: 노드 kind(goal/intent/fact/finding/h
     ARTEX도 CAS(`WHERE state='open'` 조건부 갱신, 영향행=1이면 성공)로 구현.
     fake는 같은 원자 의미를 프로세스 락으로 흉내, Neo4j는 조건부 MATCH로.
   · 워커 간 값(produces) 공유 없음 — 지식은 fact 노드로만 공유(ARTEX와 동일).
-  · 에피소드 스코프: 그래프는 에피소드 단위. 노드에 episode_id를 달아 리셋 시
-    그 에피소드 노드만 비운다(지식 그래프는 보존).
+  · 회차 스코프: 그래프는 회차 단위. 노드에 episode_id를 달아 리셋 시
+    그 회차 노드만 비운다(지식 그래프는 보존).
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from typing import Optional, Protocol, runtime_checkable
 
 # ───────────────── 노드 종류 (ARTEX kind 차용) ─────────────────
 class NodeKind(str, Enum):
-    GOAL = "goal"        # 에피소드 목표(어느 중요자산 침해)
+    GOAL = "goal"        # 회차 목표(어느 중요자산 침해)
     INTENT = "intent"    # 탐색 방향 — 워커가 claim하는 작업 단위(소유자·상태 보유)
     FACT = "fact"        # 워커의 관측·결론(부정 결론 포함). source_step_ids 보유
     FINDING = "finding"  # 공격자가 주장하는 침해(진실 판정은 god-view 별도)
@@ -89,7 +89,7 @@ class ExplorationGraph(Protocol):
 
     # ── 쓰기 ──
     def add_goal(self, payload: dict, *, anchors: Optional[list[int]] = None) -> int:
-        """에피소드 목표(크라운) 노드를 쓰고 id를 돌려준다. frontier엔 안 들어감.
+        """회차 목표(크라운) 노드를 쓰고 id를 돌려준다. frontier엔 안 들어감.
         개막 의도의 출처(루트)로 쓰여 그래프를 하나로 잇는다."""
         ...
 
@@ -166,7 +166,7 @@ class ExplorationGraph(Protocol):
         ...
 
     def anchored_asset_ids(self) -> set[int]:
-        """이 에피소드의 탐색 노드들이 앵커한 자산 id 전체(union).
+        """이 회차의 탐색 노드들이 앵커한 자산 id 전체(union).
 
         '이미 건드린(탐색된) 자산' 판정용 — 플래너가 KNOWN ASSETS에서 아직 안 친
         자산을 우선 겨냥하도록, 자산을 explored/untouched로 가른다.

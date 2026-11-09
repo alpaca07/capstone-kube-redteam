@@ -11,7 +11,7 @@ ARTEX의 assets 그래프를 차용(화이트보드 확정 구조). 탐색 그�
       - CPE 식별자: 있으면 '식별된 자산'(KG와 CPE로 조인 가능 = 공격 가능), 없으면 '정찰 필요'.
       - 신뢰값(confidence): 이 관측을 얼마나 믿나.
   · '무슨 기술인가' 분류는 지식 그래프(KG) 몫. 자산 그래프는 CPE 조인키만 들고, 분류는 안 한다.
-  · 에피소드 스코프(episode) — 탐색 그래프와 함께 리셋(KG는 보존).
+  · 회차 스코프(episode) — 탐색 그래프와 함께 리셋(KG는 보존).
 
 같은 자산을 여러 워커가 관측할 수 있으므로 name으로 dedup(병합) — 공유 규칙은
 merge_asset_fields. 저장은 단일 Neo4j에 :Asset 라벨(:Explore와 구분). 실제 구현 둘:
@@ -99,7 +99,7 @@ class AssetGraph(Protocol):
         ...
 
     def assets(self, limit: int = 100) -> list[AssetNode]:
-        """에피소드의 자산들(최근 id 순). 태세·시각화용."""
+        """회차의 자산들(최근 id 순). 태세·시각화용."""
         ...
 
     def children(self, asset_id: int) -> list[AssetNode]:

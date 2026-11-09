@@ -2,7 +2,7 @@
 
 api.py 의 /api/status 가 이 파일(progress.json)을 읽어 대시보드에 라이브로 보여준다(폴링).
 stdout 로그(run.out)와 달리 **구조화된 현재 상태**를 제공 → 0~8 단계 표시기·턴 예산 바·
-현재 에피소드/라운드/활성 에이전트의 소스. 채점기 sink(rounds.jsonl)와는 별개.
+현재 회차/라운드/활성 에이전트의 소스. 채점기 sink(rounds.jsonl)와는 별개.
 
 설계:
 - 상태는 단일 dict, update(**fields)로 머지하고 매번 파일에 원자적 기록(temp→os.replace).
@@ -10,7 +10,7 @@ stdout 로그(run.out)와 달리 **구조화된 현재 상태**를 제공 → 0~
 - 디스크 쓰기 실패는 무시(모니터링 보조라 실험을 멈추면 안 됨).
 
 공유 계약(phase 인덱스 ↔ 이름) — 대시보드 LOOP 와 1:1:
-    0 초기화 / 1 공격 턴 / 2 방어 턴 / 3 검증 / 4 채점 / 5 에피소드 종료
+    0 초기화 / 1 공격 턴 / 2 방어 턴 / 3 검증 / 4 채점 / 5 회차 종료
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-PHASES = ["초기화", "공격 턴", "방어 턴", "검증", "채점", "에피소드 종료"]
+PHASES = ["초기화", "공격 턴", "방어 턴", "검증", "채점", "회차 종료"]
 
 
 class ProgressSink:
@@ -41,7 +41,7 @@ class ProgressSink:
             "turn_started": None,        # epoch(초) — 턴 경과 계산용
             "time_limit_sec": 0,
             "last_verdict": None,        # 직전 라운드 판정(blocked/fake_patch/...)
-            "flags_reached": [],         # 현재 에피소드 누적 god-view 플래그(①②③ + 크라운 objective id)
+            "flags_reached": [],         # 현재 회차 누적 god-view 플래그(①②③ + 크라운 objective id)
             "crowns_reached": [],        # 그중 크라운(중요자산 반출) objective id — 어느 자산이 빠졌나
             "crowns_by_channel": {},     # {크라운 objective id: [통로]} — 어느 통로(app·db)로 빠졌나
             "goals_reached": [],         # 달성 최종 목표(db_exfil 등) — 실제 침해 성립 여부

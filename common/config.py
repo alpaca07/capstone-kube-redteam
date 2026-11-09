@@ -92,8 +92,8 @@ class VmwareConfig(BaseModel):
 
 class ExperimentConfig(BaseModel):
     time_limit_sec: int = 300          # 턴당 제한 시간 T (공수 공통)
-    max_rounds: int = 20               # 에피소드당 최대 라운드
-    episodes: int = 50                 # 반복 에피소드 수(통계용)
+    max_rounds: int = 20               # 회차당 최대 라운드
+    episodes: int = 50                 # 반복 회차 수(통계용)
     n_consecutive_defense: int = 3     # N라운드 연속 방어 성공 시 종료
 
 

@@ -383,7 +383,7 @@ git sparse-checkout set common k8s docs tests       # ③ 로컬 체크아웃에
 ## 13. end-to-end 검증
 
 ```bash
-# (VM C) 1 에피소드로 전체 루프
+# (VM C) 1 회차로 전체 루프
 cd ~/capstone
 python3 -m orchestrator.main --episodes 1 --max-rounds 3 --time-limit 900 --max-tokens 1024
 ```

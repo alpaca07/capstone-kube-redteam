@@ -1,5 +1,5 @@
-"""AttackHarness 병렬 워커 경로 배선 테스트 — mode=parallel 라우팅·에피소드 그래프
-수명(라운드 지속·에피소드 리셋)·봉투 왕복. LLM만 fake, 나머지 실제 경로.
+"""AttackHarness 병렬 워커 경로 배선 테스트 — mode=parallel 라우팅·회차 그래프
+수명(라운드 지속·회차 리셋)·봉투 왕복. LLM만 fake, 나머지 실제 경로.
 
     python3 tests/test_attacker_server_parallel.py
 """
@@ -97,7 +97,7 @@ def test_single_route_untouched():
     assert h._graph is None            # 병렬 그래프 안 건드림
 
 
-# ── 에피소드 그래프 지속: 같은 에피소드 R1→R2는 그래프 유지(사실 누적) ──
+# ── 회차 그래프 지속: 같은 회차 R1→R2는 그래프 유지(사실 누적) ──
 def test_graph_persists_within_episode():
     h = _harness("parallel")
     h.attack_turn(_start(), episode=5, round=1)
@@ -108,7 +108,7 @@ def test_graph_persists_within_episode():
     assert len(h._graph.recent_facts()) > facts_r1   # 사실 누적
 
 
-# ── 에피소드 바뀌면 그래프 리셋(런 간 기억 유출 방지) ──
+# ── 회차 바뀌면 그래프 리셋(런 간 기억 유출 방지) ──
 def test_graph_resets_on_new_episode():
     h = _harness("parallel")
     h.attack_turn(_start(), episode=1, round=1)
@@ -118,13 +118,13 @@ def test_graph_resets_on_new_episode():
     assert h._graph_episode == 2
 
 
-# ── R1은 에피소드 중간이라도 리셋(상주 하네스 런 경계) ──
+# ── R1은 회차 중간이라도 리셋(상주 하네스 런 경계) ──
 def test_round1_resets_graph():
     h = _harness("parallel")
     h.attack_turn(_start(), episode=1, round=1)
     h.attack_turn(_start(), episode=1, round=2)
     g_mid = h._graph
-    # 같은 에피소드지만 R1이 다시 들어오면(새 런) 리셋
+    # 같은 회차지만 R1이 다시 들어오면(새 런) 리셋
     h.attack_turn(_start(), episode=1, round=1)
     assert h._graph is not g_mid
 
@@ -189,7 +189,7 @@ def test_neo4j_backend_dispatch_and_reset():
     g = h._new_episode_graph(7)
     from attacker.graph_neo4j import Neo4jGraph
     assert isinstance(g, Neo4jGraph) and g._episode == 7
-    # 새 에피소드 그래프 생성 시 reset_episode(DETACH DELETE)가 돌아야(묵은 노드 제거)
+    # 새 회차 그래프 생성 시 reset_episode(DETACH DELETE)가 돌아야(묵은 노드 제거)
     assert any("DETACH DELETE" in q for q in drv.queries)
 
 

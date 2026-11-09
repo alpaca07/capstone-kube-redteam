@@ -15,8 +15,8 @@ Discovery 3종(T1046/T1613/T1069, detect-only)을 이식. 새 방어 어휘 `res
 하네스 재시작. 설계 전문: [wave1-design.md](wave1-design.md). T1110 은 auth-로그 관측이 필요해
 Wave 1b 로 스테이징.
 
-**다중 에피소드 공진화 3×3 완주 — ABORT 0, rc=0 (2026-10-17 04:05 KST).** 3망 분리 + ② 활성화
-+ 측정배관(#4·#6) + exec 타임아웃 픽스 위의 첫 완전 공진화 런. 대시보드 실시간 관제로 에피소드마다
+**다중 회차 공진화 3×3 완주 — ABORT 0, rc=0 (2026-10-17 04:05 KST).** 3망 분리 + ② 활성화
++ 측정배관(#4·#6) + exec 타임아웃 픽스 위의 첫 완전 공진화 런. 대시보드 실시간 관제로 회차마다
 `R1 flag(깊이4)→patched→blocked, R2·R3 inconclusive` 관측 — **방어 실패 0**. 집계: 평균깊이 4/4,
 정밀도·재현율 50%/50%, MTTD 0R, 가용성 100%, blocked 3/9. 지난번 E2·E3 ABORT 재발 없음(nc
 매달림 15s 캡). 리셋형 톱니 곡선 — 누적(군비경쟁) 모드는 `skip_revert` 로 전환 가능.
@@ -30,7 +30,7 @@ Wave 1b 로 스테이징.
 `공격=flag(69s) → 방어=patched(19s) → 판정=blocked(5s)`, 베이스라인 리셋 2초, **VM B 안 끊김**.
 최대 블로커였던 vmrun 스냅샷 stun(k3s·SSH 끊김·느린 exec·VM 먹통)을 **A2(k8s 네이티브 리셋)**로
 근절 — 상태 리셋·verify 를 VM 스냅샷이 아니라 kubectl(심판 직접)로 수행. 직전 VM 스냅샷 방식은
-스냅샷 저장만 337초 + verify 1364초 + VM 재부팅이었다(약 20배 단축 + 크래시 제거). 다중 에피소드
+스냅샷 저장만 337초 + verify 1364초 + VM 재부팅이었다(약 20배 단축 + 크래시 제거). 다중 회차
 반복 실험 가능.
 
 ---
@@ -205,12 +205,12 @@ truth 미배선)은 측정 배관 이슈지 루프 동작 문제가 아니다.
    verify 를 VM 스냅샷이 아니라 kubectl(심판 VM C 가 cfg.target.kubeconfig 로 직접)로 수행 →
    stun 자체가 사라짐. `orchestrator/baseline.py` BaselineManager + 차등 재생 verify.
    (옛 vmrun/govc/agent 스냅샷 코드는 남겨둠 — 호스트 레벨 공격을 넣는 별개 시나리오용.)
-   **전제: §9 의 VM C 셋업(admin kubeconfig + k8s/ 체크아웃).** 다중 에피소드 반복이 이제 가능.
+   **전제: §9 의 VM C 셋업(admin kubeconfig + k8s/ 체크아웃).** 다중 회차 반복이 이제 가능.
 2. ~~**방어자가 noop(패치 안 함).**~~ **✅ 해결(2026-10-16 21:02).** 4개 근본원인(§5 ⭐): 방어자
    프롬프트 어휘(`7583260`)·공격자 측 2건(`6080f5e`,`3b984cc`)·**kubeconfig 권한**(비root 하네스가
    k3s.yaml 600 못 읽어 dry-run 실패 → `write-kubeconfig-mode: 0644`, §9). 격리 검증 도구
    `scripts/probe_defender`. **남은 것: 전체 사이클로 `판정=blocked`(패치가 리플레이를 실제 차단하는지) 실효 검증.**
-3. ~~**carry-forward 히스토리 상한.**~~ **✅ 해결(`6080f5e`,`3b984cc`).** R1(에피소드 시작) 리셋으로
+3. ~~**carry-forward 히스토리 상한.**~~ **✅ 해결(`6080f5e`,`3b984cc`).** R1(회차 시작) 리셋으로
    상주 하네스 기억 누수(즉시 give_up) 차단 + 관측은 최근 full·오래된 건 축약·크레덴셜 고정으로 비대 방지.
 4. ~~**④ FLAG 값 채점 연결**~~ **✅ 해결(2026-10-17).** VM C가 클러스터 secret(`database/flag-values`)
    에서 ④ 값을 읽어 `--flag-file`(`k8s/flags/flag-values.secret`) 채움 → value_match → **플래그깊이=4** 확정.
@@ -238,7 +238,7 @@ truth 미배선)은 측정 배관 이슈지 루프 동작 문제가 아니다.
 #   확인: kubectl --kubeconfig ~/.kube/vmb-admin.kubeconfig get ns   # 0.x초로 떠야
 #   (주의: cfg.target.kubeconfig 는 admin 이어야 apply/delete 가능. 느린-exec·stun 없음.)
 
-# ── 정상 실험 (VM C) ── 이제 매 에피소드 k8s 리셋(빠름·stun 없음) → 다중 에피소드 OK
+# ── 정상 실험 (VM C) ── 이제 매 회차 k8s 리셋(빠름·stun 없음) → 다중 회차 OK
 cd ~/capstone
 python3 -m orchestrator.main --episodes N --max-rounds M --time-limit 900 --max-tokens 1024
 #   권장: --max-tokens 1024 (사고 OFF라 출력 짧음). --no-revert 는 이제 불필요(리셋이 싸고 안전).
@@ -315,8 +315,8 @@ timestamp로 구분.
 1. **`판정=blocked` 실효 검증** — 전체 클린 사이클로 심판의 공식 차단 판정 기록. (메커니즘은 수동 A/B로
    이미 입증: 같은 psql이 정책 적용 전=FLAG, 후=`Connection refused`. k3s NetworkPolicy 집행 확인.)
 2. **측정 계층(§8 #4·#6)** — god-view truth 배선으로 탐지 TP/FP·flag 깊이 정확히. 공진화 '숫자'의 전제.
-3. **§8 #1 revert 인프라 수정** — 다중 에피소드 반복 실험의 전제("revert 후 k3s 재시작" 훅 유력).
-4. 그 위에서 **정식 다중 에피소드 실험** → 공진화(공격→패치→재공격 차단) 곡선 측정.
+3. **§8 #1 revert 인프라 수정** — 다중 회차 반복 실험의 전제("revert 후 k3s 재시작" 훅 유력).
+4. 그 위에서 **정식 다중 회차 실험** → 공진화(공격→패치→재공격 차단) 곡선 측정.
 5. VM C 대시보드 / 3망 네트워크 분리.
    (carry-forward 상한·방어 noop 은 §8 #2·#3 에서 이미 ✅해결.)
 

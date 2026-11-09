@@ -2,7 +2,7 @@
 # ④ FLAG는 여기(커밋되는 파일)에 값을 두지 않는다. 03-inject-flag.sh가 env(FLAG_4)에서 주입.
 # → 레포만 읽어선 FLAG를 못 알아냄(공격자는 DB를 실제로 뚫어야 함).
 # postgres 이미지는 /docker-entrypoint-initdb.d/* 를 최초 기동 시 알파벳순 실행(.sql→.sh).
-# emptyDir라 파드 재시작마다 재초기화 + flag 재주입 → 에피소드 리셋에 유리.
+# emptyDir라 파드 재시작마다 재초기화 + flag 재주입 → 회차 리셋에 유리.
 apiVersion: v1
 kind: ConfigMap
 metadata:

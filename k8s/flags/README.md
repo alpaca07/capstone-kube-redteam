@@ -34,6 +34,6 @@ bash k8s/flags/generate-flags.sh
 kubectl -n database exec deploy/postgres -- psql -U appuser -d customerdb -c "SELECT value FROM internal_secrets;"
 ```
 
-- 재실행하면 **새 FLAG**(에피소드 로테이션). 나중엔 오케스트레이터가 리셋 때 자동 호출.
+- 재실행하면 **새 FLAG**(회차 로테이션). 나중엔 오케스트레이터가 리셋 때 자동 호출.
 - `generate-flags.sh` 안 돌리면 DB엔 `FLAG{PLACEHOLDER...}`만 들어있다(안전 기본값).
 - 실제 값 파일 `flag-values.secret`은 **gitignore** — 절대 커밋되지 않음.

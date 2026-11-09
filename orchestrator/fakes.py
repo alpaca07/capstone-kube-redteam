@@ -48,7 +48,7 @@ class FakeSnapshotManager:
 
 class FakeBaseline:
     """k8s 네이티브 리셋 fake(A2). reset_to_clean 횟수 + (op,name) 순서를 추적(실제 리셋 없음).
-    SnapshotManager 자리에도 끼우게 revert_to/save/delete/list 어댑터 제공(에피소드 init 호환).
+    SnapshotManager 자리에도 끼우게 revert_to/save/delete/list 어댑터 제공(회차 init 호환).
     calls 는 스냅샷 스타일 튜플 — 기존 'revert_to' 단언과 호환."""
 
     def __init__(self, existing: Optional[list[str]] = None) -> None:
@@ -58,7 +58,7 @@ class FakeBaseline:
     def reset_to_clean(self) -> None:
         self.reset_calls += 1
 
-    def revert_to(self, name: str) -> None:       # 시퀀서 에피소드 init → 클린 리셋과 동일
+    def revert_to(self, name: str) -> None:       # 시퀀서 회차 init → 클린 리셋과 동일
         self.calls.append(("revert_to", name))
         self.reset_to_clean()
 

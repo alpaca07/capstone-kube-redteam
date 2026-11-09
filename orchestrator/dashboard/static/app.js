@@ -18,12 +18,12 @@
       { id: "defender-graph", label: "탐지·패치", soon: true } ] },
     { group: "기록", items: [
       { id: "events", label: "이벤트 로그" },
-      { id: "report", label: "에피소드 보고서", soon: true } ] }
+      { id: "report", label: "회차 보고서", soon: true } ] }
   ];
   var TITLES = { posture: "보안 태세 개요", stats: "공수 통계", control: "실험 제어",
     live: "실시간 관측", events: "이벤트 로그", "attack-graph": "공격 추적 그래프",
     "defender-arch": "타깃 아키텍처 (방어 관점)", "defender-graph": "탐지·패치 그래프",
-    report: "에피소드 보고서" };
+    report: "회차 보고서" };
   var DEFAULT_ROUTE = "posture";
   var REAL = { posture: 1, stats: 1, control: 1, live: 1, events: 1 };  // 실데이터 렌더 라우트
 
@@ -283,7 +283,7 @@
     return '<p class="page-intro">실험 파라미터를 정해 오케스트레이터(VM C)를 시작·중지합니다. 진행 로그는 아래에 라이브로.</p>' +
       '<div class="card"><div class="card-h">새 실험 시작</div><div class="card-sub">시작 = 경기 시작. 이미 떠 있는 하네스를 호출합니다.</div>' +
       '<div class="form-row" style="margin-bottom:14px">' +
-      field("에피소드", "f-eps", "number", 1) + field("최대 라운드", "f-mr", "number", 10) +
+      field("회차", "f-eps", "number", 1) + field("최대 라운드", "f-mr", "number", 10) +
       field("시간 제한(초)", "f-tl", "number", 180) + field("max_tokens", "f-mt", "number", 1024) +
       '<div class="field"><label>모드</label><select id="f-mode"><option value="demo">데모</option><option value="stat">통계</option></select></div></div>' +
       '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">' +
@@ -347,7 +347,7 @@
       '<p class="page-intro">지금 무엇이 오가는지. 2.5초마다 자동 갱신.</p>' +
       '<div class="card"><div class="card-h">루프 단계</div><div class="phases">' + steps + "</div></div>" +
       '<div class="grid cols-4" style="margin-top:14px">' +
-      '<div class="tile accent-teal"><div class="tile-k">에피소드 · 라운드</div><div class="tile-v">' + (demo.episode || 0) + " · " + (demo.round || 0) + '</div></div>' +
+      '<div class="tile accent-teal"><div class="tile-k">회차 · 라운드</div><div class="tile-v">' + (demo.episode || 0) + " · " + (demo.round || 0) + '</div></div>' +
       '<div class="tile"><div class="tile-k">활성 에이전트</div><div class="tile-v" style="font-size:18px;margin-top:12px">' + actor + '</div></div>' +
       '<div class="tile"><div class="tile-k">턴 경과 / 예산</div><div class="tile-v" style="font-size:20px">' + elapsed + "s<span style='font-size:12px;color:var(--text-3)'> / " + budget + 's</span></div><div class="progressbar"><span style="width:' + (bp * 100) + '%"></span></div></div>' +
       '<div class="tile"><div class="tile-k">직전 판정</div><div class="tile-v" style="font-size:16px;margin-top:12px">' + (lv ? '<span class="badge ' + lv.cls + '">' + lv.label + "</span>" : "—") + "</div></div></div>" +
@@ -391,7 +391,7 @@
       "attack-graph": ["🕸", "공격 추적 그래프", "플래너·워커의 의도·사실·발견을 노드 그래프로. 노드 클릭 → 지식 그래프에서 기법 설명·문서 링크. 탐색 그래프를 VM A에서 당겨와 Cytoscape 로 그립니다.", [["graph bridge", C.atk], ["Cytoscape.js", C.teal]]],
       "defender-arch": ["🗺", "타깃 아키텍처 (방어 관점)", "방어 하네스가 대상을 훑어 재구성한 아키텍처 구성도를 자동 렌더. god-view 실제 도면이 아닌 '방어자가 본 지도' — 가시성 사각이 드러납니다. defense_topology 계측은 이미 심어뒀습니다.", [["defense_topology", C.def], ["자동 생성", C.teal]]],
       "defender-graph": ["🛡", "탐지·패치 그래프", "관측→탐지→패치 합성 그래프 + 순수 패치세트 큐레이션(패치마다 의도·연관). round_detail 의 detected/patch_set 을 읽습니다.", [["round_detail", C.def], ["합성 그래프", C.teal]]],
-      "report": ["📄", "에피소드 보고서", "2계층 리포트 — 위=스토리(비전문가) / 아래=전문가 접힘. god-view↔방어추측 대조·리플레이 판정 분해. 에피소드 집계.", [["집계", C.crown], ["2계층", C.teal]]]
+      "report": ["📄", "회차 보고서", "2계층 리포트 — 위=스토리(비전문가) / 아래=전문가 접힘. god-view↔방어추측 대조·리플레이 판정 분해. 회차 집계.", [["집계", C.crown], ["2계층", C.teal]]]
     }[id] || ["•", TITLES[id] || id, "준비 중입니다.", []];
     return '<p class="page-intro">다음 단계에서 제공됩니다. 데이터 계측(이벤트·라운드 상세·방어 토폴로지)은 백엔드에 이미 들어가 있어, 화면만 붙이면 됩니다.</p>' +
       emptyState(info[0], info[1], info[2], info[3]);

@@ -356,7 +356,7 @@ let RUN={id:'run-1101-A',mode:'데모런',started:'2026-11-01 13:20',
   params:{episodes:10,maxRounds:8,timeLimit:600,endCond:'3연속 방어',attacker:'Qwen3.8 27B · 무검열',defender:'Qwen3.8 27B · 검열',maxTokens:1024},
   cur:{episode:4,totalEp:10,round:3,phase:2},streak:{side:'방어',n:2}};
 const NODES=[{id:'VM A',role:'공격 하네스',c:'attack'},{id:'VM B',role:'대상 K8s',c:'defense'},{id:'VM C',role:'오케스트레이터 · 심판',c:'system'},{id:'VM D',role:'방어 하네스',c:'defense'},{id:'DGX',role:'LLM 서빙',c:'system'}];
-let LOOP=['초기화','공격 턴','방어 턴','검증','채점','에피소드 종료'];
+let LOOP=['초기화','공격 턴','방어 턴','검증','채점','회차 종료'];
 // 선형 킬체인 ①②③ — '상태·로그'로 판정(디짓 플래그). 최종 ④는 더 이상 FLAG 문자열이 아니라
 // 아래 크라운(지정 중요자산)으로 분리됐다: '심은 값 대조'가 아니라 '자산이 실제로 빠진 접근기록'.
 const STAGES=[
@@ -446,7 +446,7 @@ function renderCtx(){
   '<span class="runchip">'+dot+'<b class="mono">'+(ONLINE?'VM C':'목업')+'</b></span>'+
   '<span class="pill '+(run?'p-live':'p-system')+'">'+sl+'</span>'+
   '<span class="ctx-sep"></span>'+
-  '<span class="ctx-item">에피소드 <b>'+ep+'<span class="dim">/'+tot+'</span></b></span>'+
+  '<span class="ctx-item">회차 <b>'+ep+'<span class="dim">/'+tot+'</span></b></span>'+
   '<span class="ctx-item">라운드 <b>'+rnd+'</b></span>'+
   '<span class="ctx-item">단계 <b class="mono">'+ph+' · '+(LOOP[ph]||'-')+'</b></span>'+
   '<span class="ctx-sep"></span>'+
@@ -496,10 +496,10 @@ ROUTES.home={html(){
   <div class="page-head"><div><h1>홈 · 제어</h1><div class="sub">실험 파라미터를 정해 루프를 시작하고, 현재 런과 노드 상태를 한눈에 봅니다.</div></div></div>
 
   <div class="grid g-4">
-   ${tile('현재 에피소드',`${RUN.cur.episode}<span class="dim" style="font-size:16px">/${RUN.cur.totalEp}</span>`,'진행 중',true)}
+   ${tile('현재 회차',`${RUN.cur.episode}<span class="dim" style="font-size:16px">/${RUN.cur.totalEp}</span>`,'진행 중',true)}
    ${tile('현재 라운드',RUN.cur.round,LOOP[RUN.cur.phase]+' 단계')}
    ${tile('방어 연속 성공',RUN.streak.n+'<span class="dim" style="font-size:16px">회</span>','종료조건 '+p.endCond)}
-   ${tile('완료 에피소드',String(_done),(_lastV&&VERDICT[_lastV])?('최근 판정 <span style="color:var(--v-'+VERDICT[_lastV].v+')">'+VERDICT[_lastV].ko+'</span>'):'집계 대기')}
+   ${tile('완료 회차',String(_done),(_lastV&&VERDICT[_lastV])?('최근 판정 <span style="color:var(--v-'+VERDICT[_lastV].v+')">'+VERDICT[_lastV].ko+'</span>'):'집계 대기')}
   </div>
 
   <div class="grid g-2" style="grid-template-columns:1.1fr .9fr">
@@ -512,7 +512,7 @@ ROUTES.home={html(){
       <span class="dim" style="font-size:11.5px">데모런=내러티브 전면 · 통계런=집계 전면</span>
      </div>
      <div class="grid g-3" style="gap:12px">
-      <div class="field"><label>에피소드 수</label><input id="f-eps" value="${p.episodes}"></div>
+      <div class="field"><label>회차 수</label><input id="f-eps" value="${p.episodes}"></div>
       <div class="field"><label>최대 라운드</label><input id="f-mr" value="${p.maxRounds}"></div>
       <div class="field"><label>시간 제한 T(초)</label><input id="f-tl" value="${p.timeLimit}"></div>
       <div class="field"><label>종료 조건</label><input value="${p.endCond}"></div>
@@ -627,7 +627,7 @@ ROUTES.episode={html(){
  const _sum=EPISODES_DATA.find(s=>s.episode===epNo)||null;
  const _patched=_rows.filter(r=>r.patch_applied);
  const _depthN=Math.max.apply(null,[0].concat(_rows.map(r=>(r.stages_reached&&r.stages_reached.length)?Math.max.apply(null,r.stages_reached):0)));
- const _epCrowns=[...new Set([].concat(..._rows.map(r=>r.crowns_reached_cum||[])))];   // 이 에피소드 반출 크라운
+ const _epCrowns=[...new Set([].concat(..._rows.map(r=>r.crowns_reached_cum||[])))];   // 이 회차 반출 크라운
  const _epGoal=_rows.some(r=>(r.goals_reached_cum||[]).includes(CROWN_GOAL));           // 중요자산 실제 침해 성립
  const _avail=(_sum&&_sum.availability!=null)?Math.round(_sum.availability*100)+'%':(_patched.length?Math.round(_patched.filter(r=>r.healthcheck_passed).length/_patched.length*100)+'%':'—');
  const _mttd=(_sum&&_sum.mttd&&_sum.mttd.mean_rounds!=null)?_sum.mttd.mean_rounds+'R':'—';
@@ -643,9 +643,9 @@ ROUTES.episode={html(){
  const _snap=['<span class="pill p-system">clean 베이스라인</span>'];
  _rows.forEach(r=>{_snap.push('<span class="dim">→</span><span class="pill p-attack"><span class="d" style="background:var(--attack)"></span>R'+r.round+' 공격후</span>'+(r.patch_applied?'<span class="pill p-defense"><span class="d" style="background:var(--defense)"></span>R'+r.round+' 패치후</span>':''));});
  return `<div class="view-in">
-  <div class="page-head"><div><h1>에피소드 뷰 · <span class="mono">Ep.${epNo||'—'}</span></h1><div class="sub">한 에피소드 안의 라운드 흐름과, 심판이 아는 정답 대 방어자의 추측을 대조합니다.</div></div>
+  <div class="page-head"><div><h1>회차 뷰 · <span class="mono">Ep.${epNo||'—'}</span></h1><div class="sub">한 회차 안의 라운드 흐름과, 심판이 아는 정답 대 방어자의 추측을 대조합니다.</div></div>
    ${_statePill}</div>
-  ${_rows.length?'':'<div class="card pad"><div class="dim" style="font-size:12.5px">이 에피소드의 라운드 데이터가 아직 없습니다. 실험을 시작하면 라운드마다 채워집니다.</div></div>'}
+  ${_rows.length?'':'<div class="card pad"><div class="dim" style="font-size:12.5px">이 회차의 라운드 데이터가 아직 없습니다. 실험을 시작하면 라운드마다 채워집니다.</div></div>'}
   <div class="grid g-4">
    ${tile('라운드',String(_rows.length),'지금까지')}
    ${tile('중요자산 침해',_epGoal?'성립':(_epCrowns.length?'접근':'미도달'),_epGoal?'db_exfil 달성':'크라운 반출 기준')}
@@ -673,7 +673,7 @@ ROUTES.episode={html(){
   </div>
 
   <div class="card">
-   <div class="card-h"><h3>스냅샷 타임라인</h3><span class="hint">에피소드당 1 + 라운드당(공격후·패치후)</span></div>
+   <div class="card-h"><h3>스냅샷 타임라인</h3><span class="hint">회차당 1 + 라운드당(공격후·패치후)</span></div>
    <div class="card-b" style="display:flex;gap:9px;flex-wrap:wrap;align-items:center">${_snap.join('')}</div>
   </div>
  </div>`;
@@ -717,7 +717,7 @@ function renderRoundDetail(d){
 }
 ROUTES.round={html(){
  const rec=curRoundRec();
- if(!rec)return `<div class="view-in"><div class="page-head"><div><h1>라운드 뷰</h1><div class="sub">한 라운드를 가장 깊이 — 공격 추론 트레이스, 방어 파이프라인, 검증 판정까지.</div></div></div><div class="card pad"><div class="dim" style="font-size:12.5px">라운드 데이터가 없습니다. 에피소드 뷰에서 라운드를 선택하거나 실험을 시작하세요.</div></div></div>`;
+ if(!rec)return `<div class="view-in"><div class="page-head"><div><h1>라운드 뷰</h1><div class="sub">한 라운드를 가장 깊이 — 공격 추론 트레이스, 방어 파이프라인, 검증 판정까지.</div></div></div><div class="card pad"><div class="dim" style="font-size:12.5px">라운드 데이터가 없습니다. 회차 뷰에서 라운드를 선택하거나 실험을 시작하세요.</div></div></div>`;
  const ep=rec.episode,rnd=rec.round;
  const vcode=rec.verdict?VKEY(rec.verdict):null;
  const skipped=rec.defense_end_reason==='skipped';
@@ -778,7 +778,7 @@ ROUTES.round={html(){
 /* --- STATS --- */
 ROUTES.stats={html(){
  return `<div class="view-in">
-  <div class="page-head"><div><h1>통계</h1><div class="sub">여러 에피소드 누적 — 공수 균형이 어디로 가는지, 탐지가 얼마나 정확한지. 출판용 정밀본은 Jupyter로 내보냅니다.</div></div>
+  <div class="page-head"><div><h1>통계</h1><div class="sub">여러 회차 누적 — 공수 균형이 어디로 가는지, 탐지가 얼마나 정확한지. 출판용 정밀본은 Jupyter로 내보냅니다.</div></div>
    <button class="btn sm" onclick="toast('Jupyter·CSV 내보내기는 배선 후 동작')">내보내기</button></div>
 
   <div class="card">
@@ -794,7 +794,7 @@ ROUTES.stats={html(){
 
   <div class="grid g-2">
    <div class="card"><div class="card-h"><h3>판정 분포</h3><span class="hint">전체 라운드</span></div><div class="card-b"><div class="chart-box sm"><canvas id="cVerdict"></canvas></div></div></div>
-   <div class="card"><div class="card-h"><h3>에피소드 종료 사유</h3><span class="hint">누가 어떻게 끝났나</span></div><div class="card-b"><div class="chart-box sm"><canvas id="cOutcome"></canvas></div></div></div>
+   <div class="card"><div class="card-h"><h3>회차 종료 사유</h3><span class="hint">누가 어떻게 끝났나</span></div><div class="card-b"><div class="chart-box sm"><canvas id="cOutcome"></canvas></div></div></div>
   </div>
 
   <div class="card">
@@ -830,7 +830,7 @@ ROUTES.runs={html(){
 
   <div class="card">
    <div class="card-h"><h3>런 목록</h3><span class="hint">최신순</span></div>
-   <div class="tbl-wrap"><table class="log"><thead><tr><th>런 ID</th><th>모드</th><th>에피소드</th><th>상태</th><th>시작</th><th></th></tr></thead><tbody>
+   <div class="tbl-wrap"><table class="log"><thead><tr><th>런 ID</th><th>모드</th><th>회차</th><th>상태</th><th>시작</th><th></th></tr></thead><tbody>
     ${(RUNS_DATA||[]).map(r=>{const d=r.started?new Date(r.started*1000):null;const dt=d?((d.getMonth()+1)+'/'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')):'—';const ep=(r.params&&r.params.episodes!=null)?r.params.episodes+'판':'—';return `<tr><td class="mono" style="color:var(--fg)">${escape(r.id||'—')}</td><td><span class="pill p-system">${r.mode==='stats'?'통계런':'데모런'}</span></td><td class="mono dim">${ep}</td><td>${r.status==='진행 중'?'<span class="pill p-live"><span class="d" style="background:var(--go)"></span>진행 중</span>':'<span class="pill p-system">완료</span>'}</td><td class="muted" style="font-size:12px">${dt}</td><td><button class="btn sm" onclick="location.hash='#report'">${icon('doc')}<span>리포트</span></button></td></tr>`;}).join('')||'<tr><td colspan="6" class="dim" style="padding:12px">아직 기록된 런이 없습니다. 홈에서 실험을 시작하면 여기 쌓입니다.</td></tr>'}
    </tbody></table></div>
   </div>
@@ -842,7 +842,7 @@ ROUTES.runs={html(){
   </div>
 
   <div class="card">
-   <div class="card-h"><h3>에피소드 요약</h3><span class="hint">현재 런</span></div>
+   <div class="card-h"><h3>회차 요약</h3><span class="hint">현재 런</span></div>
    <div class="tbl-wrap"><table class="log"><thead><tr><th>Ep</th><th>라운드</th><th>최대 깊이</th><th>종료 사유</th><th>판정 분포</th><th>가용성</th><th>MTTD</th></tr></thead><tbody>
     ${EPISODES.map(e=>`<tr style="cursor:pointer" onclick="location.hash='#episode'"><td class="mono ${e.cur?'':'dim'}">${e.id}${e.cur?' ●':''}</td><td class="mono dim">${e.rounds}</td><td><span class="pill p-flag">${'①②③'.slice(0,e.depth)}</span></td><td class="muted" style="font-size:12px">${e.end}</td><td style="display:flex;gap:4px;flex-wrap:wrap">${Object.entries(e.v).map(([k,n])=>`<span class="pill p-${VERDICT[k].v}" style="font-size:10.5px;padding:2px 7px">${VERDICT[k].ko} ${n}</span>`).join('')}</td><td class="mono dim">${e.avail}</td><td class="mono dim">${e.mttd}</td></tr>`).join('')}
    </tbody></table></div>
@@ -900,7 +900,7 @@ ROUTES.report={html(){
  const _runId=(RUNS_DATA&&RUNS_DATA[0]&&RUNS_DATA[0].id)||((RUNSTATUS&&RUNSTATUS.running)?'현재 런':'—');
  if(!nEps)return `<div class="view-in">
   <div class="page-head"><div><h1>최종 리포트 · <span class="mono">${escape(_runId)}</span></h1><div class="sub">모의해킹 전문가가 아니어도 읽히게 — 위는 이야기, 아래는 전문가용 상세.</div></div></div>
-  <div class="card pad"><div class="dim" style="font-size:12.5px">완료된 에피소드가 아직 없습니다. 에피소드가 끝나면 이 리포트가 자동으로 집계됩니다.</div></div></div>`;
+  <div class="card pad"><div class="dim" style="font-size:12.5px">완료된 회차가 아직 없습니다. 회차가 끝나면 이 리포트가 자동으로 집계됩니다.</div></div></div>`;
  // 공격 승리 = 지정 중요자산 실제 침해(goal db_exfil). (옛 데이터 호환: 상태깊이 ≥4)
  const atkWin=eps.filter(e=>((e.goals_reached&&e.goals_reached.length)||(e.max_flag_depth||0)>=4)).length, defWin=nEps-atkWin;
  const atkRate=Math.round(atkWin/nEps*100), defRate=100-atkRate;
@@ -922,7 +922,7 @@ ROUTES.report={html(){
    <button class="btn sm" onclick="toast('PDF 내보내기는 배선 예정 — 현재는 화면 집계')">PDF로 내보내기</button></div>
 
   <div class="report-head">
-   <p class="lede">이번 실험에서 공격 AI와 방어 AI가 <b>${nEps}판(에피소드)</b> 맞붙었습니다. 공격이 중요자산(크라운)까지 뚫은 건 <b>${atkWin}판</b>, 방어가 끝까지 막아낸 건 <b>${defWin}판</b>.${trend==='방어 우위'?' <b style="color:var(--defense)">라운드가 갈수록 방어가 학습해 공격을 점점 더 잘 막았습니다.</b>':(trend==='공격 우위'?' <b style="color:var(--attack)">아직 공격이 우위입니다.</b>':'')}</p>
+   <p class="lede">이번 실험에서 공격 AI와 방어 AI가 <b>${nEps}판(회차)</b> 맞붙었습니다. 공격이 중요자산(크라운)까지 뚫은 건 <b>${atkWin}판</b>, 방어가 끝까지 막아낸 건 <b>${defWin}판</b>.${trend==='방어 우위'?' <b style="color:var(--defense)">라운드가 갈수록 방어가 학습해 공격을 점점 더 잘 막았습니다.</b>':(trend==='공격 우위'?' <b style="color:var(--attack)">아직 공격이 우위입니다.</b>':'')}</p>
    <div class="grid g-4" style="margin-top:16px">
     ${tile('공격 성공률',atkRate+'%',atkWin+' / '+nEps+'판')}
     ${tile('방어 성공률',defRate+'%',defWin+' / '+nEps+'판')}
@@ -967,8 +967,8 @@ ROUTES.report={html(){
   <div class="card pad">
    <h3 style="margin-bottom:12px">실험 설정</h3>
    <div class="grid g-3" style="gap:10px;font-size:13px">
-    <div class="spread" style="padding:9px 11px;background:var(--surface-2);border-radius:var(--r-sm)"><span class="muted">판 수(에피소드)</span><b>${_P.episodes!=null?_P.episodes:nEps}</b></div>
-    <div class="spread" style="padding:9px 11px;background:var(--surface-2);border-radius:var(--r-sm)"><span class="muted">에피소드당 최대 라운드</span><b>${_P.max_rounds!=null?_P.max_rounds:'—'}</b></div>
+    <div class="spread" style="padding:9px 11px;background:var(--surface-2);border-radius:var(--r-sm)"><span class="muted">판 수(회차)</span><b>${_P.episodes!=null?_P.episodes:nEps}</b></div>
+    <div class="spread" style="padding:9px 11px;background:var(--surface-2);border-radius:var(--r-sm)"><span class="muted">회차당 최대 라운드</span><b>${_P.max_rounds!=null?_P.max_rounds:'—'}</b></div>
     <div class="spread" style="padding:9px 11px;background:var(--surface-2);border-radius:var(--r-sm)"><span class="muted">라운드당 제한(초)</span><b>${_P.time_limit!=null?_P.time_limit:'—'}</b></div>
     <div class="spread" style="padding:9px 11px;background:var(--surface-2);border-radius:var(--r-sm)"><span class="muted">max_tokens</span><b>${_P.max_tokens!=null?_P.max_tokens:'—'}</b></div>
     <div class="spread" style="padding:9px 11px;background:var(--surface-2);border-radius:var(--r-sm)"><span class="muted">대상</span><b>K8s · ShopFlow</b></div>
@@ -984,7 +984,7 @@ ROUTES.report={html(){
       ${MITRE.map(m=>`<div class="hl"><span>${m.name}</span><span class="id">${m.id}</span></div><div class="cell" style="${heat(m.use)}">${m.use}</div><div class="cell" style="${heat(m.det)}">${m.det}</div>`).join('')}</div></div>
     <div><h4 style="font-size:13px;margin-bottom:8px">전체 판정 분포</h4>
      <div style="display:flex;gap:8px;flex-wrap:wrap">${Object.entries(VCOUNT).filter(e=>e[1]>0).map(([k,n])=>`<span class="pill p-${VERDICT[k].v}">${VERDICT[k].ko} · ${n}</span>`).join('')||'<span class="dim">판정 없음</span>'}</div></div>
-    <p class="dim" style="font-size:11.5px;margin:0">부록: 전체 명령어 로그 · 원시 판정 테이블은 에피소드/라운드 뷰 참조.</p>
+    <p class="dim" style="font-size:11.5px;margin:0">부록: 전체 명령어 로그 · 원시 판정 테이블은 회차/라운드 뷰 참조.</p>
    </div>
   </details>
  </div>`;
@@ -999,7 +999,7 @@ ROUTES.report={html(){
 /* ============ chrome (nav + topbar actions) ============ */
 const NAV=[
  {grp:'운영'},{r:'home',i:'home',t:'홈 · 제어'},{r:'live',i:'live',t:'실시간 모니터'},
- {grp:'교전 탐색'},{r:'episode',i:'layers',t:'에피소드 뷰'},{r:'round',i:'target',t:'라운드 뷰'},
+ {grp:'교전 탐색'},{r:'episode',i:'layers',t:'회차 뷰'},{r:'round',i:'target',t:'라운드 뷰'},
  {grp:'분석'},{r:'stats',i:'chart',t:'통계'},{r:'runs',i:'db',t:'실험 · 런 관리'},{r:'report',i:'doc',t:'리포트'},
  {grp:'환경'},{r:'system',i:'server',t:'시스템'}];
 function buildChrome(){

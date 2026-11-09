@@ -1,5 +1,5 @@
 """라운드 엔진 테스트 — 플래너 웨이브 루프·AttackTurnResult 조립·종료사유·
-에피소드 그래프 지속·데드라인. LLM만 fake, 나머지 전부 실제 경로.
+회차 그래프 지속·데드라인. LLM만 fake, 나머지 전부 실제 경로.
 
     python3 tests/test_attacker_round_engine.py
 """
@@ -118,18 +118,18 @@ def test_flag_found_sets_end_reason_flag():
     assert res.flags_obtained[0].value == "FLAG{secret123}"
 
 
-# ── 에피소드 그래프 지속: 같은 그래프로 2라운드 → 사실 누적, 대본은 라운드별 ──
+# ── 회차 그래프 지속: 같은 그래프로 2라운드 → 사실 누적, 대본은 라운드별 ──
 def test_graph_persists_across_rounds():
     rnd = AttackRound(attacker_llm=_WorkLLM(), planner_llm=_PlanLLM([_TWO, _TWO]),
                       runner=_R(), scope_policy=default_policy(), cfg=_cfg())
     g = InMemoryGraph(episode=1)
     r1 = rnd.run(_start(), episode=1, round=1, graph=g)
     facts_after_r1 = len(g.recent_facts())
-    # 2라운드: 같은 그래프(에피소드 지속) — 새 플래너 LLM 필요하므로 새 엔진
+    # 2라운드: 같은 그래프(회차 지속) — 새 플래너 LLM 필요하므로 새 엔진
     rnd2 = AttackRound(attacker_llm=_WorkLLM(), planner_llm=_PlanLLM([_TWO]),
                        runner=_R(), scope_policy=default_policy(), cfg=_cfg())
     r2 = rnd2.run(_start(), episode=1, round=2, graph=g)
-    assert len(g.recent_facts()) > facts_after_r1           # 사실 누적(에피소드 기억)
+    assert len(g.recent_facts()) > facts_after_r1           # 사실 누적(회차 기억)
     # 대본은 라운드별로 분리(각자 자기 라운드 번호)
     assert r1.replay_script.round == 1 and r2.replay_script.round == 2
     assert all(s.step_id.startswith("1.") for s in r1.replay_script.steps)

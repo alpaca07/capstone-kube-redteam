@@ -39,7 +39,7 @@
 
 ## 2026-10-14 — 스냅샷 인프라 (상태 리셋 수단)
 
-에피소드마다 클러스터를 되돌릴 방법 찾기. 이게 나중에 최대 골칫거리가 됨(→10-16 A2에서 교체).
+회차마다 클러스터를 되돌릴 방법 찾기. 이게 나중에 최대 골칫거리가 됨(→10-16 A2에서 교체).
 
 - `ffedbd8`·`12110fd` config: LLM 서빙 host를 공격/방어 역할별 분리 + `/v1` 경로
 - `c610262` **vmrun(Workstation) SnapshotManager** — VM 레벨 스냅샷/revert
@@ -147,7 +147,7 @@
   FN=T1213(④ 미탐), FP=①③(HTTP·pod-to-pod 감사 사각 — Falco 네트워크 룰이 다음 선행조건).
 
 **(4) 견고성 — exec 타임아웃 120s→15s**
-- 다중 에피소드에서 방어로 DB가 차단된 재시도 라운드의 `nc -zv postgres 5432` 가 커넥트 대기로
+- 다중 회차에서 방어로 DB가 차단된 재시도 라운드의 `nc -zv postgres 5432` 가 커넥트 대기로
   매달려 kubectl exec 가 120s 까지 걸림 → 턴이 오케스트레이터 read timeout(예산+30)을 넘겨 E2·E3 ABORT.
 - `create_harness` step_to 를 `min(time_limit,120)`→`min(time_limit,15)` (러너 기본도 15s). 정상 명령은
   <1s 라 무해, 차단 명령은 15s 에 실패→perseveration 가드가 예산 안에서 발동. 턴 최악 ~195s < 210s.
@@ -166,11 +166,11 @@
   아닌 실데이터로 칠해짐(①③ 감사 사각은 선형 체인 보강). 패치 단계는 보고기법→단계 유도.
   테스트 scorer 11/11·sequencer 11/11 통과.
 
-**그날 끝(검증됨):** 위 전부를 깐 위에서 **다중 에피소드 공진화 3×3 완주 — ABORT 0, rc=0.**
+**그날 끝(검증됨):** 위 전부를 깐 위에서 **다중 회차 공진화 3×3 완주 — ABORT 0, rc=0.**
 지난번 `nc 5432` 매달림이 죽이던 E2·E3 중단 재발 없음(15s 캡 효과). 대시보드 실시간 관제로 전
-과정 관측 — 에피소드마다 `R1 flag(깊이4)→patched→blocked, R2·R3 공격실패(timeout/deadend)→
+과정 관측 — 회차마다 `R1 flag(깊이4)→patched→blocked, R2·R3 공격실패(timeout/deadend)→
 inconclusive`, **방어 실패 라운드 0**. 집계: 평균깊이 4/4, 정밀도·재현율 50%/50%(탐지 1/1/1,
-FP·FN=①③ 감사 사각), MTTD 0R, 가용성 100%, blocked 3/9. 타임라인=에피소드 리셋에 의한
+FP·FN=①③ 감사 사각), MTTD 0R, 가용성 100%, blocked 3/9. 타임라인=회차 리셋에 의한
 **톱니×3**(독립 재시행 — 누적 군비경쟁은 `skip_revert` 로 전환 가능, 서사 결정 대기).
 
 ---
@@ -193,7 +193,7 @@ FP·FN=①③ 감사 사각), MTTD 0R, 가용성 100%, blocked 3/9. 타임라인
   hostPath admission 거부). *왜*: T1611 예방. baseline 은 정상 파드를 안 깨 가용성 유지(restricted
   는 과잉차단 함정).
 - **A2 리셋 보강** — 공격자 생성 파드(default 전삭제 + `created-by=attacker`) + PodSecurity 라벨
-  역산. *왜*: 공격자가 이제 상태를 바꾸므로(T1610) 에피소드 독립성 유지.
+  역산. *왜*: 공격자가 이제 상태를 바꾸므로(T1610) 회차 독립성 유지.
 
 **구현/채점 배선**: 신규 기법은 `orchestrator/log_source.py` 매핑만으로 `sequencer._build_truth`
 가 truth 에 자동 편입(탐지 TP/FP/FN). 확장 기법은 비-digit flag_id 라 선형 깊이(①~④) 불변.
@@ -238,7 +238,7 @@ raw Bearer 라 admin-sa 로 인증. impersonation `--as` 로 RBAC 경로 검증.
 **그날 끝(저녁):** 탈출 체인이 실클러스터에서 검증됐고, 호스트 objective 로 '탈출할 이유'를 부여.
 다음: 노드 FLAG 설치(generate-flags.sh) + 자율 런으로 공격자가 실제 탈출·획득하는지 관측.
 
-**21:30 자율 런 결과 + 탈출 경로 breadcrumb**: 호스트 objective 를 켜고 1 에피소드(턴예산 300/3R).
+**21:30 자율 런 결과 + 탈출 경로 breadcrumb**: 호스트 objective 를 켜고 1 회차(턴예산 300/3R).
 - **인센티브는 행동을 바꿨다** — 공격자가 ①②③④만 하던 걸 넘어, turn 5 에서 `/proc/net/arp`·
   route·노드 IP(10.42.0.1) probing·포트스캔(`nc -zv`, → T1046/disc-net 득점)·`env|grep NODE|HOST`
   로 **호스트 경로를 스스로 탐색**. 목표 한 줄 추가가 탐색 방향을 바꿈.
@@ -280,7 +280,7 @@ DB 얻고 더 어려운 호스트 목표를 안 쫓거나 DB 막히면 DB만 붙
   (호스트 파일 stdout)를 회수 못 함. exec 는 SPDY 라 wget 불가 → 로그가 유일한 비대화식 회수 경로.
   권한 추가(방어 `restrict_rbac` 가 바인딩째 제거하므로 과권한 봉쇄는 그대로 유효).
 
-**최종 자율 런(완주)**: 1 에피소드에서 공격자가 **두 FLAG 모두 자력 획득** — DB `FLAG{shopflow_…}`(④)
+**최종 자율 런(완주)**: 1 회차에서 공격자가 **두 FLAG 모두 자력 획득** — DB `FLAG{shopflow_…}`(④)
 에 더해, admin-sa 토큰 탈취→`--post-data` 로 privileged/hostPath 파드 배포(T1610)→노드 FS 접근
 (T1611, Falco "Escape to host filesystem" 점화)→`/etc/shopflow/host.flag` 회수(T1005). 심판은
 값 매칭(`match_value`)으로 `host` objective 크레딧. **공진화도 관측**: 다음 라운드에서 방어의
@@ -344,11 +344,11 @@ VM B 한 대에 **대상 클러스터 + 방어 하네스**가 공존하던 걸, 
 - **[다음주] 정보량 ablation 실험**: 공격자에게 주는 유도를 2채널로 단계 축소해 '최소 유도' 임계를
   찾는다. 채널 ① = sequencer goal 주입(현재: 명시 2-FLAG·pivot 지시·메커니즘 한 줄 요약), 채널 ② =
   internal-wiki 런북 breadcrumb(현재: 실행 가능 레시피 전체). 레벨 L0(현재=양 채널 full) → L1(레시피
-  →메커니즘 설명만) → L2(위치·존재 힌트만) → L3(목표만, 단서 제거). 각 레벨 N 에피소드씩 돌려 호스트
+  →메커니즘 설명만) → L2(위치·존재 힌트만) → L3(목표만, 단서 제거). 각 레벨 N 회차씩 돌려 호스트
   완주율·도달 깊이·방어 반응 측정. 현 베이스라인은 양 채널 다 L0. 2채널×4레벨 표 설계는 다음 세션에서.
 - **①③ 관측(Falco)**: 현재 FP·FN 이 ①③(HTTP 단서·pod-to-pod)에서 발생 — 감사로그 사각.
   Falco 네트워크 룰이 정밀도·재현율 50%→상향의 선행조건(HANDOVER §11.5).
-- **공진화 모드 선택**: 지금은 에피소드마다 리셋(독립 재시행=견고성 곡선). `skip_revert` 로 패치
+- **공진화 모드 선택**: 지금은 회차마다 리셋(독립 재시행=견고성 곡선). `skip_revert` 로 패치
   누적(군비경쟁=flag 깊이 하강 곡선) 전환 가능 — 서사 결정 후 배선.
 - **자동 기동(systemd) 완료 (2026-10-17)**: 대시보드·Falco/감사 동기(VM C)·Falco tail(VM B)을
   `docs/deploy/capstone-*.service` 로 영속화 → 재부팅 시 자동 기동·크래시 자동 복구(수동 nohup 제거).

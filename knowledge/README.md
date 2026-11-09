@@ -112,4 +112,4 @@ query.techniques_for_target(s, ["CVE-2017-5638","CVE-2019-9193"])  # 다중 CVE 
 - CVE→기법은 `cve_attack`(EXPLOITED_BY) 우선. CWE 브리지는 generic CWE 노이즈 때문에 `is_generic` 빼고 "참고"로만.
 - NVD CPE 열거는 기본 미적재(`--nvd-cpe-nodes` 로 켬) — 벤더 제품 수백 개 노이즈 차단.
 - 라벨·관계는 `schema.LABELS`/`RELATIONSHIPS` 허용목록으로 검사 후에만 쿼리에 끼운다(주입 차단).
-- 세 그래프(지식/자산/탐색)가 같은 Neo4j를 공유 — 지식 노드엔 `episode_id`를 붙이지 않아 에피소드 리셋에 안 지워진다.
+- 세 그래프(지식/자산/탐색)가 같은 Neo4j를 공유 — 지식 노드엔 `episode_id`를 붙이지 않아 회차 리셋에 안 지워진다.

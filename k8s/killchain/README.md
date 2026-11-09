@@ -164,7 +164,7 @@ T1046/T1613/T1069 는 정찰이라 정상 조회와 구분이 어렵고 전용 �
 
 ## 리셋
 완전 원복은 VMware 스냅샷 복원(5단계 자동화). 단, 운영 루프는 **A2 k8s-네이티브 리셋**
-(`orchestrator/baseline.py`)을 쓴다 — 에피소드 경계마다: NetworkPolicy 전삭제 + [Wave1]
+(`orchestrator/baseline.py`)을 쓴다 — 회차 경계마다: NetworkPolicy 전삭제 + [Wave1]
 공격자 생성 파드 정리(default 전삭제 + `created-by=attacker` 라벨) + [Wave1] PodSecurity
 enforce 라벨 제거 + killchain 매니페스트 재적용(과권한 바인딩·토큰·configmap 복구) + 발판 rollout.
 수동으론 `teardown-services.sh` 후 재배포 + 방어 레퍼런스로 적용한 NP/RBAC/PSA 수동 삭제.

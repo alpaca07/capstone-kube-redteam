@@ -8,7 +8,7 @@
      방향이 없거나(목표 달성/막다른 길) 라운드 시간 T가 소진되면 종료.
   4) 레인의 replay_script·플래그·그래프 사실로 AttackTurnResult를 조립.
 
-스코프 분리(이번 세션 확정): 그래프=에피소드(라운드 넘어 지속, 공진화 기억) → 호출자가
+스코프 분리(이번 세션 확정): 그래프=회차(라운드 넘어 지속, 공진화 기억) → 호출자가
 주입. 실행 레인=라운드(대본은 라운드당 하나) → 여기서 라운드마다 새로 만든다.
 
 동시성 모델: 플래너는 '웨이브 사이'에 돈다(웨이브 내 워커 추론은 병렬). 완전한 이벤트
@@ -65,7 +65,7 @@ def _asset_situation(asset_graph, *, foothold_line: str = "", touched=None,
     자산 그래프가 없거나 비면 발판 줄만(기존 동작과 호환). 식별된 자산(CPE 보유)은 ✓id 표시.
     touched(앵커된 자산 id 집합)를 주면 각 자산을 [explored]/[untouched]로 표시 → 플래너가
     아직 안 친 자산을 정확히 겨냥(사실·의도로 추론하던 걸 실제 앵커 기록으로 대체).
-    순환(CONTAINS 사이클) 안전장치로 seen 집합을 둔다. 에피소드 범위 밖 자식은 안 돈다.
+    순환(CONTAINS 사이클) 안전장치로 seen 집합을 둔다. 회차 범위 밖 자식은 안 돈다.
     """
     if asset_graph is None:
         return foothold_line
@@ -151,7 +151,7 @@ class AttackRound:
         deadline = t0 + float(start.time_limit_sec)
         graph = graph if graph is not None else InMemoryGraph(episode=episode)
 
-        # 대본은 라운드당 하나(레인). 그래프는 에피소드 스코프(주입).
+        # 대본은 라운드당 하나(레인). 그래프는 회차 스코프(주입).
         lane = ExecutionLane(
             self.runner, scope_policy=self.scope, session_id=self.cfg.session_id,
             episode=episode, round=round, flag_value_id=self.cfg.flag_value_id,
@@ -175,7 +175,7 @@ class AttackRound:
         foothold = _foothold_dict(start)
         foothold_line = _foothold_line(start)
 
-        # 지난 라운드 발견 스냅샷: 그래프는 에피소드 스코프라 라운드 시작 시점에 '이미 있는'
+        # 지난 라운드 발견 스냅샷: 그래프는 회차 스코프라 라운드 시작 시점에 '이미 있는'
         # 발견은 지난 라운드 것(R1은 새 그래프라 비어있음). 공진화 재검증 후보로 플래너에 준다.
         prior_finding_ids = ({n.id for n in graph.recent_findings(limit=10_000)}
                              if round > 1 else set())

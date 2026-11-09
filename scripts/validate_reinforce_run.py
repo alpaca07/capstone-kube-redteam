@@ -9,7 +9,7 @@
   ④ 공진화 재검증(re-verify) : R2+ 에서 지난 라운드 침해가 재검증 후보로 들어갔는가
 
 쓰는 법:
-  # VM A 에서 한 에피소드(2라운드 이상) 돌린 뒤 저널을 뽑아 먹인다
+  # VM A 에서 한 회차(2라운드 이상) 돌린 뒤 저널을 뽑아 먹인다
   journalctl -u <공격하네스유닛> --since '10 min ago' -o cat | \\
       python3 scripts/validate_reinforce_run.py
   # 또는 파일로

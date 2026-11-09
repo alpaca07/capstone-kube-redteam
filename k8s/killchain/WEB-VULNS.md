@@ -148,5 +148,5 @@ kubectl -n backend rollout restart deploy/auth-service
 
 - 신규/수정 ConfigMap(`catalog-api-code`·`order-api-code`·`admin-dashboard-code`)과 스키마(`role` 컬럼)는
   이미 `k8s/services/` 베이스라인에 포함 → 매니페스트 재적용 리셋으로 취약 베이스라인 복원됨.
-- 방어자가 적용한 `app-hardened/*`·egress NP 는 에피소드 경계에서 되돌려야 함
+- 방어자가 적용한 `app-hardened/*`·egress NP 는 회차 경계에서 되돌려야 함
   (`orchestrator/baseline.py` 재적용 집합에 서비스 ConfigMap 재적용 포함 — 채점 배선 때 확인).

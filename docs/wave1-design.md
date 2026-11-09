@@ -92,7 +92,7 @@
 2. VM B/C(하네스): 레포 pull 후 공격/방어 하네스 재시작(방어 프롬프트·patcher·log_source·baseline
    코드 반영). `admin-sa-token` Secret 이 생성됐는지(`kubectl -n internal get secret admin-sa-token`)
    확인.
-3. 스모크: `python3 tests/run_all.py`(215 passed) → 대시보드에서 1 에피소드 단발 확인.
+3. 스모크: `python3 tests/run_all.py`(215 passed) → 대시보드에서 1 회차 단발 확인.
 
 ## 7. [10-24 저녁 추가] 호스트 장악 objective + 오탐 수정
 

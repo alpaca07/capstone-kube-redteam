@@ -1,17 +1,17 @@
 """④ 채점·로깅 — 정답 타임라인(TruthLog) 대조.
 
 방어자 자기보고(detected[]) vs god-view 사실(TruthLog) → TP/FP/FN·MTTD.
-검증 판정(verdict)·플래그 도달 깊이·가용성·종료사유와 합쳐 라운드/에피소드 점수 산출.
+검증 판정(verdict)·플래그 도달 깊이·가용성·종료사유와 합쳐 라운드/회차 점수 산출.
 JSON Lines(라운드당 1줄)로 떨궈 통계·그래프(공수 진화곡선 등)용.
 
 설계:
 - 지표는 순수 함수(confusion_matrix·mttd) — 독립 테스트.
 - 점수 계산은 결과 객체(RoundRecord/EpisodeSummary)를 '반환' — 부작용 없음.
 - 디스크 쓰기는 주입된 sink로 분리 — 테스트는 리스트, 실전은 파일.
-- Scorer 인스턴스 = 에피소드 1개 범위(시퀀서가 라운드마다 score_round, 끝에 summary).
+- Scorer 인스턴스 = 회차 1개 범위(시퀀서가 라운드마다 score_round, 끝에 summary).
 
 탐지 혼동행렬은 '누적 reported vs 누적 truth'로 매긴다 — 공수 진화곡선이 단조롭게 쌓이고,
-에피소드 끝에선 모든 발생 기법이 truth에 들어와 FP/FN이 확정된다.
+회차 끝에선 모든 발생 기법이 truth에 들어와 FP/FN이 확정된다.
 """
 from __future__ import annotations
 
@@ -90,7 +90,7 @@ def mttd(occurrence: dict[str, int], detection: dict[str, int]) -> MttdResult:
     return MttdResult(mean_rounds=mean, detected=len(delays), total_true=len(occurrence))
 
 
-# ───────────────────── 라운드/에피소드 기록 ─────────────────────
+# ───────────────────── 라운드/회차 기록 ─────────────────────
 @dataclass
 class RoundRecord:
     episode: int
@@ -132,7 +132,7 @@ class RoundRecord:
 class EpisodeSummary:
     episode: int
     rounds: int
-    end_reason: str                    # 에피소드 종료사유(시퀀서가 지정)
+    end_reason: str                    # 회차 종료사유(시퀀서가 지정)
     max_flag_depth: int                # 상태검증 최고 단계(①=1..③=3) = 선형 깊이
     detection: DetectionScore          # 최종(누적) 혼동행렬
     mttd: MttdResult
@@ -153,9 +153,9 @@ class EpisodeSummary:
                 "crowns_by_channel": self.crowns_by_channel}
 
 
-# ───────────────────── 채점기(에피소드 1개) ─────────────────────
+# ───────────────────── 채점기(회차 1개) ─────────────────────
 class Scorer:
-    """라운드마다 점수를 매기고 JSONL로 흘린 뒤, 에피소드 끝에 요약을 낸다.
+    """라운드마다 점수를 매기고 JSONL로 흘린 뒤, 회차 끝에 요약을 낸다.
 
     truth: 시퀀서가 god-view로 채워두는 정답 타임라인(여기선 읽기만).
     sink : 라운드 dict를 받는 콜백(파일 append 등). None이면 메모리에만 쌓음.

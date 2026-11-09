@@ -47,7 +47,7 @@
 이건 오히려 프로젝트 주제("탐지 커버리지 ≠ 차단 효과", FN/FP)를 강화한다. 각 취약점에 god-view 신호원을 명시한다(앱로그 / Falco / 네트워크).
 
 ### D. 리셋
-신규 ConfigMap을 baseline 재적용 집합에 포함(`orchestrator/baseline.py` + 매니페스트 재적용)해야 에피소드마다 취약 베이스라인이 복원된다. VM 스냅샷 복원은 그대로.
+신규 ConfigMap을 baseline 재적용 집합에 포함(`orchestrator/baseline.py` + 매니페스트 재적용)해야 회차마다 취약 베이스라인이 복원된다. VM 스냅샷 복원은 그대로.
 
 ### E. 공격자 도달성
 자동 공격자 = frontend 발판에서 `exec`+`wget`/`curl`. 신규 웹 취약점은 전부 `.svc.cluster.local` 내부 HTTP로 도달 가능(backend API·admin-dashboard 내부). 기존 모델과 일관.

@@ -12,7 +12,7 @@
     증명한다 → 별도 PRE 재생/리셋 불필요. 결정론 재생이라 거짓 BLOCKED 위험도 낮다.
   - ★ 상태검증(①②③ '각 취약점이 열렸나')은 verdict 에서 제외: NetworkPolicy 패치는 ③만 닫고
     ①②는 열린 채라, 그걸 섞으면 거짓 NOT_BLOCKED 가 난다. god-view 상태는 §8 #6 탐지 채점용.
-  - ★ 리셋 안 함 → 패치가 '라이브'에 남아 다음 라운드가 누적된 방어를 상대한다(공진화). 에피소드
+  - ★ 리셋 안 함 → 패치가 '라이브'에 남아 다음 라운드가 누적된 방어를 상대한다(공진화). 회차
     경계 리셋은 시퀀서 init·BaselineManager 담당.
 
 판정표:  POST 성공 = FAKE_PATCH / POST 실패 = BLOCKED / POST 재생 불능(빈 결과) = INCONCLUSIVE

@@ -4,8 +4,8 @@
     python -m orchestrator.main --config config.yaml
 
 관리자가 직접 실행하는 프로그램(자동 기동 아님). config.yaml을 읽어 실 어댑터
-(HTTP 클라이언트·govc 스냅샷·로그 소스)를 조립하고, 턴 시퀀서로 에피소드를 돌린다.
-라운드 기록은 JSON Lines로, 에피소드 요약은 별도 파일 + 콘솔로 떨군다.
+(HTTP 클라이언트·govc 스냅샷·로그 소스)를 조립하고, 턴 시퀀서로 회차를 돌린다.
+라운드 기록은 JSON Lines로, 회차 요약은 별도 파일 + 콘솔로 떨군다.
 
 build_sequencer / load_flag4 는 I/O 없이 조립만 하므로 테스트 가능(실제 연결은 run 때).
 """
@@ -150,8 +150,8 @@ def _params_from_args(cfg: Config, args: argparse.Namespace) -> RunParams:
 def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="K8s 공수 공진화 오케스트레이터(VM C)")
     ap.add_argument("--config", default=None, help="config.yaml 경로(기본: 탐색)")
-    ap.add_argument("--episodes", type=int, default=None, help="에피소드 수(config 덮어씀)")
-    ap.add_argument("--max-rounds", type=int, default=None, help="에피소드당 최대 라운드")
+    ap.add_argument("--episodes", type=int, default=None, help="회차 수(config 덮어씀)")
+    ap.add_argument("--max-rounds", type=int, default=None, help="회차당 최대 라운드")
     ap.add_argument("--time-limit", type=int, default=None, help="턴당 제한시간(초)")
     ap.add_argument("--max-tokens", type=int, default=None,
                     help="공격 생성 토큰 상한(실험 파라미터; 생략 시 config.dgx.max_tokens)")
@@ -160,9 +160,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--out-dir", default=str(_ROOT / "orchestrator" / "logs"),
                     help="로그 출력 디렉토리")
     ap.add_argument("--no-revert", action="store_true",
-                    help="에피소드 init 의 baseline revert 생략 — 라이브(이미 취약 상태) 클러스터를 "
+                    help="회차 init 의 baseline revert 생략 — 라이브(이미 취약 상태) 클러스터를 "
                          "그대로 공격. vmrun revert 가 k3s exec 을 느리게 만드는 인프라 이슈 회피용 "
-                         "단발 포획·디버그. 다중 에피소드 리셋 불가.")
+                         "단발 포획·디버그. 다중 회차 리셋 불가.")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
@@ -204,13 +204,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         for s in summaries:
             f.write(json.dumps(s.to_dict(), ensure_ascii=False) + "\n")
 
-    print("\n[✓] 완료. 에피소드 요약:")
+    print("\n[✓] 완료. 회차 요약:")
     for s in summaries:
         d = s.detection
         print(f"  ep{s.episode}: {s.rounds}R 종료={s.end_reason} "
               f"플래그깊이={s.max_flag_depth} 탐지(TP/FP/FN)={d.tp}/{d.fp}/{d.fn} "
               f"MTTD={s.mttd.mean_rounds} 판정={s.verdict_counts}")
-    print(f"\n    라운드 로그: {rounds_path}\n    에피소드 요약: {episodes_path}")
+    print(f"\n    라운드 로그: {rounds_path}\n    회차 요약: {episodes_path}")
     return 0
 
 

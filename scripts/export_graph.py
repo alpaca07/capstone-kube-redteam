@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """탐색 그래프를 JSON으로 내보낸다 — 시각화 뷰어(아티팩트)에 붙여넣기용.
 
-Neo4j에 쌓인 한 에피소드의 의도·사실·발견 노드와 관계(YIELDS·PROVES·SPAWNS·
+Neo4j에 쌓인 한 회차의 의도·사실·발견 노드와 관계(YIELDS·PROVES·SPAWNS·
 DERIVED_FROM)를 그래프 뷰어가 읽는 JSON으로 덤프한다. neo4j 드라이버 필요(이미 설치됨).
 
 사용(VM A):

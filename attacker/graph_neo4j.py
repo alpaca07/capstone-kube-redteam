@@ -2,7 +2,7 @@
 
 인메모리([[InMemoryGraph]])와 같은 계약을 Neo4j로. 단일 DB에 라벨로 3그래프 공존
 (확정 설계): 탐색 노드는 `:Explore` + kind 라벨(`:Intent`/`:Fact`/`:Finding`)을 달고
-`episode` 속성으로 에피소드 스코프. 지식 그래프(KG)는 `:Explore`를 안 달아 리셋서 보존.
+`episode` 속성으로 회차 스코프. 지식 그래프(KG)는 `:Explore`를 안 달아 리셋서 보존.
 
 핵심 — claim 원자성(ARTEX의 CAS 대응):
   ARTEX는 SQL `UPDATE ... WHERE state='open'`로 원자 claim. Neo4j는 MATCH의 WHERE가
@@ -82,7 +82,7 @@ _RUNNING = "MATCH (n:Intent {episode:$episode, state:'running'}) RETURN n{.*} AS
 _RECENT = ("MATCH (n:" + _LABEL + " {episode:$episode}) "
            "RETURN n{.*} AS props ORDER BY n.id DESC LIMIT $limit")
 _GET = "MATCH (n:Explore {episode:$episode, id:$id}) RETURN n{.*} AS props"
-# 이 에피소드 탐색 노드들이 앵커한 자산 id 전체(union) — explored/untouched 판정용
+# 이 회차 탐색 노드들이 앵커한 자산 id 전체(union) — explored/untouched 판정용
 _ANCHORED = ("MATCH (n:Explore {episode:$episode}) "
              "UNWIND coalesce(n.anchors, []) AS aid RETURN DISTINCT aid AS aid")
 _LINK = ("MATCH (a:Explore {episode:$episode, id:$src}), (b:Explore {episode:$episode, id:$dst}) "
@@ -116,7 +116,7 @@ class Neo4jGraph(ExplorationGraph):
                 s.run(q)
 
     def reset_episode(self) -> None:
-        """이 에피소드의 탐색 노드만 통에서 비운다(KG는 :Explore 없어 보존)."""
+        """이 회차의 탐색 노드만 통에서 비운다(KG는 :Explore 없어 보존)."""
         self._run(_RESET)
 
     def _create(self, label: str, kind: NodeKind, payload: dict, state: str,
@@ -263,7 +263,7 @@ class Neo4jGraph(ExplorationGraph):
 
 
 def connect_driver(uri: str, user: str, password: str):
-    """neo4j 드라이버만 만든다(지연 import). 하네스가 한 드라이버를 에피소드마다 재사용."""
+    """neo4j 드라이버만 만든다(지연 import). 하네스가 한 드라이버를 회차마다 재사용."""
     from neo4j import GraphDatabase          # noqa: PLC0415 — 지연 import(미설치 환경 보호)
     return GraphDatabase.driver(uri, auth=(user, password))
 
