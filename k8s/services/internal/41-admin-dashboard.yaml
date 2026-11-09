@@ -147,6 +147,7 @@ spec:
             httpGet: { path: /health, port: 8080 }
             initialDelaySeconds: 40
             periodSeconds: 10
+            timeoutSeconds: 3            # /health 가 매 호출 새 DB 연결(SELECT 1) → 기본 1초론 부하 시 타임아웃
             failureThreshold: 8
       volumes:
         - name: code
