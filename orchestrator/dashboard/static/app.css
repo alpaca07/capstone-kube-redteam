@@ -1,6 +1,6 @@
-/* 공수 공진화 관제 대시보드 — Maze 결(밝은 표면·teal 액센트·고밀도) + Data-Dense Dashboard.
-   의미색(공격 빨강·방어 파랑·심판 회색·크라운 앰버·차단 초록)은 데이터 인코딩 전용,
-   teal 은 제품 UI 전용으로 분리. 시스템 폰트(오프라인), 손으로 그린 SVG 차트. */
+/* Helix — 공격·방어 자동 관제 대시보드. Maze 결(밝은 표면·teal 액센트·고밀도).
+   의미색(공격 빨강·방어 파랑·심판 회색·핵심자산 앰버·차단 초록)은 데이터 인코딩 전용,
+   teal 은 제품 UI 전용으로 분리. 본문 Pretendard(없으면 시스템 폰트), 손으로 그린 SVG 차트. */
 
 :root {
   color-scheme: light;
@@ -21,8 +21,8 @@
   --shadow: 0 1px 2px rgba(16,30,54,.04), 0 2px 8px rgba(16,30,54,.05);
   --shadow-pop: 0 6px 24px rgba(16,30,54,.12);
   --sb-w: 248px;
-  --font-sans: system-ui, -apple-system, "Segoe UI", "Noto Sans KR", "Malgun Gothic", sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, "D2Coding", monospace;
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", system-ui, sans-serif;
+  --font-mono: "SFMono-Regular", ui-monospace, "SF Mono", "Cascadia Code", Consolas, "D2Coding", monospace;
 }
 
 * { box-sizing: border-box; }
@@ -249,6 +249,24 @@ button { font-family: inherit; }
 .hl-row:last-child { border-bottom: none; }
 .hl-ic { width: 7px; height: 7px; border-radius: 50%; margin-top: 7px; flex: none; }
 .hl-row .mono { color: var(--text-3); font-size: 11px; }
+
+/* 타깃 구성도(방어 시점) */
+.arch { display: grid; gap: 13px; grid-template-columns: repeat(auto-fill, minmax(236px, 1fr)); }
+.zone { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r);
+  box-shadow: var(--shadow); padding: 13px 14px; position: relative; }
+.zone.crown { border-color: #f0d79a; background: linear-gradient(180deg, var(--crown-soft), var(--surface) 62%); }
+.zone-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 11px; }
+.zone-name { font-weight: 700; font-size: 14px; font-family: var(--font-mono); letter-spacing: -.01em; }
+.zone-bd { font-family: var(--font-mono); font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 6px; white-space: nowrap; }
+.zone-bd.open { background: var(--atk-soft); color: var(--atk); }
+.zone-bd.closed { background: var(--ok-soft); color: var(--ok); }
+.zone-body { display: flex; flex-wrap: wrap; gap: 6px; }
+.svc-chip { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-mono); font-size: 11.5px;
+  background: var(--def-soft); color: #2256b8; border: 1px solid #cfe0fb; border-radius: 7px; padding: 4px 9px; }
+.svc-chip.ext { background: var(--atk-soft); color: var(--atk); border-color: #f4c9ca; }
+.svc-port { color: var(--text-3); font-size: 10px; }
+.svc-tag { font-size: 8.5px; font-weight: 700; letter-spacing: .02em; }
+.zone-crown { margin-top: 11px; font-family: var(--font-mono); font-size: 10px; font-weight: 600; color: #9a6a0c; }
 
 /* 반응형: 좁은 폭에서 사이드바 접기 */
 @media (max-width: 860px) {
