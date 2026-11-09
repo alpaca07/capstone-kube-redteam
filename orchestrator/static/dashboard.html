@@ -173,6 +173,13 @@ button{font-family:inherit}
 .chtag{display:inline-flex;align-items:center;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:600;background:var(--surface-3);color:var(--fg-muted);border:1px solid var(--border)}
 .chtag.app{color:var(--accent);border-color:var(--accent-bg)}
 .chtag.db{color:var(--flag);border-color:var(--flag-bg)}
+
+/* ---- 라운드 상세 드릴다운(/api/round 원자료) ---- */
+.rd-sub{margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
+.rd-lbl{font-size:10.5px;letter-spacing:.06em;color:var(--fg-dim);text-transform:uppercase;font-weight:600;margin-bottom:7px}
+.rd-row{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;padding:5px 0}
+.rd-row+.rd-row{border-top:1px dashed var(--border)}
+.rd-ev{flex:1 1 100%;font-family:var(--mono);font-size:11px;color:var(--fg-muted);white-space:pre-wrap;word-break:break-all;line-height:1.55}
 .crownverdict{display:flex;align-items:center;gap:9px;flex-wrap:wrap;border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 12px;background:var(--surface-2)}
 .crownverdict .cvdot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--fg-dim)}
 .crownverdict .cvt{font-size:12.5px;font-weight:700;color:var(--fg-muted)}
@@ -677,9 +684,43 @@ ROUTES.episode={html(){
 }};
 
 /* --- ROUND --- */
-ROUTES.round={html(){
+/* 라운드 상세 드릴다운 — rounds.jsonl 요약 위에 /api/round/<ep>/<rnd> 원자료를 주입(실제 공격
+   스크립트·탐지 근거·패치셋·검증 재생). 오프라인/미생성이면 요약 그대로(graceful). */
+let ROUND_DETAIL={};                      // "ep-rnd" → 상세 json(캐시, 라운드 완료 후 불변)
+function curRoundRec(){
  const _all=ROUNDS.slice().sort((a,b)=>(a.episode-b.episode)||(a.round-b.round));
- const rec=(SELR&&ROUNDS.find(r=>r.episode===SELR.ep&&r.round===SELR.round))||(_all.length?_all[_all.length-1]:null);
+ return (SELR&&ROUNDS.find(r=>r.episode===SELR.ep&&r.round===SELR.round))||(_all.length?_all[_all.length-1]:null);
+}
+function fetchRoundDetail(ep,rnd){
+ const key=ep+'-'+rnd;
+ if(ROUND_DETAIL[key]){renderRoundDetail(ROUND_DETAIL[key]);return;}
+ if(!ONLINE)return;                       // 오프라인 목업엔 상세 없음
+ api('/api/round/'+ep+'/'+rnd).then(d=>{if(d&&!d.error){ROUND_DETAIL[key]=d; if((location.hash||'')==='#round')renderRoundDetail(d);}}).catch(()=>{});
+}
+function renderRoundDetail(d){
+ if(!d)return; const A=d.attack||{},D=d.defense||{},V=d.verification||{};
+ // 공격 — 실제 replay_script 스텝(요약 대체)
+ const steps=(A.replay_script&&A.replay_script.steps)||[];
+ const ab=document.getElementById('rd-attack-body');
+ if(ab&&steps.length){
+  ab.innerHTML=steps.map(s=>{const c=s.command||{};const cmd=((c.tool||'')+' '+((c.args||[]).join(' '))).trim();const r=s.result||{};const det=({deterministic:'결정론',nondeterministic:'비결정'})[s.determinism]||'';return `<details class="ev" data-t="attack"><summary>${icon('chev')}<span class="pill p-attack" style="font-size:10.5px"><span class="d" style="background:var(--attack)"></span>스텝 ${s.step}</span>${det?`<span class="pill p-system mono" style="font-size:10px">${det}</span>`:''}<span class="cmd">${escape(cmd)}</span><span class="evnote"><span class="res ${r.success?'ok':'fail'}">${r.success?'성공':'실패'+(r.exit_code!=null?'('+r.exit_code+')':'')}</span></span></summary>${r.stdout_excerpt?`<div class="body"><div class="rd-ev">${escape(r.stdout_excerpt)}</div></div>`:''}</details>`;}).join('');
+ }
+ // 방어 — 실제 탐지 근거(근거 로그줄+신뢰도) + 적용 패치셋
+ const db=document.getElementById('rd-defense');
+ if(db){const dets=D.detected||[],patches=D.patch_set||[];let h='';
+  if(dets.length)h+=`<div class="rd-sub"><div class="rd-lbl">탐지 근거 · 방어자 추론</div>`+dets.map(x=>`<div class="rd-row"><span class="pill p-system mono" style="font-size:10.5px">${escape(x.technique||'?')}</span>${x.confidence!=null?`<span class="dim" style="font-size:11px">신뢰도 ${Math.round(x.confidence*100)}%</span>`:''}<div class="rd-ev">${escape(x.evidence||'—')}</div></div>`).join('')+`</div>`;
+  if(patches.length)h+=`<div class="rd-sub"><div class="rd-lbl">적용 패치셋</div>`+patches.map(p=>`<div class="rd-row"><span class="pill p-defense" style="font-size:10.5px">${escape(p.kind||'?')}</span><span class="mono dim" style="font-size:11px">${escape(p.target||'')}</span><div class="rd-ev">${escape(p.summary||'')}</div></div>`).join('')+`</div>`;
+  else if(D.patch_note)h+=`<div class="rd-sub"><div class="dim" style="font-size:11.5px">패치 메모: ${escape(D.patch_note)}</div></div>`;
+  db.innerHTML=h;
+ }
+ // 검증 — POST 재생 스텝별(패치된 라이브에서 공격 스텝이 '재현'되면 막은 척, '차단'이면 진짜 차단)
+ const vb=document.getElementById('rd-verify');
+ if(vb){const sr=(V.post&&V.post.steps_result)||[];
+  if(sr.length)vb.innerHTML=`<div class="rd-sub"><div class="rd-lbl">POST 재생 · 스텝별</div><div style="display:flex;gap:6px;flex-wrap:wrap">`+sr.map(s=>`<span class="pill ${s.success?'p-notblocked':'p-ok'}" style="font-size:10.5px" title="${escape(s.note||'')}">스텝 ${s.step} ${s.success?'재현':'차단'}</span>`).join('')+`</div></div>`;
+ }
+}
+ROUTES.round={html(){
+ const rec=curRoundRec();
  if(!rec)return `<div class="view-in"><div class="page-head"><div><h1>라운드 뷰</h1><div class="sub">한 라운드를 가장 깊이 — 공격 추론 트레이스, 방어 파이프라인, 검증 판정까지.</div></div></div><div class="card pad"><div class="dim" style="font-size:12.5px">라운드 데이터가 없습니다. 에피소드 뷰에서 라운드를 선택하거나 실험을 시작하세요.</div></div></div>`;
  const ep=rec.episode,rnd=rec.round;
  const vcode=rec.verdict?VKEY(rec.verdict):null;
@@ -706,12 +747,13 @@ ROUTES.round={html(){
   <div class="grid g-2">
    <div class="card">
     <div class="card-h"><h3 style="color:var(--attack)">${icon('target')} 공격 — ReAct 트레이스</h3><span class="hint">종료 ${escape(ARES[rec.attack_end_reason]||rec.attack_end_reason||'—')} · ${Math.round(rec.elapsed_attack_sec||0)}s</span></div>
-    <div class="card-b"><div class="stream">${_atkHtml}</div></div>
+    <div class="card-b"><div class="stream" id="rd-attack-body">${_atkHtml}</div></div>
    </div>
    <div class="card">
     <div class="card-h"><h3 style="color:var(--defense)">${icon('live')} 방어 — 파이프라인</h3><span class="hint">관측→필터→트리아지→패치 · ${Math.round(rec.elapsed_defense_sec||0)}s</span></div>
     <div class="card-b" style="display:flex;flex-direction:column;gap:9px">
      ${_pipe.map((s,i)=>`<div style="display:flex;gap:11px;align-items:flex-start;padding:10px 12px;background:var(--surface-2);border-radius:var(--r-sm)"><span class="mono" style="color:var(--defense);font-weight:700;font-size:12px">${i+1}</span><span style="font-size:12.5px">${s}</span></div>`).join('')}
+     <div id="rd-defense"></div>
     </div>
    </div>
   </div>
@@ -723,6 +765,7 @@ ROUTES.round={html(){
      <span class="phase"><span class="ph">이번 라운드 실공격</span><span class="res ${_attained?'ok':'fail'}">${_attained?'성공 · 중요자산 반출':'중요자산 미도달'}</span></span><span class="arrow">→</span>
      <span class="phase"><span class="ph">POST 재생</span><span class="muted mono" style="font-size:11.5px">패치된 라이브</span></span><span class="arrow">→</span>${vcode&&VERDICT[vcode]?vpill(vcode):'<span class="res run">판정 대기</span>'}</div>
     <p class="muted" style="font-size:12.5px;margin:0">${skipped?'이 라운드는 공격이 중요자산에 닿지 못해 방어·검증이 돌지 않았습니다(게이팅).':'패치된 라이브에 같은 대본을 재생해 <b>크라운 미반출 → <span style="color:var(--v-blocked)">진짜 차단</span></b>, 여전히 빠지면 <b style="color:var(--v-fake)">막은 척</b>, 재생이 비면 <b style="color:var(--v-inconclusive)">확인 불가</b>.'}</p>
+    <div id="rd-verify"></div>
    </div>
   </div>
 
@@ -734,7 +777,7 @@ ROUTES.round={html(){
    </div>
   </div>
  </div>`;
-}};
+},mount(){const rec=curRoundRec(); if(rec)fetchRoundDetail(rec.episode,rec.round);}};
 
 /* --- STATS --- */
 ROUTES.stats={html(){
