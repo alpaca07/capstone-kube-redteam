@@ -1,5 +1,9 @@
 # internal ns DB 연결 (admin-dashboard가 고객 PII 조회에 사용)
-# 2단계: 정상 Secret 주입. 3단계에서 이 크레덴셜이 internal-wiki 런북에 평문으로 새는 게 ①.
+# admin-dashboard 는 PII 를 상시 조회하는 '정상' 내부 콘솔 → 앱과 같은 제한 role(shopflow_app)로 붙는다.
+#   appuser(superuser)로 붙으면 그 상시 조회가 god-view actor 스코핑(attacker_db_roles)에 걸려
+#   매 창마다 customers_pii 크라운이 떠 db_exfil 이 공격과 무관하게 상시 참 → 크라운 신호가 무의미해진다.
+#   shopflow_app 은 internal_secrets 접근 없음(initdb) → 정상 조회는 크라운에서 빠지고, appuser 는
+#   ①(runbook)·②(과권한 SA→postgres-credentials)로 '유출되는' 공격 전용 role 로 남는다(② 탐지 유지).
 apiVersion: v1
 kind: Secret
 metadata:
@@ -10,5 +14,5 @@ stringData:
   DB_HOST: postgres.database.svc.cluster.local
   DB_PORT: "5432"
   DB_NAME: customerdb
-  DB_USER: appuser
-  DB_PASSWORD: devpassword123
+  DB_USER: shopflow_app
+  DB_PASSWORD: Sh0pFl0wApp!svc
