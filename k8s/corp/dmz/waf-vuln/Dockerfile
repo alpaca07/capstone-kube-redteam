@@ -11,7 +11,7 @@ USER root
 
 ADD https://github.com/coreruleset/coreruleset/archive/refs/tags/v3.3.0.tar.gz /tmp/crs330.tar.gz
 RUN set -eux; \
-    tar xzf /tmp/crs330.tar.gz -C /tmp; \
+    tar xzf /tmp/crs330.tar.gz --no-same-owner --no-same-permissions -C /tmp; \
     SRC=/tmp/coreruleset-3.3.0; \
     RULESDIR="$(dirname "$(find / -path '*/rules/REQUEST-901-INITIALIZATION.conf' 2>/dev/null | head -1)")"; \
     test -n "$RULESDIR"; \
