@@ -248,6 +248,33 @@ def test_kg_visibility_in_situation_log():
     assert any("KG후보 2개" in m for m in logs2), logs2
 
 
+# ── KG→플래너 도달: kg_lookup 후보가 플래너 user 프롬프트의 RELEVANT KNOWLEDGE 로 들어간다 ──
+# (기존 test_kg_visibility 는 저널 로그만 확인 — 후보 '내용'이 실제 계획 입력까지 가는지는 여기서)
+def test_kg_candidates_reach_planner_prompt():
+    from attacker.assets_fake import InMemoryAssetGraph
+    captured = {}
+
+    class _CapPlan:
+        def chat_text(self, system, user, **kw):
+            captured["user"] = user
+            return '{"intents": []}'          # 1웨이브로 종료
+
+    g = InMemoryGraph(episode=1)
+    ag = InMemoryAssetGraph(episode=1)
+    ag.add_asset("service", "gitlab.frontend.svc")
+    # knowledge.query.render_kg_candidates 가 내는 모양 그대로(직접 매핑 0.95)
+    kg = lambda _ag: (
+        "- T1190 Exploit Public-Facing Application (conf 0.95; matches: gitlab; via CVE-2021-22205)\n"
+        "- T1059 Command and Scripting Interpreter (conf 0.95; matches: gitlab; via CVE-2021-22205)")
+    AttackRound(attacker_llm=_WorkLLM(), planner_llm=_CapPlan(), runner=_R(),
+                scope_policy=default_policy(), cfg=_cfg()
+                ).run(_start(), episode=1, round=1, graph=g, asset_graph=ag, kg_lookup=kg)
+    u = captured["user"]
+    assert "RELEVANT KNOWLEDGE" in u                   # 섹션 헤더가 프롬프트에 들어감
+    assert "T1190" in u and "T1059" in u               # 후보 기법 id 가 계획 입력까지 도달
+    assert "conf 0.95" in u                            # 신뢰도까지 그대로 전달(플래너가 가중 판단)
+
+
 # ── _asset_situation: 없거나 비면 발판 줄로 폴백(기존 동작 호환) ──
 def test_asset_situation_empty_falls_back_to_foothold():
     from attacker.assets_fake import InMemoryAssetGraph

@@ -198,12 +198,18 @@ def main() -> int:
         asset_graph = Neo4jAssetGraph(graph._driver, episode=1, database=args.neo4j_db)
         asset_graph.ensure_schema()
         asset_graph.reset_episode()
-        print(f"# 그래프     : neo4j({args.neo4j_uri}) — 탐색+자산 영속(끝나고 Browser로 확인)\n")
+        # KG 후보 조회 콜백 — KG 도 같은 Neo4j(라벨로 공존)라 탐색 그래프 driver 를 그대로 쓴다.
+        # 이게 있어야 플래너 situation 에 'RELEVANT KNOWLEDGE' 후보 기법이 들어간다(없으면 KG미연결).
+        from attacker.kg_bridge import make_kg_lookup_from_driver
+        kg_lookup = make_kg_lookup_from_driver(graph._driver, database=args.neo4j_db)
+        print(f"# 그래프     : neo4j({args.neo4j_uri}) — 탐색+자산 영속(끝나고 Browser로 확인)")
+        print("# KG         : 연결됨 — 플래너가 지식그래프 후보 기법(RELEVANT KNOWLEDGE)을 받습니다\n")
     else:
         from attacker.assets_fake import InMemoryAssetGraph
         graph = InMemoryGraph(episode=1)
         asset_graph = InMemoryAssetGraph(episode=1)
-        print("# 그래프     : memory(인메모리, 탐색+자산)\n")
+        kg_lookup = None               # 인메모리엔 KG 없음(KG 는 Neo4j 공존) → 플래너 자기지식 폴백
+        print("# 그래프     : memory(인메모리, 탐색+자산) — KG미연결\n")
 
     rnd = AttackRound(attacker_llm=attacker_llm, planner_llm=planner_llm,
                       runner=runner, scope_policy=default_policy(),
@@ -212,7 +218,8 @@ def main() -> int:
     print("── 라운드 시작 ──")
     t0 = time.time()
     try:
-        res = rnd.run(start, episode=1, round=1, graph=graph, asset_graph=asset_graph)
+        res = rnd.run(start, episode=1, round=1, graph=graph, asset_graph=asset_graph,
+                      kg_lookup=kg_lookup)
     except Exception as e:  # noqa: BLE001
         import traceback
         traceback.print_exc()
