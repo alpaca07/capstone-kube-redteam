@@ -18,6 +18,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 import time
 from typing import Callable, Optional
 
@@ -25,6 +27,14 @@ from typing import Callable, Optional
 ATTACKER = "attacker"
 DEFENDER = "defender"
 JUDGE = "judge"
+
+
+def _warn_event_fail(where: str, exc: Exception) -> None:
+    """이벤트 쓰기 실패는 실험을 멈추지 않되(모니터링 보조), 왜 실패했는지 stderr 로 한 줄 남긴다.
+    (과거엔 조용히 삼켜 events.jsonl 이 안 생겨도 원인을 알 수 없었다.) CAPSTONE_EVENTS_QUIET=1 로 끈다."""
+    if os.environ.get("CAPSTONE_EVENTS_QUIET") == "1":
+        return
+    print(f"[events] {where} 쓰기 실패(무시하고 계속): {type(exc).__name__}: {exc}", file=sys.stderr)
 
 
 class EventSink:
@@ -40,8 +50,8 @@ class EventSink:
         if self._write is not None:
             try:
                 self._write(ev)
-            except Exception:              # noqa: BLE001 — 모니터링 보조, 실패해도 실험 지속
-                pass
+            except Exception as e:         # noqa: BLE001 — 모니터링 보조, 실패해도 실험 지속
+                _warn_event_fail("emit", e)
         return ev
 
     def __call__(self, ev: dict) -> None:
@@ -49,8 +59,8 @@ class EventSink:
         if self._write is not None:
             try:
                 self._write(ev)
-            except Exception:              # noqa: BLE001
-                pass
+            except Exception as e:         # noqa: BLE001
+                _warn_event_fail("__call__", e)
 
 
 def jsonl_event_sink(path: str) -> Callable[[dict], None]:
@@ -78,8 +88,8 @@ def record_round_events(sink: Optional[EventSink], *, episode: int, round: int,
             _emit_defense(sink, episode, round, defense)
         if verification is not None:
             _emit_verdict(sink, episode, round, verification)
-    except Exception:                      # noqa: BLE001 — 이벤트 기록 실패가 라운드를 깨면 안 됨
-        pass
+    except Exception as e:                 # noqa: BLE001 — 이벤트 기록 실패가 라운드를 깨면 안 됨
+        _warn_event_fail("record_round_events", e)
 
 
 def _emit_attack(sink: EventSink, episode: int, round: int, attack) -> None:
