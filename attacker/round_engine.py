@@ -202,10 +202,18 @@ class AttackRound:
             if asset_graph is not None:
                 all_assets = asset_graph.assets(limit=200)
                 n_untouched = sum(1 for a in all_assets if a.id not in touched)
-                # KG 가시성: 플래너가 실제로 KG 후보를 받았는지 저널에 노출. kg_lookup 미연결
-                # (graph_backend≠neo4j)=KG미연결 / 연결됐으나 매칭 0=후보 0개 / 실제 기여=후보 N개.
-                n_kg = len([ln for ln in kg_block.splitlines() if ln.strip()])
-                kg_note = (f" · KG후보 {n_kg}개" if kg_lookup is not None else " · KG미연결")
+                # KG 가시성: 플래너가 받은 KG 후보를 저널에 노출 — 개수 + 실제 쓰는 기법 노드 몇 개.
+                # kg_block 각 줄이 "- <technique> ..." 꼴이라 두 번째 토큰이 기법 ID. 미연결
+                # (graph_backend≠neo4j)=KG미연결 / 연결됐으나 매칭 0=후보 0개.
+                kg_techs = [p[1] for p in (ln.split(maxsplit=2) for ln in kg_block.splitlines())
+                            if len(p) >= 2 and p[0] == "-"]
+                if kg_lookup is None:
+                    kg_note = " · KG미연결"
+                elif kg_techs:
+                    head = "·".join(kg_techs[:6])
+                    kg_note = f" · KG후보 {len(kg_techs)}개[{head}" + ("…]" if len(kg_techs) > 6 else "]")
+                else:
+                    kg_note = " · KG후보 0개"
                 self.log(f"[round r{round}] wave {waves+1}: 태세 → 자산 {len(all_assets)}개"
                          f"(미탐색 {n_untouched}) · 지난라운드침해 {len(prior_finding_ids)}건{kg_note}")
             plan = planner.plan(graph, assets_block=assets_block, kg_block=kg_block,

@@ -245,7 +245,8 @@ def test_kg_visibility_in_situation_log():
     AttackRound(attacker_llm=_WorkLLM(), planner_llm=_P(), runner=_R(),
                 scope_policy=default_policy(), cfg=_cfg(), log=logs2.append
                 ).run(_start(), episode=1, round=1, graph=g2, asset_graph=ag2, kg_lookup=kg2)
-    assert any("KG후보 2개" in m for m in logs2), logs2
+    # 개수 + 실제 쓰는 기법 ID 가 같이 찍힌다
+    assert any("KG후보 2개" in m and "T1552" in m and "T1078" in m for m in logs2), logs2
 
 
 # ── KG→플래너 도달: kg_lookup 후보가 플래너 user 프롬프트의 RELEVANT KNOWLEDGE 로 들어간다 ──
