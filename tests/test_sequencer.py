@@ -242,7 +242,7 @@ class _ScriptedAttacker(FakeAttackerClient):
         return self._results[min(round - 1, len(self._results) - 1)]
 
 
-def _gating_seq(results, *, crown_rounds, n_consec=2, max_rounds=10):
+def _gating_seq(results, *, crown_rounds, n_consec=2, max_rounds=10, force_crown=False):
     attacker = _ScriptedAttacker(
         results, replay_by_phase={PRE: _replay(PRE, True), POST: _replay(POST, False)})
     defender = FakeDefenderClient(defense_result=_defense_result(),
@@ -254,7 +254,8 @@ def _gating_seq(results, *, crown_rounds, n_consec=2, max_rounds=10):
                                   logs=FakeLogSource(), objectives=objectives)
     captured: list[dict] = []
     params = RunParams(episodes=1, max_rounds=max_rounds, n_consecutive_defense=n_consec,
-                       baseline_snapshot="clean-baseline", attack_endpoint="10.0.0.5")
+                       baseline_snapshot="clean-baseline", attack_endpoint="10.0.0.5",
+                       force_crown=force_crown)
     # 플래그리스: 게이팅은 접근기록(crowns) 기반 — 공격자 자기보고가 아니라 심판이 로그원으로 판정한다.
     # crown_rounds[i] 는 그 라운드에 중요자산이 반출됐는지(심판 관측)를 시뮬레이션한다.
     # seq logs 는 라운드당 crown 을 2회 조회(게이팅 + _build_truth)하므로 각 라운드값을 2번 넣는다.
@@ -282,6 +283,23 @@ def test_no_flag_round_skips_defense_verify_snapshot():
     assert captured[0]["verdict"] == "inconclusive"
     assert captured[0]["defense_end_reason"] == "skipped"
     assert s.rounds == 1 and s.end_reason == "max_rounds"
+
+
+# ── 스모크: force_crown 이면 크라운 미검출(crown_rounds=[False])이어도 방어+검증 배관이 돈다 ──
+def test_force_crown_overrides_skip_gate():
+    seq, ctx = _gating_seq([_no_flag_result()], crown_rounds=[False],
+                           n_consec=99, max_rounds=1, force_crown=True)
+    seq.run_episode(1)
+    assert len(ctx["defender"].defense_calls) == 1          # 게이트 강제 → 방어 턴 실행
+    assert ctx["captured"][0]["defense_end_reason"] != "skipped"   # skip 경로가 아니라 실제 방어
+
+
+# ── 대조: force_crown 없으면 같은 미검출 라운드는 방어 생략(게이팅 정상) ──
+def test_without_force_crown_no_flag_still_skips():
+    seq, ctx = _gating_seq([_no_flag_result()], crown_rounds=[False],
+                           n_consec=99, max_rounds=1, force_crown=False)
+    seq.run_episode(1)
+    assert len(ctx["defender"].defense_calls) == 0          # 강제 안 하면 그대로 생략
 
 
 def test_gating_ladder_no_flag_before_and_after_breakthrough():

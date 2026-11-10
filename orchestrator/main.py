@@ -142,7 +142,8 @@ def _params_from_args(cfg: Config, args: argparse.Namespace) -> RunParams:
         baseline_snapshot=cfg.vmware.baseline_snapshot,
         # exec_mode면 발판은 외부 URL 이 아니라 '클러스터 내부 파드'라 endpoint 를 비운다.
         attack_endpoint=(None if cfg.attack.exec_mode else cfg.target.attack_endpoint),
-        skip_revert=args.no_revert)
+        skip_revert=args.no_revert,
+        force_crown=args.force_crown)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -157,6 +158,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                     help="④ 값 secret 파일")
     ap.add_argument("--out-dir", default=str(_ROOT / "orchestrator" / "logs"),
                     help="로그 출력 디렉토리")
+    ap.add_argument("--force-crown", action="store_true",
+                    help="(스모크 전용) 크라운 미검출이어도 방어+검증 게이트 강제 — 루프 배관 점검용")
     ap.add_argument("--no-revert", action="store_true",
                     help="회차 init 의 baseline revert 생략 — 라이브(이미 취약 상태) 클러스터를 "
                          "그대로 공격. vmrun revert 가 k3s exec 을 느리게 만드는 인프라 이슈 회피용 "

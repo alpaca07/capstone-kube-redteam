@@ -75,6 +75,9 @@ class RunParams:
     skip_revert: bool = False                    # True면 회차 init revert 생략(라이브 클러스터 그대로).
     #   vmrun 라이브 스냅샷 revert 가 k3s exec 경로를 느리게(재시도 백오프) 만드는 인프라 이슈 회피용 —
     #   라이브 클러스터가 이미 베이스라인(취약) 상태일 때 단발 포획·디버그에 쓴다. 다중 회차 리셋은 불가.
+    force_crown: bool = False                     # (스모크 전용) 게이트 강제 — god-view 크라운 미검출이어도
+    #   방어 턴→검증→패치 누적 배관을 매 라운드 돌린다. 크라운 관측 통로(DB 감사로그)가 아직 안 깔렸을 때
+    #   루프 기계가 end-to-end 도는지 확인하는 용도. 진짜 공진화 아님(가짜 게이트) — 통로 live 되면 끈다.
 
 
 @dataclass
@@ -245,6 +248,12 @@ class TurnSequencer:
         #    미도달이면 2·3·4~5를 전부 생략하고 다음 라운드로(히스토리는 하네스가 자동 이월).
         attack_crowns = self.logs.crowns_in_window(since_ts=_t, until_ts=time.time())
         flag_found = bool(self.objectives.reached_goals({"crown": {"asset": attack_crowns}}))
+
+        # (스모크 전용) force_crown: 크라운 통로가 아직 안 깔린 상태에서도 방어+검증 배관을 돌려본다.
+        if self.params.force_crown and not flag_found:
+            self._log(f"[ep{episode} R{rnd}] ⚠ force-crown(스모크): 크라운 미검출이나 게이트 강제 "
+                      f"→ 방어+검증 실행(진짜 공진화 아님)")
+            flag_found = True
 
         if flag_found:
             # 2. 방어 턴 (공격정보 0). A2: 공격후 VM 스냅샷 불필요 — verify 가 '패치된 라이브'에
