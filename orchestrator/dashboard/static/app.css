@@ -283,6 +283,7 @@ button { font-family: inherit; }
 .rchip-grp { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .rchip-ep { font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--teal-600);
   background: var(--teal-soft); border-radius: 7px; padding: 5px 11px; white-space: nowrap; min-width: 48px; text-align: center; }
+.rchip-note { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); padding: 2px 2px; }
 .rchip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 12px; font-weight: 600;
   padding: 5px 11px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); color: var(--text-2); cursor: pointer; }
 .rchip:hover { background: var(--surface-2); }

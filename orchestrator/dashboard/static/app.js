@@ -43,7 +43,7 @@
     budget: "예산 소진", max_steps: "명령 한도", error: "오류", patched: "패치 완료", skipped: "건너뜀" })[r] || r || "—"; }
 
   // ───────── 상태 ─────────
-  var S = { rounds: [], episodes: [], runs: [], events: [], status: {}, demo: false };
+  var S = { rounds: [], episodes: [], runs: [], events: [], status: {}, demo: false, runCount: 0 };
   var route = DEFAULT_ROUTE, evTab = "all", defSel = null, repEp = null, agRkey = null, agSel = null, agTab = "overview";
 
   // ───────── 유틸 ─────────
@@ -129,11 +129,29 @@
   }
 
   // ───────── 로드 ─────────
+  // rounds.jsonl / episodes.jsonl 은 실험을 여러 번 돌리면 누적된다(fresh 안 쓰면).
+  // 각 실행은 1회차 1라운드로 다시 시작하므로, 마지막 "1회차 1라운드" 이후가 최신 실행.
+  function latestRunRounds(rs) {
+    var s = 0;
+    for (var i = 0; i < rs.length; i++) if ((rs[i].episode || 1) === 1 && (rs[i].round || 1) === 1) s = i;
+    return rs.slice(s);
+  }
+  function latestRunEpisodes(es) {
+    var s = 0;
+    for (var i = 0; i < es.length; i++) if ((es[i].episode || 1) === 1) s = i;
+    return es.slice(s);
+  }
   async function loadCore() {
     var r = await Promise.all([jget("/api/rounds"), jget("/api/episodes"), jget("/api/runs")]);
-    S.rounds = r[0] || []; S.episodes = r[1] || []; S.runs = r[2] || [];
+    S.rounds = latestRunRounds(r[0] || []); S.episodes = latestRunEpisodes(r[1] || []); S.runs = r[2] || [];
+    S.runCount = countRuns(r[0] || []);
     S.demo = (S.rounds.length === 0 && S.episodes.length === 0);
     if (S.demo) { S.rounds = demoRounds(); S.episodes = demoEpisodes(); }
+  }
+  function countRuns(rs) {
+    var n = 0;
+    for (var i = 0; i < rs.length; i++) if ((rs[i].episode || 1) === 1 && (rs[i].round || 1) === 1) n++;
+    return n;
   }
 
   // ───────── 집계(현황·통계) ─────────
@@ -175,7 +193,9 @@
   function roundChipsHtml(rounds, selKey, attr) {
     var byEp = {}, order = [];
     rounds.forEach(function (r) { var e = r.episode || 1; if (!byEp[e]) { byEp[e] = []; order.push(e); } byEp[e].push(r); });
-    return '<div class="rchips">' + order.map(function (e) {
+    order.sort(function (a, b) { return a - b; });
+    var groups = order.map(function (e) {
+      byEp[e].sort(function (a, b) { return a.round - b.round; });
       var chips = byEp[e].map(function (r) {
         var key = (r.episode || 1) + "-" + r.round, on = key === selKey;
         var rv = VERDICT[r.verdict], col = rv ? rv.color : C.muted;
@@ -184,7 +204,9 @@
           '><span class="tag-dot" style="background:' + col + '"></span>R' + r.round + "</button>";
       }).join("");
       return '<span class="rchip-grp"><span class="rchip-ep">' + e + "회차</span>" + chips + "</span>";
-    }).join("") + "</div>";
+    }).join("");
+    var note = (S.runCount > 1) ? '<span class="rchip-note">최신 실행만 표시 · 누적 ' + S.runCount + "회</span>" : "";
+    return '<div class="rchips">' + groups + note + "</div>";
   }
 
   // ───────── SVG 차트 ─────────
