@@ -213,22 +213,33 @@ def render_kg_candidates(knowledge: dict, *, limit: int = 12) -> str:
 
 
 def _demo() -> None:
-    """데모 CLI: python -m knowledge.query --cve CVE-2021-44228"""
+    """데모 CLI:
+      python -m knowledge.query --product gitlab   # 제품→기법(플래너가 받을 후보 + 실제 블록)
+      python -m knowledge.query --cve CVE-2021-44228
+    """
     import argparse
     import json
     import os
     ap = argparse.ArgumentParser(prog="knowledge.query", description="지식 그래프 조회 데모")
-    ap.add_argument("--cve", required=True, help="조회할 CVE id (예: CVE-2021-44228)")
+    ap.add_argument("--cve", help="CVE id 로 조회 (CVE→기법)")
+    ap.add_argument("--product", help="제품 용어로 조회 (Product→CPE→CVE→기법, 플래너가 받을 후보)")
     ap.add_argument("--uri", default=os.environ.get("NEO4J_URI", "bolt://localhost:7687"))
     ap.add_argument("--user", default=os.environ.get("NEO4J_USER", "neo4j"))
     ap.add_argument("--password", default=os.environ.get("NEO4J_PASSWORD"))
     a = ap.parse_args()
+    if not a.cve and not a.product:
+        raise SystemExit("--product 또는 --cve 중 하나를 줘라")
     if not a.password:
         raise SystemExit("NEO4J_PASSWORD (또는 --password) 필요")
     from neo4j import GraphDatabase
     driver = GraphDatabase.driver(a.uri, auth=(a.user, a.password))
     with driver.session() as s:
-        out = {"cve": cve_facts(s, a.cve), "techniques": techniques_for_cve(s, a.cve)}
+        if a.product:
+            kn = knowledge_for_terms(s, [a.product])
+            out = {"product_term": a.product, "candidates": kn["aggregate"],
+                   "planner_block": render_kg_candidates(kn)}   # 플래너 situation 에 들어갈 실제 텍스트
+        else:
+            out = {"cve": cve_facts(s, a.cve), "techniques": techniques_for_cve(s, a.cve)}
     print(json.dumps(out, ensure_ascii=False, indent=2))
 
 
