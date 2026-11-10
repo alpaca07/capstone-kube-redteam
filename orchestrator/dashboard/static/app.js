@@ -332,7 +332,8 @@
     return '<div class="card"><div class="card-h">새 실험 시작</div>' +
       '<div class="form-row" style="margin-bottom:14px">' +
       field("회차 수", "f-eps", "number", 1) + field("회차당 최대 라운드", "f-mr", "number", 10) +
-      field("턴 제한시간(초)", "f-tl", "number", 180) + field("생성 토큰 상한", "f-mt", "number", 1024) +
+      field("턴 제한시간(초)", "f-tl", "number", 180) +
+      '<div class="field"><label for="f-mt">생성 토큰 상한</label><div class="mt-wrap"><input id="f-mt" type="number" value="1024"><label class="toggle mt-unl"><input type="checkbox" id="f-mt-unl"> 무제한</label></div></div>' +
       '<div class="field"><label>모드</label><select id="f-mode"><option value="demo">데모</option><option value="stat">통계</option></select></div></div>' +
       '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">' +
       '<label class="toggle"><input type="checkbox" id="f-fresh"> 기존 로그 지우고 시작</label>' +
@@ -349,10 +350,12 @@
   }
   function bindControl() {
     var start = $("#btn-start"), stop = $("#btn-stop"), msg = $("#ctl-msg");
+    var unl = $("#f-mt-unl");
+    if (unl) unl.onchange = function () { var inp = $("#f-mt"); if (inp) { inp.disabled = unl.checked; inp.style.opacity = unl.checked ? 0.45 : 1; } };
     if (start) start.onclick = async function () {
       msg.textContent = "시작 요청…";
       var body = { episodes: +$("#f-eps").value, max_rounds: +$("#f-mr").value, time_limit: +$("#f-tl").value,
-        max_tokens: +$("#f-mt").value, mode: $("#f-mode").value, fresh: $("#f-fresh").checked };
+        max_tokens: ($("#f-mt-unl") && $("#f-mt-unl").checked) ? null : +$("#f-mt").value, mode: $("#f-mode").value, fresh: $("#f-fresh").checked };
       var r = await fetch("/api/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then(function (x) { return x.json(); }).catch(function () { return { ok: false, error: "서버 연결 실패(데모 모드)" }; });
       msg.textContent = r.ok ? "시작됨: " + r.id : "실패: " + (r.error || "");
       refreshRunStatus();

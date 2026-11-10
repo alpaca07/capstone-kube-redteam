@@ -130,7 +130,8 @@ def run_start(payload: dict = Body(default={})) -> JSONResponse:
         eps = max(1, int(payload.get("episodes", 1)))
         mr = max(1, int(payload.get("max_rounds", 1)))
         tl = max(30, int(payload.get("time_limit", 180)))
-        mt = max(64, int(payload.get("max_tokens", 1024)))
+        _mt = payload.get("max_tokens", 1024)
+        mt = None if _mt in (None, 0, "", "0") else max(64, int(_mt))   # 0·빈값·null = 무제한
     except (TypeError, ValueError):
         return JSONResponse({"ok": False, "error": "잘못된 파라미터"}, status_code=400)
 
@@ -144,7 +145,9 @@ def run_start(payload: dict = Body(default={})) -> JSONResponse:
 
     cmd = [sys.executable, "-u", "-m", "orchestrator.main",
            "--episodes", str(eps), "--max-rounds", str(mr),
-           "--time-limit", str(tl), "--max-tokens", str(mt)]
+           "--time-limit", str(tl)]
+    if mt is not None:                      # None = 무제한(--max-tokens 생략 → config.dgx.max_tokens 기본)
+        cmd += ["--max-tokens", str(mt)]
     logf = open(_RUN_LOG, "w", encoding="utf-8")
     proc = subprocess.Popen(cmd, cwd=str(_ROOT), stdout=logf,
                             stderr=subprocess.STDOUT, env=os.environ.copy())
