@@ -18,15 +18,16 @@ metadata:
   name: waf-nginx-conf
   namespace: corp-dmz
 data:
-  # 템플릿으로 들어가 conf.d/default.conf 로 생성된다. ModSecurity 활성(modsecurity on)·
-  # CRS 셋업(/etc/modsecurity.d/setup.conf)은 owasp 이미지 표준 경로.
+  # 템플릿으로 들어가 conf.d/default.conf 로 생성된다. ModSecurity(+CRS)는 이미지가
+  # 상위(http) 수준에서 이미 켜므로, 이 블록은 프록시만 정의한다(중복 선언 시 nginx 기동 실패).
   default.conf.template: |
     server {
         listen 8080;
         server_name _;
 
-        modsecurity on;
-        modsecurity_rules_file /etc/modsecurity.d/setup.conf;
+        # ModSecurity(+CRS)는 이미지가 상위(http) 수준에서 이미 켜고 setup.conf 를 로드한다.
+        # 여기서 다시 선언하면 규칙이 중복 로드돼 nginx 가 죽는다("Rule id 200000 is duplicated").
+        # 이 블록은 프록시만 정의 — ModSecurity 검사는 전역 설정을 그대로 상속한다.
 
         # Solr 는 /solr/ 하위로 (Log4Shell 입구)
         location /solr/ {
