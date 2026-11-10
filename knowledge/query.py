@@ -43,8 +43,12 @@ def techniques_for_cve(session: Session, cve_id: str) -> list[dict]:
     """CVE → 후보 기법. 직접 매핑 있으면 그것만(정확), 없으면 브리지 폴백(generic 제외).
     반환: [{technique, name, via, category|via_cwe/via_capec, source, confidence}] 신뢰도 내림차순."""
     direct = _rows(session.run(
-        "MATCH (c:CVE {id:$id})-[e:EXPLOITED_BY]->(t) "
-        "RETURN t.id AS technique, t.name AS name, e.category AS category, e.source AS source",
+        "MATCH (c:CVE {id:$id})-[e:EXPLOITED_BY]->(mapped) "
+        "OPTIONAL MATCH (parent:Technique)-[:HAS_SUBTECHNIQUE]->(mapped) "
+        "WITH coalesce(parent, mapped) AS t, "
+        "     collect(DISTINCT e.category)[0] AS category, collect(DISTINCT e.source)[0] AS source "
+        "WHERE t:Technique "   # 세부기법은 부모로 승격, 부모 없는 고아는 제외
+        "RETURN t.id AS technique, t.name AS name, category, source",
         id=cve_id))
     if direct:
         out = [{"technique": r["technique"], "name": r.get("name"), "via": "direct",
@@ -54,9 +58,13 @@ def techniques_for_cve(session: Session, cve_id: str) -> list[dict]:
         return out
 
     bridge = _rows(session.run(
-        "MATCH (c:CVE {id:$id})-[:CLASSIFIED_AS]->(w:CWE)-[:HAS_ATTACK_PATTERN]->(cap:CAPEC)-[:MAPS_TO]->(t) "
+        "MATCH (c:CVE {id:$id})-[:CLASSIFIED_AS]->(w:CWE)-[:HAS_ATTACK_PATTERN]->(cap:CAPEC)-[:MAPS_TO]->(mapped) "
         "WHERE NOT coalesce(w.is_generic,false) "
-        "RETURN DISTINCT t.id AS technique, t.name AS name, w.id AS via_cwe, cap.id AS via_capec",
+        "OPTIONAL MATCH (parent:Technique)-[:HAS_SUBTECHNIQUE]->(mapped) "
+        "WITH coalesce(parent, mapped) AS t, "
+        "     collect(DISTINCT w.id)[0] AS via_cwe, collect(DISTINCT cap.id)[0] AS via_capec "
+        "WHERE t:Technique "
+        "RETURN t.id AS technique, t.name AS name, via_cwe, via_capec",
         id=cve_id))
     return [{"technique": r["technique"], "name": r.get("name"), "via": "bridge",
              "source": "cwe-capec", "via_cwe": r.get("via_cwe"), "via_capec": r.get("via_capec"),
@@ -121,10 +129,13 @@ def techniques_for_product(session: Session, term: str) -> list[dict]:
     if not t:
         return []
     direct = _rows(session.run(
-        "MATCH (p:Product)-[:IDENTIFIED_BY]->(:CPE)-[:AFFECTED_BY]->(c:CVE)-[e:EXPLOITED_BY]->(tech) "
+        "MATCH (p:Product)-[:IDENTIFIED_BY]->(:CPE)-[:AFFECTED_BY]->(c:CVE)-[e:EXPLOITED_BY]->(mapped) "
         "WHERE p.name=$t OR p.vendor=$t OR toLower(p.id) CONTAINS toLower($t) "
-        "RETURN DISTINCT tech.id AS technique, tech.name AS name, e.category AS category, "
-        "e.source AS source, collect(DISTINCT c.id)[..5] AS cves", t=t))
+        "OPTIONAL MATCH (parent:Technique)-[:HAS_SUBTECHNIQUE]->(mapped) "
+        "WITH coalesce(parent, mapped) AS tech, collect(DISTINCT c.id)[..5] AS cves, "
+        "     collect(DISTINCT e.category)[0] AS category, collect(DISTINCT e.source)[0] AS source "
+        "WHERE tech:Technique "
+        "RETURN tech.id AS technique, tech.name AS name, category, source, cves", t=t))
     if direct:
         out = [{"technique": r["technique"], "name": r.get("name"), "via": "product-direct",
                 "category": r.get("category"), "source": r.get("source"),
@@ -134,11 +145,13 @@ def techniques_for_product(session: Session, term: str) -> list[dict]:
         return out
     bridge = _rows(session.run(
         "MATCH (p:Product)-[:IDENTIFIED_BY]->(:CPE)-[:AFFECTED_BY]->(c:CVE)-[:CLASSIFIED_AS]->(w:CWE)"
-        "-[:HAS_ATTACK_PATTERN]->(:CAPEC)-[:MAPS_TO]->(tech) "
+        "-[:HAS_ATTACK_PATTERN]->(:CAPEC)-[:MAPS_TO]->(mapped) "
         "WHERE (p.name=$t OR p.vendor=$t OR toLower(p.id) CONTAINS toLower($t)) "
         "AND NOT coalesce(w.is_generic,false) "
-        "RETURN DISTINCT tech.id AS technique, tech.name AS name, collect(DISTINCT c.id)[..5] AS cves",
-        t=t))
+        "OPTIONAL MATCH (parent:Technique)-[:HAS_SUBTECHNIQUE]->(mapped) "
+        "WITH coalesce(parent, mapped) AS tech, collect(DISTINCT c.id)[..5] AS cves "
+        "WHERE tech:Technique "
+        "RETURN tech.id AS technique, tech.name AS name, cves", t=t))
     return [{"technique": r["technique"], "name": r.get("name"), "via": "product-bridge",
              "source": "cwe-capec", "confidence": _BRIDGE_CONF, "cves": r.get("cves") or []}
             for r in bridge]
