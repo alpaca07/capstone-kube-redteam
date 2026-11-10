@@ -6,6 +6,9 @@
 #       (옛 CRS 3.3.0 공식 이미지는 Docker Hub 에서 사라져 베이스로 못 쓴다.)
 FROM docker.io/owasp/modsecurity-crs:nginx
 
+# 베이스가 비권한 유저로 실행되므로, 빌드 단계(파일 접근·시스템 경로 수정)는 root 로 수행한다.
+USER root
+
 ADD https://github.com/coreruleset/coreruleset/archive/refs/tags/v3.3.0.tar.gz /tmp/crs330.tar.gz
 RUN set -eux; \
     tar xzf /tmp/crs330.tar.gz -C /tmp; \
