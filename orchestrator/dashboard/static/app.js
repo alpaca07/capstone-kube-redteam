@@ -44,7 +44,7 @@
 
   // ───────── 상태 ─────────
   var S = { rounds: [], episodes: [], runs: [], events: [], status: {}, demo: false, runCount: 0 };
-  var route = DEFAULT_ROUTE, evTab = "all", defSel = null, repEp = null, agRkey = null, agSel = null, agTab = "overview";
+  var route = DEFAULT_ROUTE, evTab = "all", defSel = null, repEp = null, agRkey = null, agSel = null, agTab = "overview", _wasRunning = false;
 
   // ───────── 유틸 ─────────
   function $(sel, el) { return (el || document).querySelector(sel); }
@@ -145,7 +145,8 @@
     var r = await Promise.all([jget("/api/rounds"), jget("/api/episodes"), jget("/api/runs")]);
     S.rounds = latestRunRounds(r[0] || []); S.episodes = latestRunEpisodes(r[1] || []); S.runs = r[2] || [];
     S.runCount = countRuns(r[0] || []);
-    S.demo = (S.rounds.length === 0 && S.episodes.length === 0);
+    // 실행 중이면 데이터가 아직 없어도 데모로 빠지지 않음(집계 대기 상태를 보여줌)
+    S.demo = (S.rounds.length === 0 && S.episodes.length === 0) && !(S.status && S.status.running);
     if (S.demo) { S.rounds = demoRounds(); S.episodes = demoEpisodes(); }
   }
   function countRuns(rs) {
@@ -392,7 +393,8 @@
     if (!running && !S.demo && (!st.status || st.status === "idle"))
       return emptyState("⏸", "지금 도는 실행이 없습니다", "실행 제어에서 시작하면 진행 단계·남은 시간·공격 진행이 여기 실시간으로 뜹니다.", []);
 
-    var demo = S.demo ? { phase: 2, episode: 1, round: 4, active: "defender", turn_started: Date.now() / 1000 - 48, time_limit_sec: 180, last_verdict: "fake_patch", flags_reached: ["1", "2", "3"], crowns_reached: ["crown-secrets"] } : st;
+    var useDemo = S.demo && !running;   // 실제 실행 중이면 데모 아닌 실시간 상태 사용
+    var demo = useDemo ? { phase: 2, episode: 1, round: 4, active: "defender", turn_started: Date.now() / 1000 - 48, time_limit_sec: 180, last_verdict: "fake_patch", flags_reached: ["1", "2", "3"], crowns_reached: ["crown-secrets"] } : st;
     var ph = demo.phase || 0;
     var steps = PHASES.map(function (p, i) {
       var cls = i < ph ? "done" : (i === ph ? "active" : "");
@@ -403,7 +405,7 @@
     var actor = demo.active === "attacker" ? '<span class="badge b-atk">공격</span>' : demo.active === "defender" ? '<span class="badge b-def">방어</span>' : '<span class="badge b-sys">심판</span>';
     var lv = demo.last_verdict ? VERDICT[demo.last_verdict] : null;
 
-    return (S.demo ? demoBanner() : "") +
+    return (useDemo ? demoBanner() : "") +
       '<div class="card"><div class="card-h">진행 단계</div><div class="phases">' + steps + "</div></div>" +
       '<div class="grid cols-4" style="margin-top:14px">' +
       '<div class="tile accent-teal"><div class="tile-k">회차 · 라운드</div><div class="tile-v">' + (demo.episode || 0) + " · " + (demo.round || 0) + '</div></div>' +
@@ -902,10 +904,25 @@
     if (st === null) { dot.className = S.demo ? "" : "off"; ct.textContent = S.demo ? "데모 모드" : "서버 연결 끊김"; }
     else { S.status = st; dot.className = st.running ? "live" : ""; ct.textContent = st.running ? "실행 진행 중" : "대기"; }
     var pill = $("#run-pill"), pt = $("#run-pill-text");
-    if (st && st.running) { pill.className = "run-pill running"; pt.textContent = "R" + (st.round || 0) + " · " + (PHASES[st.phase || 0] || ""); }
+    if (st && st.running) { pill.className = "run-pill running"; pt.textContent = (st.episode || 0) + "회차 R" + (st.round || 0) + " · " + (PHASES[st.phase || 0] || ""); }
     else { pill.className = "run-pill"; pt.textContent = S.demo ? "데모" : "대기"; }
+
+    // 실행 중(또는 방금 종료)이면 로그 데이터도 재적재하고 현재 보는 개요 페이지를 갱신 — 실시간 반영
+    var running = !!(st && st.running);
+    if (running || _wasRunning) {
+      await loadCore();
+      await refreshLivePage();
+    }
+    _wasRunning = running;
+
     if (route === "live") $("#view").innerHTML = pageLive();
     if (route === "control") refreshRunStatus();
+  }
+  async function refreshLivePage() {
+    // 선택 상태 없는 개요 페이지만 자동 갱신(그래프·보고서는 사용자 선택 보존 위해 제외 — 재방문 시 최신)
+    if (route === "posture") $("#view").innerHTML = pagePosture();
+    else if (route === "stats") $("#view").innerHTML = pageStats();
+    else if (route === "events") { await loadEvents(); $("#view").innerHTML = pageEvents(); bindEventTabs(); }
   }
 
   // ───────── 라우팅·부팅 ─────────
