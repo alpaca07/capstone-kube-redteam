@@ -46,15 +46,17 @@
 
 ## 방어장비 (4b, 환경 고정)
 
-- **WAF** = `owasp/modsecurity-crs:3.3.0-nginx` — `corp-dmz` 앞 리버스프록시(ModSecurity 3.0.5 + CRS 3.3.0).
+- **WAF** = `owasp/modsecurity-crs:nginx` — `corp-dmz` 앞 리버스프록시(ModSecurity + OWASP CRS, 기본 On).
   외부는 WAF만 받고, Tomcat·Solr는 WAF에서만 받는다(NetworkPolicy로 강제) → **유일 진입점**.
-- **IDS** = `jasonish/suricata:4.0.3` — WAF 파드 **사이드카**로 같은 netns의 진입 트래픽을 본다(②-가).
+  설정은 템플릿 경로(`/etc/nginx/templates/conf.d/default.conf.template`)에 넣어 이미지가 생성하게 한다(읽기전용 충돌 회피).
+- **IDS** = `jasonish/suricata:latest` — WAF 파드 **사이드카**로 같은 네트워크 공간(eth0) 진입 트래픽을 본다(②-가).
+  설정은 `/config/suricata.yaml` 에 두고 `-c` 로 가리킨다(`/etc/suricata` 를 안 건드려 권한 충돌 없음).
   내부 측면이동의 셸·프로세스는 Falco(5단계)가 본다.
 - **방어자(VM D)는 이 장비를 운용하지 않는다**(1단계). 로그만 방어 관측에 쓰고, 공격자가
   우회·DoS로 무력화하면 그것이 전리품으로 채점된다.
 
-> **배포 시 조정 지점** — `owasp/modsecurity-crs`의 nginx 설정 반영 위치(`conf.d` vs `templates`),
-> ModSecurity 규칙 경로, Suricata 인터페이스 이름은 실제 이미지에 맞춰 한 번 확인해야 한다.
+> **이미지 태그** — 실존 최신(`:nginx` / `:latest`)을 쓴다. 설계가 겨눈 '취약 버전'(CRS 3.3.x 우회·
+> Suricata 회피 CVE) 고정은 버전 핀 작업으로 추후 정밀화한다 — 1단계 역할(유일 진입점·로그 관측)은 버전 무관.
 
 ## 존 격리 (NetworkPolicy, 4a)
 
@@ -79,8 +81,8 @@
 | Samba | `vulhub/samba:4.6.3` | CVE-2017-7494 (SambaCry) | 쓰기 공유에 악성 .so 로드 |
 | Redis | `vulhub/redis:4.0.14` | 무인증 | MODULE LOAD / dir+dbfilename RCE |
 | Jenkins | `vulhub/jenkins:2.138` | CVE-2018-1000861 | Stapler 코드실행 + 스크립트 콘솔 |
-| WAF | `owasp/modsecurity-crs:3.3.0-nginx` | CVE-2021-35368 / 42717 | CRS 룰 우회 / 엔진 DoS |
-| IDS | `jasonish/suricata:4.0.3` | CVE-2018-6794 | TCP 스트림 탐지 회피 |
+| WAF | `owasp/modsecurity-crs:nginx` | (버전 핀 추후) CRS 룰 우회 / 엔진 DoS | 설계 의도 — 공격자가 우회·DoS |
+| IDS | `jasonish/suricata:latest` | (버전 핀 추후) 탐지 회피 | 설계 의도 — 공격자가 탐지 회피 |
 
 > Samba는 설계서 4.5.9 → VulHub 공식 재현 이미지 **4.6.3**을 따른다(둘 다 취약).
 

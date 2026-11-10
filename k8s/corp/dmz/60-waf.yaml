@@ -1,12 +1,16 @@
-# corp DMZ — WAF (ModSecurity 3.0.5 + CRS 3.3.0) + IDS 사이드카 (Suricata 4.0.3)
-# ① WAF: owasp/modsecurity-crs nginx 리버스프록시. corp-ext → WAF → Tomcat/Solr (유일 진입점).
-#    취약: CRS 3.3.0 우회(CVE-2021-35368) · ModSecurity 3.0.5 요청본문 DoS(CVE-2021-42717).
-# ② IDS: Suricata 를 WAF 파드 사이드카로(같은 netns eth0 감시) → '진입 트래픽'을 관측한다(②-가).
-#    내부 측면이동의 셸·프로세스는 Falco(5단계)가 본다. 취약: 탐지 회피(CVE-2018-6794).
-#    role=defense-appliance 로 역할을 표시(corp-defense 는 로그 수집·Falco 용, 5단계).
-# ※ 1단계: 방어자(VM D)는 이 장비를 '운용'하지 않는다 — 로그만 방어 관측에 쓴다.
-# ※ [배포 시 조정] owasp 이미지의 nginx 설정 반영 위치(conf.d vs templates), ModSecurity 규칙
-#   경로(/etc/modsecurity.d/setup.conf), Suricata 인터페이스 이름은 실제 이미지에 맞춰 확인한다.
+# corp DMZ — WAF (ModSecurity + OWASP CRS) + IDS 사이드카 (Suricata)
+# ① WAF: owasp/modsecurity-crs:nginx 리버스프록시. corp-ext → WAF → Tomcat/Solr (유일 진입점).
+#    설정 반영은 '템플릿' 경로(/etc/nginx/templates/conf.d/default.conf.template)에 넣는다.
+#    이미지가 이 템플릿을 conf.d/default.conf 로 생성하므로, 과거처럼 default.conf 를
+#    읽기전용으로 덮어써 생기던 CrashLoop(Read-only file system)이 사라진다.
+#    nginx 변수($host 등)는 이미지 envsubst 가 '정의된 환경변수'만 치환하므로 그대로 보존된다.
+# ② IDS: Suricata 를 WAF 파드 사이드카로 붙여 같은 네트워크 공간(eth0)의 진입 트래픽을 관측한다.
+#    설정은 /etc/suricata 를 덮어쓰지 않고 /config/suricata.yaml 에 두고 -c 로 가리킨다
+#    → 이미지 엔트리포인트의 /etc/suricata chown 과 겹치지 않아 권한 충돌이 없다.
+#    관측 전용(IDS, 차단 아님)이라 물리 인터페이스가 아니어도 동작한다(IPS copy-mode 미사용).
+#    role=defense-appliance 로 '방어 장비' 표시 — 1단계에선 방어자(VM D)가 운용하지 않고 로그만 쓴다.
+# ※ 이미지 태그는 실존 최신(owasp/modsecurity-crs:nginx, jasonish/suricata:latest).
+#   설계가 겨눈 '취약 버전'(CRS 3.3.x 우회·Suricata 회피) 고정은 태그 핀 작업으로 추후 정밀화.
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -14,7 +18,9 @@ metadata:
   name: waf-nginx-conf
   namespace: corp-dmz
 data:
-  default.conf: |
+  # 템플릿으로 들어가 conf.d/default.conf 로 생성된다. ModSecurity 활성(modsecurity on)·
+  # CRS 셋업(/etc/modsecurity.d/setup.conf)은 owasp 이미지 표준 경로.
+  default.conf.template: |
     server {
         listen 8080;
         server_name _;
@@ -22,11 +28,13 @@ data:
         modsecurity on;
         modsecurity_rules_file /etc/modsecurity.d/setup.conf;
 
+        # Solr 는 /solr/ 하위로 (Log4Shell 입구)
         location /solr/ {
             proxy_pass http://solr:8983;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
         }
+        # 그 외는 Tomcat (PUT 웹셸·Ghostcat 입구)
         location / {
             proxy_pass http://tomcat:8080;
             proxy_set_header Host $host;
@@ -48,17 +56,18 @@ data:
         cluster-id: 99
         cluster-type: cluster_flow
         defrag: yes
-    default-rule-path: /etc/suricata/rules
-    rule-files:
-      - suricata.rules
+    # 규칙은 1단계에선 비움(진입 트래픽 http/flow 관측이 목적). alert 규칙은 suricata-update 로 추후.
+    default-rule-path: /var/lib/suricata/rules
+    rule-files: []
     outputs:
       - eve-log:
           enabled: yes
           filetype: regular
           filename: /var/log/suricata/eve.json
           types:
-            - alert
             - http
+            - flow
+            - alert
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -76,32 +85,39 @@ spec:
     spec:
       containers:
         - name: waf
-          image: owasp/modsecurity-crs:nginx          # 임시: 3.3.0-nginx 태그 없음 → 실존 태그. 취약버전(CRS 3.3.x) 정밀화 추후
+          image: owasp/modsecurity-crs:nginx
+          env:
+            - { name: MODSEC_RULE_ENGINE, value: "On" }   # 차단 동작(기본 On, 명시)
+            - { name: PORT, value: "8080" }               # 비권한 유저 기본 포트
           ports:
             - { containerPort: 8080 }
           volumeMounts:
-            - name: nginx-conf
-              mountPath: /etc/nginx/conf.d/default.conf
-              subPath: default.conf
+            - name: nginx-template
+              mountPath: /etc/nginx/templates/conf.d/default.conf.template
+              subPath: default.conf.template
           readinessProbe:
             tcpSocket: { port: 8080 }
             initialDelaySeconds: 10
             periodSeconds: 5
         - name: ids
-          image: jasonish/suricata:latest          # 임시: 4.0.3 태그 없음 → 실존 태그. 취약버전(Suricata 4.0.x) 정밀화 추후
-          args: ["-i", "eth0"]
+          image: jasonish/suricata:latest
+          args: ["-c", "/config/suricata.yaml", "-i", "eth0"]   # /etc/suricata 안 건드림 → 권한 충돌 없음
           securityContext:
             capabilities:
               add: ["NET_ADMIN", "NET_RAW", "SYS_NICE"]
           volumeMounts:
             - name: suricata-conf
-              mountPath: /etc/suricata/suricata.yaml
-              subPath: suricata.yaml
+              mountPath: /config
+              readOnly: true
+            - name: suricata-log
+              mountPath: /var/log/suricata
       volumes:
-        - name: nginx-conf
+        - name: nginx-template
           configMap: { name: waf-nginx-conf }
         - name: suricata-conf
           configMap: { name: ids-suricata-conf }
+        - name: suricata-log
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
