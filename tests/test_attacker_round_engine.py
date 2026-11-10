@@ -219,6 +219,35 @@ def test_round2_marks_touched_assets_in_situation():
     assert "payments-api [untouched]" in u
 
 
+# ── KG 가시성: 태세 로그에 KG 연결/후보 수가 찍힌다(1차 플래너 KG 사용 여부 노출) ──
+def test_kg_visibility_in_situation_log():
+    from attacker.assets_fake import InMemoryAssetGraph
+
+    class _P:                                   # 빈 의도 반환(웨이브 1회로 종료)
+        def chat_text(self, system, user, **kw):
+            return '{"intents": []}'
+
+    # (1) kg_lookup 미연결 → "KG미연결"
+    logs1: list = []
+    g1 = InMemoryGraph(episode=1); ag1 = InMemoryAssetGraph(episode=1)
+    ag1.add_asset("service", "internal-wiki")
+    AttackRound(attacker_llm=_WorkLLM(), planner_llm=_P(), runner=_R(),
+                scope_policy=default_policy(), cfg=_cfg(), log=logs1.append
+                ).run(_start(), episode=1, round=1, graph=g1, asset_graph=ag1, kg_lookup=None)
+    assert any("KG미연결" in m for m in logs1), logs1
+
+    # (2) kg_lookup 이 후보 2줄 반환 → "KG후보 2개"
+    logs2: list = []
+    g2 = InMemoryGraph(episode=1); ag2 = InMemoryAssetGraph(episode=1)
+    ag2.add_asset("service", "internal-wiki")
+    kg2 = lambda _ag: ("- T1552 creds (conf 0.80; matches: wiki; via CVE-1)\n"
+                       "- T1078 valid-acct (conf 0.60; matches: sa; via CVE-2)")
+    AttackRound(attacker_llm=_WorkLLM(), planner_llm=_P(), runner=_R(),
+                scope_policy=default_policy(), cfg=_cfg(), log=logs2.append
+                ).run(_start(), episode=1, round=1, graph=g2, asset_graph=ag2, kg_lookup=kg2)
+    assert any("KG후보 2개" in m for m in logs2), logs2
+
+
 # ── _asset_situation: 없거나 비면 발판 줄로 폴백(기존 동작 호환) ──
 def test_asset_situation_empty_falls_back_to_foothold():
     from attacker.assets_fake import InMemoryAssetGraph

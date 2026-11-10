@@ -202,8 +202,12 @@ class AttackRound:
             if asset_graph is not None:
                 all_assets = asset_graph.assets(limit=200)
                 n_untouched = sum(1 for a in all_assets if a.id not in touched)
+                # KG 가시성: 플래너가 실제로 KG 후보를 받았는지 저널에 노출. kg_lookup 미연결
+                # (graph_backend≠neo4j)=KG미연결 / 연결됐으나 매칭 0=후보 0개 / 실제 기여=후보 N개.
+                n_kg = len([ln for ln in kg_block.splitlines() if ln.strip()])
+                kg_note = (f" · KG후보 {n_kg}개" if kg_lookup is not None else " · KG미연결")
                 self.log(f"[round r{round}] wave {waves+1}: 태세 → 자산 {len(all_assets)}개"
-                         f"(미탐색 {n_untouched}) · 지난라운드침해 {len(prior_finding_ids)}건")
+                         f"(미탐색 {n_untouched}) · 지난라운드침해 {len(prior_finding_ids)}건{kg_note}")
             plan = planner.plan(graph, assets_block=assets_block, kg_block=kg_block,
                                 prior_findings_block=prior_block, default_parent=goal_id,
                                 timeout=max(5.0, deadline - self.clock()))   # 마감 넘겨 늘어지지 않게
