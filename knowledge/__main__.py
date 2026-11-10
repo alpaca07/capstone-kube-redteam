@@ -23,6 +23,7 @@ import json
 import os
 import re
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -79,16 +80,36 @@ def fetch(source: str, data_dir: str | None):
 NVD_API = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 
 
-def _nvd_get(params: dict) -> dict:
-    """NVD API 2.0 한 번 호출. 키 있으면 헤더로(레이트리밋 완화). 환경변수 NVD_API_KEY."""
+def _nvd_get(params: dict, *, retries: int = 6) -> dict:
+    """NVD API 2.0 한 번 호출. 키 있으면 헤더로(레이트리밋 완화). 환경변수 NVD_API_KEY.
+    429(레이트리밋)·일시 네트워크 오류는 백오프 재시도(429 는 Retry-After 헤더 존중)."""
     headers = {}
     key = os.environ.get("NVD_API_KEY")
     if key:
         headers["apiKey"] = key
     url = NVD_API + "?" + urllib.parse.urlencode(params)
-    req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        return json.loads(resp.read())
+    for attempt in range(retries + 1):
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt < retries:
+                wait = int((e.headers or {}).get("Retry-After") or 0) or min(45, 8 * (attempt + 1))
+                print(f"  [nvd] 429 레이트리밋 — {wait}s 대기 후 재시도 ({attempt + 1}/{retries}). "
+                      f"키 없으면 느림: NVD_API_KEY 발급 권장", flush=True)
+                time.sleep(wait)
+                continue
+            raise
+        except (urllib.error.URLError, TimeoutError) as e:
+            if attempt < retries:
+                wait = min(45, 8 * (attempt + 1))
+                print(f"  [nvd] 일시 오류 {type(e).__name__} — {wait}s 후 재시도 "
+                      f"({attempt + 1}/{retries})", flush=True)
+                time.sleep(wait)
+                continue
+            raise
+    return {}   # 도달 불가(위에서 return/raise)
 
 
 def _nvd_collect_cpe(cpe_match: str, sleep: float) -> list:

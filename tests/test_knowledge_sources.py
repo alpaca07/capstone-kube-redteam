@@ -171,6 +171,36 @@ def test_nvd_targets_from_allowlist():
     assert "cpe:2.3:a:f5:nginx" in t and "cpe:2.3:a:nginx:nginx" in t   # 한 제품 여러 vendor
 
 
+def test_nvd_get_retries_on_429():
+    """NVD 429(레이트리밋)를 백오프 후 재시도해 성공으로 잇는지(견고성)."""
+    import io
+    import urllib.error as uerr
+    import knowledge.__main__ as M
+    calls = {"n": 0}
+
+    class _Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b'{"vulnerabilities": [], "totalResults": 0}'
+
+    def fake_urlopen(req, timeout=0):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise uerr.HTTPError(req.full_url, 429, "rate", {"Retry-After": "0"}, io.BytesIO(b""))
+        return _Resp()
+
+    orig_open, orig_sleep = M.urllib.request.urlopen, M.time.sleep
+    M.urllib.request.urlopen = fake_urlopen
+    M.time.sleep = lambda s: None
+    try:
+        out = M._nvd_get({"cveId": "CVE-X"})
+    finally:
+        M.urllib.request.urlopen = orig_open
+        M.time.sleep = orig_sleep
+    assert calls["n"] == 2                                          # 429 → 재시도 → 성공
+    assert out == {"vulnerabilities": [], "totalResults": 0}
+
+
 def test_allowlist_real_file_loads_and_valid():
     path = _ROOT / "knowledge" / "cpe_allowlist.json"
     raw = json.loads(path.read_text(encoding="utf-8"))
