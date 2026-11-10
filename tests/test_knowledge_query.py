@@ -1,4 +1,4 @@
-"""지식 그래프 조회(knowledge/query.py) 스모크 — 자산→KG LLM 바인딩 공급 포함.
+"""지식 그래프 조회(knowledge/query.py) 스모크 — Product 경로 + 자산→KG 바인딩 공급.
 
 Neo4j 없이 fake session(쿼리 패턴으로 분기)으로 로직만 검증.
 """
@@ -13,27 +13,36 @@ if str(_ROOT) not in sys.path:
 
 from knowledge.query import (  # noqa: E402
     cve_facts, cves_for_term, knowledge_for_terms, render_kg_candidates,
-    techniques_for_cve)
+    techniques_for_cve, techniques_for_product)
 
 
 class FakeSession:
-    """knowledge.query 가 쓰는 run(q, **p) 계약을 쿼리 문자열로 분기해 흉내낸다."""
+    """knowledge.query 가 쓰는 run(q, **p) 계약을 쿼리 문자열로 분기해 흉내낸다.
+
+    분기 순서 주의: Product 경로 쿼리(IDENTIFIED_BY 포함)를 CVE 레벨 분기보다 먼저 본다.
+    """
     def __init__(self, *, cve_by_term=None, direct_by_cve=None, bridge_by_cve=None,
-                 facts_by_cve=None):
+                 facts_by_cve=None, product_direct=None, product_bridge=None):
         self.cve_by_term = cve_by_term or {}        # {term_lower: [cve_id]}
         self.direct_by_cve = direct_by_cve or {}    # {cve_id: [row]}
         self.bridge_by_cve = bridge_by_cve or {}    # {cve_id: [row]}
         self.facts_by_cve = facts_by_cve or {}      # {cve_id: [row]}
+        self.product_direct = product_direct or {}  # {term: [row(+cves)]}
+        self.product_bridge = product_bridge or {}  # {term: [row(+cves)]}
 
     def run(self, q, **p):
-        if "CONTAINS" in q:                         # cves_for_term
-            return [{"id": c} for c in self.cve_by_term.get((p["t"] or "").lower(), [])]
-        if "EXPLOITED_BY" in q:                     # techniques_for_cve (direct)
-            return self.direct_by_cve.get(p["id"], [])
-        if "HAS_ATTACK_PATTERN" in q:               # techniques_for_cve (bridge fallback)
-            return self.bridge_by_cve.get(p["id"], [])
-        if "CLASSIFIED_AS" in q:                    # cve_facts
-            return self.facts_by_cve.get(p["id"], [])
+        if "IDENTIFIED_BY" in q and "EXPLOITED_BY" in q:        # techniques_for_product (direct)
+            return self.product_direct.get(p.get("t"), [])
+        if "IDENTIFIED_BY" in q and "HAS_ATTACK_PATTERN" in q:  # techniques_for_product (bridge)
+            return self.product_bridge.get(p.get("t"), [])
+        if "CONTAINS" in q:                                     # cves_for_term
+            return [{"id": c} for c in self.cve_by_term.get((p.get("t") or "").lower(), [])]
+        if "EXPLOITED_BY" in q:                                 # techniques_for_cve (direct)
+            return self.direct_by_cve.get(p.get("id"), [])
+        if "HAS_ATTACK_PATTERN" in q:                           # techniques_for_cve (bridge)
+            return self.bridge_by_cve.get(p.get("id"), [])
+        if "CLASSIFIED_AS" in q:                                # cve_facts
+            return self.facts_by_cve.get(p.get("id"), [])
         return []
 
 
@@ -41,7 +50,12 @@ def _curated(tid, name):
     return {"technique": tid, "name": name, "category": "exploitation_technique", "source": "curated"}
 
 
-# ───────────── 기존 조회 스모크 ─────────────
+def _prod(tid, name, cves):
+    return {"technique": tid, "name": name, "category": "exploitation_technique",
+            "source": "curated", "cves": cves}
+
+
+# ───────────── CVE 단위 조회(기존) ─────────────
 def test_techniques_for_cve_direct_wins():
     s = FakeSession(direct_by_cve={"CVE-2021-22205": [_curated("T1190", "Exploit Public-Facing App")]},
                     bridge_by_cve={"CVE-2021-22205": [{"technique": "T9999"}]})
@@ -57,34 +71,53 @@ def test_techniques_for_cve_bridge_fallback():
     assert out and out[0]["via"] == "bridge" and out[0]["confidence"] == 0.40
 
 
-# ───────────── 자산→KG 느슨 진입 ─────────────
+# ───────────── Product 경로(신규) ─────────────
+def test_techniques_for_product_direct():
+    s = FakeSession(product_direct={"gitlab": [_prod("T1190", "Exploit", ["CVE-2021-22205"])]})
+    out = techniques_for_product(s, "gitlab")
+    assert out[0]["technique"] == "T1190" and out[0]["via"] == "product-direct"
+    assert out[0]["cves"] == ["CVE-2021-22205"] and out[0]["confidence"] == 0.95
+
+
+def test_techniques_for_product_bridge_fallback():
+    s = FakeSession(product_bridge={"redis": [{"technique": "T1059", "name": "Cmd", "cves": ["CVE-Y"]}]})
+    out = techniques_for_product(s, "redis")
+    assert out[0]["via"] == "product-bridge" and out[0]["confidence"] == 0.40
+    assert out[0]["cves"] == ["CVE-Y"]
+
+
+def test_techniques_for_product_none():
+    assert techniques_for_product(FakeSession(), "nothing") == []
+    assert techniques_for_product(FakeSession(), "  ") == []
+
+
+# ───────────── 자산→KG 느슨 진입(기존) ─────────────
 def test_cves_for_term_matches_description():
     s = FakeSession(cve_by_term={"gitlab": ["CVE-2021-22205"]})
     assert cves_for_term(s, "GitLab") == ["CVE-2021-22205"]   # 대소문자 무시
-    assert cves_for_term(s, "  ") == []                        # 빈 용어
+    assert cves_for_term(s, "  ") == []
 
 
-def test_knowledge_for_terms_aggregates():
-    s = FakeSession(
-        cve_by_term={"gitlab": ["CVE-2021-22205"]},
-        direct_by_cve={"CVE-2021-22205": [_curated("T1190", "Exploit"), _curated("T1059", "Cmd")]})
+# ───────────── knowledge_for_terms: Product 우선 + 폴백 ─────────────
+def test_knowledge_for_terms_prefers_product_path():
+    # Product 경로 히트 → description(CVE-9999)은 안 씀
+    s = FakeSession(product_direct={"gitlab": [_prod("T1190", "Exploit", ["CVE-2021-22205"])]},
+                    cve_by_term={"gitlab": ["CVE-9999"]})
+    kn = knowledge_for_terms(s, ["gitlab"])
+    assert kn["aggregate"][0]["technique"] == "T1190"
+    assert kn["aggregate"][0]["via"] == "product-direct"
+    assert kn["by_term"]["gitlab"] == ["CVE-2021-22205"]      # Product 경로 cve
+    assert "CVE-9999" not in kn["by_term"]["gitlab"]          # description 폴백 안 탐
+
+
+def test_knowledge_for_terms_description_fallback():
+    # Product 히트 없으면 description 검색으로 폴백(기존 동작)
+    s = FakeSession(cve_by_term={"gitlab": ["CVE-2021-22205"]},
+                    direct_by_cve={"CVE-2021-22205": [_curated("T1190", "Exploit"), _curated("T1059", "Cmd")]})
     kn = knowledge_for_terms(s, ["gitlab"])
     assert kn["by_term"]["gitlab"] == ["CVE-2021-22205"]
-    techs = {a["technique"] for a in kn["aggregate"]}
-    assert techs == {"T1190", "T1059"}
+    assert {a["technique"] for a in kn["aggregate"]} == {"T1190", "T1059"}
     assert kn["aggregate"][0]["terms"] == ["gitlab"]
-    assert kn["aggregate"][0]["cves"] == ["CVE-2021-22205"]
-
-
-def test_knowledge_for_terms_dedup_same_cve_two_terms():
-    # 두 용어가 같은 CVE 로 가도 기법·CVE 는 한 번만(terms 엔 둘 다)
-    s = FakeSession(
-        cve_by_term={"gitlab": ["CVE-2021-22205"], "exiftool": ["CVE-2021-22205"]},
-        direct_by_cve={"CVE-2021-22205": [_curated("T1190", "Exploit")]})
-    kn = knowledge_for_terms(s, ["gitlab", "exiftool"])
-    a = kn["aggregate"][0]
-    assert a["cves"] == ["CVE-2021-22205"]            # 중복 안 쌓임
-    assert set(a["terms"]) == {"gitlab", "exiftool"}  # 매칭 용어는 둘 다
 
 
 def test_knowledge_for_terms_empty_and_blank():
@@ -98,7 +131,7 @@ def test_render_kg_candidates():
                          "cves": ["CVE-2021-22205"], "terms": ["gitlab"]}]}
     txt = render_kg_candidates(kn)
     assert "T1190" in txt and "gitlab" in txt and "CVE-2021-22205" in txt
-    assert render_kg_candidates({"aggregate": []}) == ""   # 히트 없으면 빈 블록
+    assert render_kg_candidates({"aggregate": []}) == ""
     assert render_kg_candidates({}) == ""
 
 

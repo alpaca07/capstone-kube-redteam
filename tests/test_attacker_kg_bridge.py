@@ -29,11 +29,17 @@ class _AG:
 
 
 class _QSess:
-    """knowledge.query 계약(run)을 쿼리 패턴으로 분기하는 fake."""
+    """knowledge.query 계약(run)을 쿼리 패턴으로 분기하는 fake. Product 경로 우선 반영."""
     def run(self, q, **p):
-        if "CONTAINS" in q:
+        if "IDENTIFIED_BY" in q and "EXPLOITED_BY" in q:       # techniques_for_product (direct)
+            return ([{"technique": "T1190", "name": "Exploit", "category": "exploitation_technique",
+                      "source": "curated", "cves": ["CVE-2021-22205"]}]
+                    if "gitlab" in (p.get("t") or "").lower() else [])
+        if "IDENTIFIED_BY" in q:                               # techniques_for_product (bridge)
+            return []
+        if "CONTAINS" in q:                                    # cves_for_term (폴백)
             return [{"id": "CVE-2021-22205"}] if "gitlab" in (p.get("t") or "").lower() else []
-        if "EXPLOITED_BY" in q:
+        if "EXPLOITED_BY" in q:                                # techniques_for_cve
             return [{"technique": "T1190", "name": "Exploit", "category": "exploitation_technique",
                      "source": "curated"}]
         return []

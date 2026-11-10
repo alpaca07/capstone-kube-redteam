@@ -110,35 +110,85 @@ def cves_for_term(session: Session, term: str, limit: int = 25) -> list[str]:
     return [r["id"] for r in rows if r.get("id")]
 
 
+def techniques_for_product(session: Session, term: str) -> list[dict]:
+    """제품 용어(이름·벤더·id 조각) → Product 노드 → CPE → CVE → 기법(직접매핑 우선, 브리지 폴백).
+
+    자산을 Product 노드로 조인하는 '정확 경로' — CVE 설명 텍스트 검색(cves_for_term)보다 정확·빠르다
+    (그래프 조인). 기법에 안 닿는 끊긴 CVE 는 자동 제외된다. 반환은 techniques_for_cve 와 같은 모양에
+    근거 cves(제품의 어느 CVE 를 통했나, 최대 5개)를 더 단다. 입력은 파라미터 바인딩(주입 차단).
+    """
+    t = (term or "").strip()
+    if not t:
+        return []
+    direct = _rows(session.run(
+        "MATCH (p:Product)-[:IDENTIFIED_BY]->(:CPE)-[:AFFECTED_BY]->(c:CVE)-[e:EXPLOITED_BY]->(tech) "
+        "WHERE p.name=$t OR p.vendor=$t OR toLower(p.id) CONTAINS toLower($t) "
+        "RETURN DISTINCT tech.id AS technique, tech.name AS name, e.category AS category, "
+        "e.source AS source, collect(DISTINCT c.id)[..5] AS cves", t=t))
+    if direct:
+        out = [{"technique": r["technique"], "name": r.get("name"), "via": "product-direct",
+                "category": r.get("category"), "source": r.get("source"),
+                "confidence": _SOURCE_CONF.get(r.get("source"), 0.6), "cves": r.get("cves") or []}
+               for r in direct]
+        out.sort(key=lambda x: x["confidence"], reverse=True)
+        return out
+    bridge = _rows(session.run(
+        "MATCH (p:Product)-[:IDENTIFIED_BY]->(:CPE)-[:AFFECTED_BY]->(c:CVE)-[:CLASSIFIED_AS]->(w:CWE)"
+        "-[:HAS_ATTACK_PATTERN]->(:CAPEC)-[:MAPS_TO]->(tech) "
+        "WHERE (p.name=$t OR p.vendor=$t OR toLower(p.id) CONTAINS toLower($t)) "
+        "AND NOT coalesce(w.is_generic,false) "
+        "RETURN DISTINCT tech.id AS technique, tech.name AS name, collect(DISTINCT c.id)[..5] AS cves",
+        t=t))
+    return [{"technique": r["technique"], "name": r.get("name"), "via": "product-bridge",
+             "source": "cwe-capec", "confidence": _BRIDGE_CONF, "cves": r.get("cves") or []}
+            for r in bridge]
+
+
 def knowledge_for_terms(session: Session, terms: Iterable[str]) -> dict:
     """여러 관측 용어 → 후보 기법 집계(플래너 situation 공급, LLM 바인딩용).
 
-    각 용어로 CVE(설명 매칭)를 찾아 그 CVE 의 기법을 모은다. 플래너 LLM 이 자산과 이 후보를
-    묶어 intent 의 technique 를 고른다(히트 없으면 자기 지식 폴백 — 기계 조인에 안 가둠).
+    각 용어마다 ① Product 그래프 경로(techniques_for_product, 정확)를 먼저 시도하고, 히트가 없으면
+    ② CVE 설명 텍스트 검색(cves_for_term, 거침)으로 폴백한다. 플래너 LLM 이 자산과 이 후보를 묶어
+    intent 의 technique 를 고른다(둘 다 비면 자기 지식 폴백 — 기계 조인에 안 가둠).
     반환: {by_term:{term:[cve..]}, aggregate:[{technique,name,confidence,via,cves,terms}]}
-    (aggregate 는 신뢰도 내림차순). 같은 CVE 가 여러 용어에 걸려도 기법은 한 번만 센다.
+    (aggregate 는 신뢰도 내림차순). 같은 (CVE,기법)은 한 번만 센다.
     """
     by_term: dict[str, list] = {}
     agg: dict[str, dict] = {}
     seen_cve_tech: set[tuple] = set()      # (cve, technique) 중복 집계 방지
+
+    def _accum(tech: dict, term: str) -> None:
+        a = agg.setdefault(tech["technique"], {
+            "technique": tech["technique"], "name": tech.get("name"),
+            "confidence": 0.0, "via": tech.get("via"), "cves": [], "terms": []})
+        a["confidence"] = max(a["confidence"], tech["confidence"])
+        for cve in tech.get("cves") or []:
+            if (cve, tech["technique"]) not in seen_cve_tech:
+                seen_cve_tech.add((cve, tech["technique"]))
+                if cve not in a["cves"]:
+                    a["cves"].append(cve)
+        if term not in a["terms"]:
+            a["terms"].append(term)
+
     for term in terms:
         t = (term or "").strip()
         if not t or t in by_term:
             continue
+        # ① Product 그래프 경로 우선(정확): Product→CPE→CVE→기법
+        techs = techniques_for_product(session, t)
+        if techs:
+            by_term[t] = sorted({c for th in techs for c in (th.get("cves") or [])})
+            for tech in techs:
+                _accum(tech, t)
+            continue
+        # ② description 텍스트 검색 폴백(거침): CVE 설명에 용어가 든 것
         cids = cves_for_term(session, t)
         by_term[t] = cids
         for cve in cids:
             for tech in techniques_for_cve(session, cve):
-                a = agg.setdefault(tech["technique"], {
-                    "technique": tech["technique"], "name": tech.get("name"),
-                    "confidence": 0.0, "via": tech.get("via"), "cves": [], "terms": []})
-                a["confidence"] = max(a["confidence"], tech["confidence"])
-                if (cve, tech["technique"]) not in seen_cve_tech:
-                    seen_cve_tech.add((cve, tech["technique"]))
-                    if cve not in a["cves"]:
-                        a["cves"].append(cve)
-                if t not in a["terms"]:
-                    a["terms"].append(t)
+                tech = dict(tech)
+                tech["cves"] = [cve]          # 통일(techniques_for_cve 는 단일 cve 조회)
+                _accum(tech, t)
     aggregate = sorted(agg.values(), key=lambda x: x["confidence"], reverse=True)
     return {"by_term": by_term, "aggregate": aggregate}
 
