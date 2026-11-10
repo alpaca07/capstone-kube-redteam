@@ -58,9 +58,12 @@ finished to the goal is worth more than ten new assets merely mapped.
 - Each intent gets a MITRE ATT&CK technique id in a "technique" field when one fits \
 (e.g. T1552, T1078, T1046); use "" if none fits.
 - RELEVANT KNOWLEDGE, when shown, lists candidate ATT&CK techniques the knowledge base \
-associates with the observed assets (with the asset terms and CVEs that matched). Treat \
-these as hints: when a candidate fits the asset and direction, reuse its technique id; if \
-none fits, fall back to your own judgement. The list is advisory — never invent CVEs from it.
+associates with the observed assets (with a confidence, the asset terms, and CVEs that \
+matched). Treat these as hints: when a candidate fits the asset and direction, reuse its \
+technique id; if none fits, fall back to your own judgement. Confidence matters — high \
+(~0.9) means a direct, curated mapping worth trusting; low (~0.2) is a weak bridge guess \
+that is often off, so reuse it ONLY when it plainly matches the asset and ignore the rest. \
+The list is advisory — never invent CVEs from it.
 - "from": list the fact id numbers (the #N shown in RECENT FACTS) that THIS intent \
 builds on — i.e. the observations that made you choose this direction. Use [] only \
 for the opening move when there are no facts yet. This links each new direction to \

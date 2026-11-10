@@ -68,7 +68,7 @@ def test_techniques_for_cve_bridge_fallback():
     s = FakeSession(bridge_by_cve={"CVE-X": [
         {"technique": "T1059", "name": "Cmd", "via_cwe": "CWE-94", "via_capec": "CAPEC-242"}]})
     out = techniques_for_cve(s, "CVE-X")
-    assert out and out[0]["via"] == "bridge" and out[0]["confidence"] == 0.40
+    assert out and out[0]["via"] == "bridge" and out[0]["confidence"] == 0.20
 
 
 # ───────────── Product 경로(신규) ─────────────
@@ -82,7 +82,7 @@ def test_techniques_for_product_direct():
 def test_techniques_for_product_bridge_fallback():
     s = FakeSession(product_bridge={"redis": [{"technique": "T1059", "name": "Cmd", "cves": ["CVE-Y"]}]})
     out = techniques_for_product(s, "redis")
-    assert out[0]["via"] == "product-bridge" and out[0]["confidence"] == 0.40
+    assert out[0]["via"] == "product-bridge" and out[0]["confidence"] == 0.20
     assert out[0]["cves"] == ["CVE-Y"]
 
 

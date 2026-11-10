@@ -16,9 +16,11 @@ from typing import Iterable
 
 from .graph_writer import Session   # Protocol: run(query, **params)
 
-# 직접 매핑 출처별 신뢰도(플래너 가중치용). 브리지는 0.4 고정.
+# 직접 매핑 출처별 신뢰도(플래너 가중치용).
 _SOURCE_CONF = {"curated": 0.95, "kev": 0.90, "ctid": 0.70, "llm": 0.50}
-_BRIDGE_CONF = 0.40
+# 브리지(약점→공격패턴→기법)는 '가능성 범위'라 노이즈가 섞인다 → 낮게(약한 힌트). 플래너가
+# 자산에 명백히 맞을 때만 쓰고 아니면 무시하도록, 직접 매핑과 큰 차를 둔다.
+_BRIDGE_CONF = 0.20
 
 
 def _rows(result) -> list[dict]:
