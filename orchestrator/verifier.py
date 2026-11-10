@@ -6,7 +6,7 @@
 판정 설계(POST-only) — 왜 이렇게:
   - 검증은 두 축으로 나뉜다. ① '공격이 진짜 목표에 도달했나' = 값-flag 대조(공격 턴에서 끝남,
     위조 불가). ② '패치가 그 공격을 막나' = 여기, POST 재생.
-  - POST: 패치된 '라이브' 클러스터에 공격 대본을 그대로 재실행 → 여전히 flag 도달하면 막은 척
+  - POST: 패치된 '라이브' 클러스터에 공격 대본을 그대로 재실행 → 여전히 flag 도달하면 무효 패치
     (FAKE_PATCH), 못 도달하면 진짜 차단(BLOCKED). 이게 '이 공격이 막혔나'의 직접 측정이다.
   - '패치 전엔 통한다'(PRE 대조군)는 이번 라운드 '실공격이 방금 성공'(값-flag 대조로 검증됨)이
     증명한다 → 별도 PRE 재생/리셋 불필요. 결정론 재생이라 거짓 BLOCKED 위험도 낮다.
@@ -107,7 +107,7 @@ class VerificationEngine:
             return VerificationResult(
                 verdict=Verdict.FAKE_PATCH, method="replay-crown", post=post,
                 flags_still_reachable=reached,
-                detail=f"재생 후 크라운 재도달 {sorted(crowns)} → 공격 여전히 통함(가짜 패치)")
+                detail=f"재생 후 크라운 재도달 {sorted(crowns)} → 공격 재현됨(무효 패치)")
         return VerificationResult(
             verdict=Verdict.BLOCKED, method="replay-crown", post=post,
             detail="재생 후 크라운 재도달 없음 → 패치가 이 공격을 차단")

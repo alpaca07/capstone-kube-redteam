@@ -31,9 +31,9 @@
   var C = { atk: "#e5484d", def: "#3b82f6", sys: "#64748b", crown: "#e5920b",
     ok: "#0ea371", teal: "#0d9488", grid: "#e3e8ee", muted: "#8a97ab" };
   var VERDICT = {
-    blocked: { label: "막음(차단)", color: C.ok, cls: "b-ok" },
-    fake_patch: { label: "헛방(안 막힘)", color: C.atk, cls: "b-atk" },
-    not_blocked: { label: "여전히 취약", color: C.atk, cls: "b-atk" },
+    blocked: { label: "차단", color: C.ok, cls: "b-ok" },
+    fake_patch: { label: "무효 패치", color: C.atk, cls: "b-atk" },
+    not_blocked: { label: "미차단", color: C.atk, cls: "b-atk" },
     inconclusive: { label: "판정 불가", color: C.sys, cls: "b-sys" }
   };
   // 핵심 자산 식별자 → 쉬운 말
@@ -252,11 +252,11 @@
     var a = agg(), ev = evolution();
     var tiles = [
       { k: "핵심정보 유출", v: a.crownRounds + "회", sub: "전체 " + a.nrounds + "라운드 중 " + pct(a.crownRate), cls: a.crownRounds ? "accent-atk" : "accent-ok", dot: a.crownRounds ? C.atk : C.ok },
-      { k: "공격 차단율", v: pct(a.blockRate), sub: "실제로 막아낸 비율 (검증 " + a.decided + "건)", cls: "accent-ok", dot: C.ok },
-      { k: "막은 척 비율", v: pct(a.fakeRate), sub: "패치했지만 안 막힌 경우 " + a.fake + "건", cls: a.fake ? "accent-atk" : "accent-ok", dot: C.atk },
+      { k: "공격 차단율", v: pct(a.blockRate), sub: "검증상 차단된 비율 (검증 " + a.decided + "건)", cls: "accent-ok", dot: C.ok },
+      { k: "무효 패치율", v: pct(a.fakeRate), sub: "패치 적용에도 미차단 " + a.fake + "건", cls: a.fake ? "accent-atk" : "accent-ok", dot: C.atk },
       { k: "서비스 정상", v: pct(a.avail), sub: "패치 후에도 서비스 살아있는 비율", cls: "accent-def", dot: C.def },
       { k: "공격 탐지율", v: pct(a.recall), sub: "놓친 공격 " + a.det.fn + "건", cls: "accent-teal", dot: C.teal },
-      { k: "최대 침투 단계", v: a.depth ? a.depth + "단계" : "—", sub: "공격이 어디까지 뚫었나 (최대 4)", cls: "accent-crown", dot: C.crown }
+      { k: "최대 침투 단계", v: a.depth ? a.depth + "단계" : "—", sub: "공격자 최대 도달 단계 (최대 4)", cls: "accent-crown", dot: C.crown }
     ];
     var tileHtml = tiles.map(function (t) {
       return '<div class="tile ' + t.cls + '"><div class="tile-k"><span class="tag-dot" style="background:' + t.dot + '"></span>' + t.k + '</div>' +
@@ -266,12 +266,12 @@
     var evoCard = '<div class="card"><div class="card-h">공격 성공률 vs 방어 성공률</div>' +
       lineChart([{ color: C.def, points: ev.map(function (e) { return e.def; }) },
         { color: C.atk, points: ev.map(function (e) { return e.atk; }) }], Math.max(ev.length, 1), { pct: true }) +
-      '<div class="legend"><span><span class="tag-dot" style="background:' + C.def + '"></span>방어 성공 (공격을 막음)</span>' +
-      '<span><span class="tag-dot" style="background:' + C.atk + '"></span>공격 성공 (막은 척 뚫음)</span></div></div>';
+      '<div class="legend"><span><span class="tag-dot" style="background:' + C.def + '"></span>방어 성공 (차단)</span>' +
+      '<span><span class="tag-dot" style="background:' + C.atk + '"></span>공격 성공 (패치 우회)</span></div></div>';
 
     var vc = verdictCounts();
     var vcard = '<div class="card"><div class="card-h">검증 결과</div>' +
-      barChart([{ label: "막음", value: vc.blocked, color: C.ok }, { label: "헛방", value: vc.fake_patch, color: C.atk },
+      barChart([{ label: "차단", value: vc.blocked, color: C.ok }, { label: "무효 패치", value: vc.fake_patch, color: C.atk },
         { label: "판정불가", value: vc.inconclusive, color: C.sys }]) + "</div>";
 
     var hl = highlights();
@@ -288,11 +288,11 @@
     var out = [];
     S.rounds.forEach(function (r) {
       if ((r.crowns_reached_cum || []).length && r.verdict === "fake_patch")
-        out.push({ color: C.atk, text: "R" + r.round + ": 핵심정보가 뚫린 뒤 패치가 못 막음 (막은 척)",
+        out.push({ color: C.atk, text: "R" + r.round + ": 패치 적용에도 핵심정보 유출 — 무효 패치",
           meta: (r.crowns_reached_cum.map(crownLabel).join(", ")) + " · " + (r.reported_techniques || []).join(" ") });
       else if (r.verdict === "blocked" && (r.stages_reached || []).length >= 2)
-        out.push({ color: C.ok, text: "R" + r.round + ": 공격을 실제로 막아냄",
-          meta: "침투 " + Math.max.apply(null, r.stages_reached) + "단계까지 갔지만 차단" });
+        out.push({ color: C.ok, text: "R" + r.round + ": 공격 차단 확인",
+          meta: "침투 " + Math.max.apply(null, r.stages_reached) + "단계에서 차단" });
     });
     return out.slice(0, 5);
   }
@@ -306,7 +306,7 @@
 
     var vc = verdictCounts();
     var vcard = '<div class="card"><div class="card-h">검증 결과</div>' +
-      barChart([{ label: "막음", value: vc.blocked, color: C.ok }, { label: "헛방", value: vc.fake_patch, color: C.atk }, { label: "판정불가", value: vc.inconclusive, color: C.sys }]) + "</div>";
+      barChart([{ label: "차단", value: vc.blocked, color: C.ok }, { label: "무효 패치", value: vc.fake_patch, color: C.atk }, { label: "판정불가", value: vc.inconclusive, color: C.sys }]) + "</div>";
 
     var dcard = '<div class="card"><div class="card-h">공격 탐지 정확도</div>' +
       barChart([{ label: "정탐", value: a.det.tp, color: C.ok, sub: "맞게 탐지" }, { label: "오탐", value: a.det.fp, color: C.crown, sub: "잘못 탐지" }, { label: "미탐", value: a.det.fn, color: C.atk, sub: "놓침" }]) +
@@ -462,8 +462,8 @@
     var patch_set = techs.map(function (t) { var m = DEMO_TECH[t] || {}; return { kind: m.pk || "config", target: m.pt || "-", summary: m.ps || "설정 보강" }; });
     if (!patch_set.length && rec.verdict !== "inconclusive") patch_set = [{ kind: "networkpolicy", target: "internal", summary: "기본 격리 정책 보강" }];
     var still = (rec.verdict === "fake_patch" || rec.verdict === "not_blocked") ? (rec.crowns_reached_cum || []).slice() : [];
-    var detail = rec.verdict === "blocked" ? "재생해도 핵심 자산 재도달 실패 — 실제로 막힘"
-      : (rec.verdict === "fake_patch" || rec.verdict === "not_blocked") ? "재생하니 패치 우회로 핵심 자산 재유출 — 막은 척"
+    var detail = rec.verdict === "blocked" ? "재생 시 핵심자산 재도달 실패 — 차단 확인"
+      : (rec.verdict === "fake_patch" || rec.verdict === "not_blocked") ? "재생 시 패치 우회로 핵심자산 재유출 — 무효 패치"
       : "재생 불가·근거 부족으로 판정 보류";
     return {
       episode: rec.episode, round: rec.round,
@@ -479,7 +479,7 @@
   async function pageDefGraphRender() {
     var view = $("#view"), rounds = S.rounds;
     if (!rounds.length) {
-      view.innerHTML = '<p class="page-intro">방어자가 라운드마다 무엇을 탐지하고 패치했는지, 그게 검증에서 진짜 막혔는지 봅니다.</p>' +
+      view.innerHTML = '<p class="page-intro">방어자가 라운드마다 무엇을 탐지하고 패치했는지, 검증에서 실제 차단되었는지 확인합니다.</p>' +
         emptyState("🛡", "아직 방어 기록이 없습니다", "실험을 돌리면 라운드별 탐지 → 패치 → 검증 흐름이 여기 나타납니다.", []);
       return;
     }
@@ -519,7 +519,7 @@
 
     var still = v.flags_still_reachable || [];
     var vHtml = detail.verification ? '<div class="flow-item"><div class="fi-head">' + (vv ? '<span class="badge ' + vv.cls + '">' + vv.label + "</span>" : '<span class="chip">—</span>') + "</div>" +
-      '<div class="fi-ev">' + esc(v.detail || "") + "</div>" + (still.length ? '<div class="fi-ev" style="color:var(--atk)">여전히 뚫리는 핵심자산: ' + still.map(stillLabel).join(", ") + "</div>" : "") +
+      '<div class="fi-ev">' + esc(v.detail || "") + "</div>" + (still.length ? '<div class="fi-ev" style="color:var(--atk)">재유출 가능 핵심자산: ' + still.map(stillLabel).join(", ") + "</div>" : "") +
       '<div class="fi-tgt mono">' + esc(v.method || "") + "</div></div>" : '<div class="flow-empty">검증 기록 없음</div>';
 
     var punchCls = v.verdict === "blocked" ? "ok" : (v.verdict === "fake_patch" || v.verdict === "not_blocked") ? "atk" : "sys";
@@ -728,7 +728,7 @@
     var tiles = [
       ["라운드", e.rounds + "회", "", "accent-teal", C.teal],
       ["핵심정보 유출", crowns.length + "종", crowns.length ? crowns.map(crownLabel).join(", ") : "없음", crowns.length ? "accent-atk" : "accent-ok", crowns.length ? C.atk : C.ok],
-      ["진짜 차단", blocked + "회", "헛방 " + fake + "회", "accent-ok", C.ok],
+      ["차단", blocked + "회", "무효 패치 " + fake + "회", "accent-ok", C.ok],
       ["서비스 정상", pct(e.availability), "패치 후 가용성", "accent-def", C.def],
       ["공격 탐지율", pct(recall), "놓침 " + det.fn + "건", "accent-teal", C.teal],
       ["최고 침투", (e.max_flag_depth || 0) + "단계", "최대 4", "accent-crown", C.crown]
@@ -737,10 +737,10 @@
     }).join("");
 
     var narr = "총 " + e.rounds + "라운드를 진행했습니다. " +
-      (crowns.length ? "공격자가 핵심정보 " + crowns.length + "종(" + crowns.map(crownLabel).join(", ") + ")을 빼냈고, " : "공격자는 핵심정보를 빼내지 못했고, ") +
-      "방어는 " + blocked + "번 실제로 막았지만 " + fake + "번은 패치하고도 못 막았습니다(막은 척). " +
-      "공격 탐지율은 " + pct(recall) + ", 패치 후 서비스가 살아있던 비율은 " + pct(e.availability) + "입니다. " +
-      "공격은 최대 " + (e.max_flag_depth || 0) + "단계까지 들어왔습니다.";
+      (crowns.length ? "공격자가 핵심정보 " + crowns.length + "종(" + crowns.map(crownLabel).join(", ") + ")을 유출했고, " : "공격자는 핵심정보를 유출하지 못했고, ") +
+      "방어는 " + blocked + "회 차단에 성공했으나 " + fake + "회는 패치 적용에도 차단하지 못했습니다(무효 패치). " +
+      "공격 탐지율은 " + pct(recall) + ", 패치 후 서비스 정상 유지 비율은 " + pct(e.availability) + "입니다. " +
+      "공격자는 최대 " + (e.max_flag_depth || 0) + "단계까지 침투했습니다.";
 
     var reported = {}; rs.forEach(function (r) { (r.reported_techniques || []).forEach(function (t) { reported[t] = 1; }); });
     var repList = Object.keys(reported);
@@ -754,7 +754,7 @@
         reportLine("탐지 정확도", "정탐 " + det.tp + " · 오탐 " + det.fp + " · 놓침 " + det.fn) +
         reportLine("평균 탐지 소요", mttd.mean_rounds != null ? mttd.mean_rounds + "라운드" : "—") + "</div></div>";
 
-    var vbars = barChart([{ label: "막음", value: vc.blocked || 0, color: C.ok }, { label: "헛방", value: fake, color: C.atk }, { label: "판정불가", value: vc.inconclusive || 0, color: C.sys }]);
+    var vbars = barChart([{ label: "차단", value: vc.blocked || 0, color: C.ok }, { label: "무효 패치", value: fake, color: C.atk }, { label: "판정불가", value: vc.inconclusive || 0, color: C.sys }]);
     var rows = rs.map(function (r) {
       var vv = VERDICT[r.verdict], depth = (r.stages_reached || []).length ? Math.max.apply(null, r.stages_reached) : 0;
       return "<tr><td class='mono'>R" + r.round + "</td><td>" + (vv ? '<span class="badge ' + vv.cls + '">' + vv.label + "</span>" : esc(r.verdict)) + "</td><td class='mono'>" + ((r.reported_techniques || []).join(", ") || "—") + "</td><td class='mono'>" + depth + "단계</td><td>" + (r.healthcheck_passed ? '<span class="badge b-ok">정상</span>' : '<span class="badge b-atk">죽음</span>') + "</td></tr>";
