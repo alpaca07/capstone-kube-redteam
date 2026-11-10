@@ -6,7 +6,7 @@ fake 이음새로 회차 전체를 테스트할 수 있다(실제 VM/네트워�
 라운드 0~8:
   0 회차 init: VM B를 clean 베이스라인으로 revert
   1 공격 턴 (C→A): 탈옥 LLM ReAct → 결과 + 리플레이 대본
-  ★ 게이팅: 2·3·4~5는 공격이 플래그를 획득한 라운드에서만 실행. 미획득이면 전부 생략하고
+  ★ 게이팅: 2·3·4~5는 공격이 크라운(중요자산)을 반출한 라운드에서만 실행. 미반출이면 전부 생략하고
     바로 다음 라운드로 간다(공격 히스토리는 하네스가 라운드 간 자동 이월 → 이어서 더 깊이 판다).
     근거: 검증은 '성공한 공격이 막혔는지'를 재생으로 판정하므로, 성공한 공격이 없으면 pre 재생이
     목표에 도달 못 해 판정이 구조적으로 INCONCLUSIVE — 스냅샷·재생 비용만 들고 신호가 없다.
@@ -160,7 +160,7 @@ class TurnSequencer:
         scorer = Scorer(self.truth, episode, self.objectives, sink=self.sink)
         created_snaps: list[str] = []
         consecutive = 0
-        attacker_broke_through = False   # 이 회차에서 공격자가 한 번이라도 플래그를 획득했나(게이팅 사다리 기준)
+        attacker_broke_through = False   # 이 회차에서 공격자가 한 번이라도 크라운을 반출했나(게이팅 사다리 기준)
         end_reason = EpisodeEndReason.MAX_ROUNDS
 
         # 0.5 revert 후 VM B 재개/기동 대기. 라이브 스냅샷 revert는 VM을 잠깐 일시정지로
@@ -185,8 +185,8 @@ class TurnSequencer:
                     end_reason = EpisodeEndReason.ABORTED
                     break
 
-                # 게이팅 사다리: 플래그 획득(방어 개입) 라운드는 검증 판정으로 증감,
-                # 플래그 미획득 라운드는 '과거에 한 번이라도 뚫린 적 있으면' 방어가 막아낸 것으로 +1
+                # 게이팅 사다리: 크라운 반출(방어 개입) 라운드는 검증 판정으로 증감,
+                # 크라운 미반출 라운드는 '과거에 한 번이라도 뚫린 적 있으면' 방어가 막아낸 것으로 +1
                 # (아직 한 번도 못 뚫었으면 공격자 탐색중 → 카운터 불변).
                 if outcome.flag_found:
                     attacker_broke_through = True
@@ -285,18 +285,18 @@ class TurnSequencer:
             else:
                 verification = VerificationResult(
                     verdict=Verdict.INCONCLUSIVE, method="none",
-                    detail="플래그 보고됐으나 재생 대본이 비어 검증 불가")
+                    detail="크라운 도달했으나 재생 대본이 비어 검증 불가")
                 self._log(f"[ep{episode} R{rnd}] 3. 검증 생략(대본 없음) → 판정={verification.verdict.value}")
         else:
-            # 플래그 미획득 → 방어·검증·공격후 스냅샷 전부 생략. 합성 결과로 라운드 기록만 남긴다.
+            # 크라운 미반출 → 방어·검증·공격후 스냅샷 전부 생략. 합성 결과로 라운드 기록만 남긴다.
             defense = DefenseTurnResult(
                 patch_applied=False, end_reason=DefenseEndReason.SKIPPED,
-                patch_note="공격 실패(플래그 미획득) → 방어 미개입(게이팅)")
+                patch_note="크라운 미반출 → 방어 미개입(게이팅)")
             verification = VerificationResult(
                 verdict=Verdict.INCONCLUSIVE, method="skipped",
-                detail="공격 플래그 미획득 → 방어·검증 생략, 히스토리 이월 후 다음 라운드")
+                detail="크라운 미반출 → 방어·검증 생략, 히스토리 이월 후 다음 라운드")
             self._log(f"[ep{episode} R{rnd}] 2~3. 방어·검증 생략"
-                      f"(플래그 미획득) → 히스토리 이월, 다음 라운드")
+                      f"(크라운 미반출) → 히스토리 이월, 다음 라운드")
 
         t1 = time.time()
 

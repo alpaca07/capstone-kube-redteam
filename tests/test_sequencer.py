@@ -224,7 +224,7 @@ def test_run_experiment_multiple_episodes():
     assert ctx["snaps"].calls.count(("revert_to", "clean-baseline")) == 2   # 회차마다 리셋
 
 
-# ───────────── 게이팅(플래그 획득 시에만 방어+검증) ─────────────
+# ───────────── 게이팅(크라운 반출 시에만 방어+검증) ─────────────
 def _no_flag_result(reason: AttackEndReason = AttackEndReason.DEADEND) -> AttackTurnResult:
     """크라운 미반출 공격 결과(정찰/막다른 길) — 방어·검증이 생략돼야 한다."""
     return AttackTurnResult(end_reason=reason, replay_script=None,
@@ -271,7 +271,7 @@ def _gating_seq(results, *, crown_rounds, n_consec=2, max_rounds=10, force_crown
 
 
 def test_no_flag_round_skips_defense_verify_snapshot():
-    # 플래그 미획득 → 공격후 스냅샷·방어·검증 전부 생략, 라운드 기록만 남는다.
+    # 크라운 미반출 → 공격후 스냅샷·방어·검증 전부 생략, 라운드 기록만 남는다.
     seq, ctx = _gating_seq([_no_flag_result()], crown_rounds=[False], n_consec=99, max_rounds=1)
     s = seq.run_episode(1)
     snaps, defender, attacker, captured = (ctx["snaps"], ctx["defender"],
@@ -303,7 +303,7 @@ def test_without_force_crown_no_flag_still_skips():
 
 
 def test_gating_ladder_no_flag_before_and_after_breakthrough():
-    # R1·R2 미획득(탐색중)=안정화 안 됨 → R3 돌파+BLOCKED(consec=1) → R4 미획득이나
+    # R1·R2 미반출(탐색중)=안정화 안 됨 → R3 돌파+BLOCKED(consec=1) → R4 미반출이나
     # 과거 돌파가 있어 방어유지로 consec=2 → CONSECUTIVE_DEFENSE 종료.
     seq, ctx = _gating_seq(
         [_no_flag_result(), _no_flag_result(), _attack_result(), _no_flag_result()],

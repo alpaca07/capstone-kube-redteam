@@ -1,7 +1,8 @@
 """ReAct 루프 — 관측→추론→행동→관측 (공격 모드).
 
 탈옥 LLM이 다음 행동을 JSON으로 내면 execute_action(단일 통로)으로 실행하고, 결과를
-히스토리에 쌓아 다음 추론에 넣는다. 종료 3조건: 플래그 획득 / 시간 T 소진 / 막다른 길(give_up).
+히스토리에 쌓아 다음 추론에 넣는다. 종료 2조건: 시간 T 소진(TIMEOUT) / 막다른 길(give_up·max_steps
+= DEADEND). 플래그리스 — 성공 자기보고로 멈추지 않는다(최종 침해 판정은 심판이 크라운으로).
 LLM·실행은 주입(execute_action이 실행 손발) → fake로 전 루프 테스트.
 """
 from __future__ import annotations
