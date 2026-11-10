@@ -472,18 +472,20 @@
   function demoDetail(rec) {
     var techs = rec.reported_techniques || [];
     var detected = techs.map(function (t) { var m = DEMO_TECH[t] || {}; return { technique: t, evidence: m.ev || "의심 행위 관측", confidence: 0.55 + (t.length % 3) * 0.12 }; });
-    var patch_set = techs.map(function (t) { var m = DEMO_TECH[t] || {}; return { kind: m.pk || "config", target: m.pt || "-", summary: m.ps || "설정 보강" }; });
-    if (!patch_set.length && rec.verdict !== "inconclusive") patch_set = [{ kind: "networkpolicy", target: "internal", summary: "기본 격리 정책 보강" }];
+    var patch_set = techs.map(function (t) { var m = DEMO_TECH[t] || {}; return { kind: m.pk || "config", target: m.pt || "-", summary: m.ps || "설정 보강", manifest_ref: "patches/" + (m.pk || "config") + "-r" + rec.round + ".yaml" }; });
+    if (!patch_set.length && rec.verdict !== "inconclusive") patch_set = [{ kind: "networkpolicy", target: "internal", summary: "기본 격리 정책 보강", manifest_ref: "patches/netpol-r" + rec.round + ".yaml" }];
+    var attempts = patch_set.map(function (p) { return p.kind + " → " + p.target + " [applied] " + p.summary; });
     var still = (rec.verdict === "fake_patch" || rec.verdict === "not_blocked") ? (rec.crowns_reached_cum || []).slice() : [];
     var detail = rec.verdict === "blocked" ? "재생 시 핵심자산 재도달 실패 — 차단 확인"
       : (rec.verdict === "fake_patch" || rec.verdict === "not_blocked") ? "재생 시 패치 우회로 핵심자산 재유출 — 무효 패치"
       : "재생 불가·근거 부족으로 판정 보류";
+    var summary = "웨이브 2 · 탐지 " + detected.length + "건 · 침해 보고 " + (rec.crowns_reached_cum || []).length + "건";
     return {
       episode: rec.episode, round: rec.round,
-      attack: { end_reason: rec.attack_end_reason, flags_obtained: (rec.flags_reached_cum || []).map(function (f) { return { flag_id: f }; }) },
+      attack: { end_reason: rec.attack_end_reason, attack_summary: summary, flags_obtained: (rec.flags_reached_cum || []).map(function (f) { return { flag_id: f }; }) },
       defense: (rec.verdict === "inconclusive" && !patch_set.length) ? null : {
         patch_applied: rec.patch_applied, end_reason: rec.defense_end_reason,
-        detected: detected, patch_set: patch_set, healthcheck_passed: rec.healthcheck_passed, patch_attempts: [], patch_note: ""
+        detected: detected, patch_set: patch_set, healthcheck_passed: rec.healthcheck_passed, patch_attempts: attempts, patch_note: ""
       },
       verification: { verdict: rec.verdict, method: "replay-crown(재생 검증)", detail: detail, flags_still_reachable: still, post: { flags_reached: still } }
     };
@@ -502,6 +504,7 @@
     if (S.demo) detail = demoDetail(rec);
     else { var d = await jget("/api/round/" + (rec.episode || 1) + "/" + rec.round); detail = (d && (d.defense || d.verification)) ? d : demoDetail(rec); }
     if (route !== "defender-graph") return;
+    S.defDetail = detail; S.defRec = rec;
     view.innerHTML = pageDefGraph(detail, rec, rounds, idx);
     bindDefChips();
   }
@@ -509,6 +512,60 @@
     Array.prototype.forEach.call(document.querySelectorAll("[data-rkey]"), function (b) {
       b.onclick = function () { defSel = b.getAttribute("data-rkey"); pageDefGraphRender(); };
     });
+    var more = document.querySelector("[data-defmore]");
+    if (more) more.onclick = function () {
+      if (document.querySelector(".modal-ov")) return;
+      var wrap = document.createElement("div");
+      wrap.innerHTML = defModalHtml(S.defDetail, S.defRec);
+      if (wrap.firstElementChild) { document.body.appendChild(wrap.firstElementChild); bindDefModal(); }
+    };
+  }
+  function defEsc(e) { if (e.key === "Escape") closeDefModal(); }
+  function closeDefModal() { var m = document.querySelector(".modal-ov"); if (m) m.remove(); document.removeEventListener("keydown", defEsc); }
+  function bindDefModal() {
+    var ov = document.querySelector(".modal-ov");
+    if (!ov) return;
+    ov.onclick = function (e) { if (e.target === ov) closeDefModal(); };
+    Array.prototype.forEach.call(ov.querySelectorAll(".modal-x"), function (b) { b.onclick = closeDefModal; });
+    document.addEventListener("keydown", defEsc);
+  }
+  function defModalHtml(detail, rec) {
+    detail = detail || {};
+    var d = detail.defense || {}, v = detail.verification || {}, a = detail.attack || {};
+    var det = d.detected || [], ps = d.patch_set || [], atts = d.patch_attempts || [];
+    var vv = v.verdict ? VERDICT[v.verdict] : null, still = v.flags_still_reachable || [], post = v.post || {};
+    function sec(t, b) { return '<div class="md-sec"><div class="md-st">' + t + "</div>" + b + "</div>"; }
+
+    var atkBody = (a.attack_summary ? '<pre class="md-pre">' + esc(a.attack_summary) + "</pre>" : '<div class="tile-sub">공격 요약 없음</div>') +
+      (a.end_reason ? '<div class="rep-line"><span class="rep-k">공격 종료</span><span>' + esc(reasonLabel(a.end_reason)) + "</span></div>" : "");
+
+    var detBody = det.length ? det.map(function (x) {
+      var conf = x.confidence != null ? Math.round(x.confidence * 100) + "%" : "—";
+      return '<div class="md-item"><div class="fi-head">' + (x.technique ? '<span class="badge b-def">' + esc(x.technique) + "</span>" : '<span class="chip">기법 미상</span>') + '<span class="fi-conf">확신도 ' + conf + "</span></div>" +
+        '<div class="md-ev mono">' + esc(x.evidence || "—") + "</div></div>";
+    }).join("") : '<div class="tile-sub">탐지 없음 (놓침)</div>';
+
+    var psBody = (ps.length ? ps.map(function (p) {
+      return '<div class="md-item"><div class="fi-head"><span class="badge b-def">' + esc(patchKindLabel(p.kind)) + '</span><span class="fi-tgt mono">' + esc(p.target || "") + "</span></div>" +
+        '<div class="md-ev">' + esc(p.summary || "—") + "</div>" + (p.manifest_ref ? '<div class="fi-tgt mono">매니페스트: ' + esc(p.manifest_ref) + "</div>" : "") + "</div>";
+    }).join("") : '<div class="tile-sub">적용한 패치 없음</div>') +
+      (atts.length ? '<div class="md-st2">패치 시도 로그</div>' + atts.map(function (s) { return '<div class="md-ev mono">· ' + esc(s) + "</div>"; }).join("") : "") +
+      (d.patch_note ? '<div class="md-ev mono" style="color:var(--text-3)">메모: ' + esc(d.patch_note) + "</div>" : "") +
+      '<div class="flow-foot" style="border:none;padding-top:10px">' +
+      (d.patch_applied ? '<span class="badge b-ok">패치 적용</span>' : '<span class="badge b-sys">패치 미적용</span>') +
+      (d.healthcheck_passed ? '<span class="badge b-ok">서비스 정상</span>' : '<span class="badge b-atk">서비스 중단</span>') +
+      (d.end_reason ? '<span class="chip">' + esc(reasonLabel(d.end_reason)) + "</span>" : "") + "</div>" +
+      (d.error ? '<div class="md-ev mono" style="color:var(--atk)">오류: ' + esc(d.error) + "</div>" : "");
+
+    var vBody = (vv ? '<span class="badge ' + vv.cls + '">' + vv.label + "</span>" : "") +
+      '<div class="md-ev">' + esc(v.detail || "—") + "</div>" +
+      (v.method ? '<div class="rep-line"><span class="rep-k">검증 방식</span><span class="mono">' + esc(v.method) + "</span></div>" : "") +
+      (still.length ? '<div class="rep-line"><span class="rep-k">재유출 가능</span><span style="color:var(--atk)">' + still.map(stillLabel).join(", ") + "</span></div>" : "") +
+      ((post.flags_reached || []).length ? '<div class="rep-line"><span class="rep-k">재생 재도달</span><span class="mono">' + post.flags_reached.map(stillLabel).join(", ") + "</span></div>" : "");
+
+    return '<div class="modal-ov" role="dialog" aria-modal="true"><div class="modal">' +
+      '<div class="modal-h"><span>' + (rec ? (rec.episode || 1) + "회차 R" + rec.round : "") + ' 상세 · 판단 근거</span><button class="modal-x" aria-label="닫기">✕</button></div>' +
+      '<div class="modal-body">' + sec("① 공격 요약", atkBody) + sec("② 탐지 (" + det.length + "건)", detBody) + sec("③ 패치", psBody) + sec("④ 검증 결과", vBody) + "</div></div></div>";
   }
   function pageDefGraph(detail, rec, rounds, idx) {
     var d = detail.defense || {}, v = detail.verification || {};
@@ -544,7 +601,8 @@
       '<div class="card flow-card c-def"><div class="card-h">① 탐지 <span class="flow-n">' + det.length + '건</span></div>' + detHtml + "</div>" +
       '<div class="card flow-card c-teal"><div class="card-h">② 패치 <span class="flow-n">' + ps.length + '건</span></div>' + psHtml + psFoot + "</div>" +
       '<div class="card flow-card c-' + punchCls + '"><div class="card-h">③ 검증</div>' + vHtml + "</div>" +
-      "</div>";
+      "</div>" +
+      '<div style="margin-top:14px"><button class="btn btn-ghost" data-defmore>자세히 보기 · 판단 근거</button></div>';
   }
 
   // ───────── 페이지: 이벤트 로그 ─────────
