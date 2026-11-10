@@ -233,6 +233,8 @@ def procedure_for_technique(session: Session, tech_id: str) -> list[dict]:
     1차 planner 가 고른 technique 로 '이 기법을 실제로 어떻게 수행하나'(절차·전제·목표)를 KG 에서 꺼낸다 —
     워커가 payload 를 쓸 때 참고한다. 여러 환경이 같은 기법을 실현하면(예: T1190→struts2/gitlab/spring) 모두
     반환하고 워커 LLM 이 관측에 맞는 걸 고른다(기계적 '정답' 아님). Technique·SubTechnique 공용.
+    부모 기법(T1552)으로 질의하면 하위기법(T1552.001) 절차도 상속해 반환한다(ATT&CK 계층 — 1차 후보가
+    부모 입자로 와도 하위 핵심층 절차가 안 묻히게. 하위로 질의하면 그 하위 자신만, 형제·부모는 미포함).
     반환: [{procedure, name, description, env, cve, cwe, status,
             preconditions:[{name, description, config_key, expected_value}], expected_results:[{id, name, kind}]}]
     """
@@ -240,8 +242,10 @@ def procedure_for_technique(session: Session, tech_id: str) -> list[dict]:
     if not t:
         return []
     rows = _rows(session.run(
-        "MATCH (tech {id:$id})-[:REALIZED_BY]->(p:Procedure) "
-        "WHERE tech:Technique OR tech:SubTechnique "
+        "WITH $id AS qid, split($id,'.')[0] AS base "
+        "MATCH (tech)-[:REALIZED_BY]->(p:Procedure) "
+        "WHERE (tech:Technique OR tech:SubTechnique) AND "
+        "(tech.id = qid OR (qid = base AND tech.id STARTS WITH (base + '.'))) "
         "OPTIONAL MATCH (p)-[:REQUIRES]->(pre:Precondition) "
         "OPTIONAL MATCH (pre)-[rc:REQUIRES_CONFIGURATION]->(cfg:Configuration) "
         "OPTIONAL MATCH (p)-[:PRODUCES]->(er:ExpectedResult) "

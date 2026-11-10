@@ -45,7 +45,13 @@ class FakeSession:
         if "CLASSIFIED_AS" in q:                                # cve_facts
             return self.facts_by_cve.get(p.get("id"), [])
         if "REALIZED_BY" in q:                                  # procedure_for_technique
-            return self.procs_by_tech.get(p.get("id"), [])
+            qid = p.get("id") or ""                            # 부모→하위 상속 모사(실그래프 Cypher 와 동일 규칙)
+            base = qid.split(".")[0]
+            merged = []
+            for k, rows in self.procs_by_tech.items():
+                if k == qid or (qid == base and k.startswith(base + ".")):
+                    merged += rows
+            return merged
         return []
 
 
@@ -160,6 +166,17 @@ def test_procedure_for_technique():
 def test_procedure_for_technique_empty():
     assert procedure_for_technique(FakeSession(), "T9999") == []
     assert procedure_for_technique(FakeSession(), "") == []
+
+
+def test_procedure_for_technique_parent_inherits_subtech():
+    # 부모 기법(T1552)으로 질의 → 하위기법(T1552.001) 절차 상속(ATT&CK 계층; killchain-1 되살림)
+    s = FakeSession(procs_by_tech={"T1552.001": [{
+        "procedure": "PROC-kc1-wiki-cred-harvest", "name": "자격증명 수확", "description": "민감파일 수확",
+        "env": "killchain-1", "cve": None, "cwe": None, "status": "AUTHORED",
+        "preconditions": [], "expected_results": [{"id": "ER-kc1", "name": "크라운", "kind": "crown"}]}]})
+    assert procedure_for_technique(s, "T1552")[0]["procedure"] == "PROC-kc1-wiki-cred-harvest"   # 부모→하위 상속
+    assert procedure_for_technique(s, "T1552.001")[0]["env"] == "killchain-1"                      # 하위 자기 자신
+    assert procedure_for_technique(s, "T1078") == []                                               # 무관 기법 안 샘
 
 
 def test_render_procedures():
