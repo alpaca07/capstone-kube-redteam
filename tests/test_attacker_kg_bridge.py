@@ -52,6 +52,15 @@ def test_tokenize_strips_version_and_stopwords():
     assert _tokenize("web service") == []                       # 전부 불용어
 
 
+def test_tokenize_pod_name_keeps_product_head():
+    # pod·statefulset 이름: 선두 조각(제품)만, ordinal·replica·hash 는 버림 → KG 제품명 매칭
+    assert _tokenize("postgres-0") == ["postgres"]
+    assert _tokenize("redis-master-0") == ["redis"]             # 'master'·'0' 안 샘
+    assert _tokenize("gitlab-7d9f8-x2k") == ["gitlab"]          # replicaset·pod 해시 제거
+    # 서비스 DNS 는 '.' 로 쪼개져 기존대로(제품 + database 만, svc/cluster/local 은 불용어)
+    assert _tokenize("postgres.database.svc.cluster.local") == ["postgres", "database"]
+
+
 def test_asset_terms_dedup_and_identified_first():
     ag = _AG([_A(name="webthing", kind="service"),              # 미식별(cpe 없음)
               _A(name="GitLab", cpe="gitlab:gitlab")])          # 식별(cpe 보유)

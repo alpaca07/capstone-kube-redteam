@@ -24,11 +24,22 @@ _STOP = frozenset({
 
 
 def _tokenize(raw: str) -> list[str]:
-    """관측 문자열 → 검색 용어 토큰. 소문자화, cpe/경로 구분자 분해, 버전·잡음 제거."""
+    """관측 문자열 → 검색 용어 토큰. 소문자화, cpe/경로 구분자 분해, 버전·잡음 제거.
+
+    하이픈 토큰은 선두 조각만 남긴다('postgres-0'·'redis-master-0'→'postgres'·'redis'):
+    쿠버네티스 작명상 pod·statefulset 이름의 제품명은 선두 조각이라, 뒤 ordinal·replica·hash
+    조각을 버려 KG 제품명에 매칭시키고 'master'·'0' 같은 잡토큰이 용어별 설명검색으로 새는 걸 막는다.
+    (서비스 DNS 'postgres.database.svc...' 는 '.' 로 이미 쪼개져 영향 없음.)
+    """
     if not raw:
         return []
     low = raw.lower().replace(":", " ").replace("/", " ")
-    return [t for t in _TOK.findall(low) if t not in _STOP]
+    out: list[str] = []
+    for t in _TOK.findall(low):
+        head = t.split("-", 1)[0]              # 하이픈 선두 조각(제품 위치)만
+        if len(head) >= 3 and head not in _STOP:
+            out.append(head)
+    return out
 
 
 def asset_terms(asset_graph, *, limit: int = 50, max_terms: int = 24) -> list[str]:
