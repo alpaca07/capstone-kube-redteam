@@ -10,7 +10,8 @@ from __future__ import annotations
 import re
 from typing import Callable, Optional
 
-from knowledge.query import knowledge_for_terms, render_kg_candidates
+from knowledge.query import (
+    knowledge_for_terms, procedure_for_technique, render_kg_candidates, render_procedures)
 
 # 영문으로 시작하는 3자 이상 토큰(버전 숫자 '13.10' 등은 제외). ':' '/' 는 공백처럼.
 _TOK = re.compile(r"[a-z][a-z0-9_-]{2,}")
@@ -86,4 +87,30 @@ def make_kg_lookup_from_driver(driver, database=None) -> Callable[[object], str]
 KgLookup = Optional[Callable[[object], str]]
 
 
-__all__ = ["asset_terms", "make_kg_lookup", "make_kg_lookup_from_driver", "KgLookup"]
+# ── 2차(워커) 절차 룩업 — intent 의 technique → 핵심층 Procedure 블록 ──
+# 1차(자산→후보 기법)와 짝. 워커가 payload 쓸 때 '이 기법의 알려진 절차·전제·목표'를 참고한다.
+def make_procedure_lookup(session) -> Callable[[str], str]:
+    """단일 session(읽기)으로 'technique → 절차 블록(텍스트)' 콜백. session=run(query,**params) 계약."""
+    def lookup(technique: str) -> str:
+        if not technique:
+            return ""
+        return render_procedures(procedure_for_technique(session, technique))
+    return lookup
+
+
+def make_procedure_lookup_from_driver(driver, database=None) -> Callable[[str], str]:
+    """Neo4j driver 로 콜백 — 호출마다 짧은 읽기 session(장수명 session 회피). technique 없으면 session 도 안 연다."""
+    def lookup(technique: str) -> str:
+        if not technique:
+            return ""
+        with driver.session(database=database) as s:
+            return render_procedures(procedure_for_technique(s, technique))
+    return lookup
+
+
+# IntentRunner 가 받는 절차 콜백 타입(가독성용 별칭)
+ProcedureLookup = Optional[Callable[[str], str]]
+
+
+__all__ = ["asset_terms", "make_kg_lookup", "make_kg_lookup_from_driver", "KgLookup",
+           "make_procedure_lookup", "make_procedure_lookup_from_driver", "ProcedureLookup"]

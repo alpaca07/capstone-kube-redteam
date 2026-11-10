@@ -235,10 +235,13 @@ def test_core_real_all_envs_valid():
         schema.check_node(n)
     for r in rels:
         schema.check_rel(r)
-    # 모든 Procedure 가 Technique 에 REALIZED_BY 로 붙음(고아 Procedure 없음)
+    # 모든 Procedure 가 (Sub)Technique 에 REALIZED_BY 로 붙음(고아 Procedure 없음)
     procs = {n["id"] for n in nodes if n["label"] == "Procedure"}
     realized = {to for _f, to in _rels(rels, "REALIZED_BY")}
     assert procs == realized
+    # killchain-1 은 SubTechnique(T1552.001) — from_label 이 SubTechnique 여야 적재 때 MATCH(고아 방지)
+    kc1 = [r for r in rels if r["type"] == "REALIZED_BY" and r["from_id"] == "T1552.001"]
+    assert kc1 and kc1[0]["from_label"] == "SubTechnique"
     # 크라운 조건은 크라운 상수만(internal_secrets·customers_pii) — 실제 app_signals 와 일치
     from common.app_signals import CROWN_INTERNAL_SECRETS, CROWN_CUSTOMERS_PII
     crown_exp = [n["props"]["expected"] for n in nodes

@@ -227,6 +227,66 @@ def render_kg_candidates(knowledge: dict, *, limit: int = 12) -> str:
     return "\n".join(lines)
 
 
+def procedure_for_technique(session: Session, tech_id: str) -> list[dict]:
+    """기법/하위기법 → 그 기법을 실현하는 Procedure(들) + 전제·예상결과(핵심층 ④⑤ 질의).
+
+    1차 planner 가 고른 technique 로 '이 기법을 실제로 어떻게 수행하나'(절차·전제·목표)를 KG 에서 꺼낸다 —
+    워커가 payload 를 쓸 때 참고한다. 여러 환경이 같은 기법을 실현하면(예: T1190→struts2/gitlab/spring) 모두
+    반환하고 워커 LLM 이 관측에 맞는 걸 고른다(기계적 '정답' 아님). Technique·SubTechnique 공용.
+    반환: [{procedure, name, description, env, cve, cwe, status,
+            preconditions:[{name, description, config_key, expected_value}], expected_results:[{id, name, kind}]}]
+    """
+    t = (tech_id or "").strip()
+    if not t:
+        return []
+    rows = _rows(session.run(
+        "MATCH (tech {id:$id})-[:REALIZED_BY]->(p:Procedure) "
+        "WHERE tech:Technique OR tech:SubTechnique "
+        "OPTIONAL MATCH (p)-[:REQUIRES]->(pre:Precondition) "
+        "OPTIONAL MATCH (pre)-[rc:REQUIRES_CONFIGURATION]->(cfg:Configuration) "
+        "OPTIONAL MATCH (p)-[:PRODUCES]->(er:ExpectedResult) "
+        "RETURN p.id AS procedure, p.name AS name, p.description AS description, "
+        "p.env AS env, p.cve AS cve, p.cwe AS cwe, p.status AS status, "
+        "collect(DISTINCT {name: pre.name, description: pre.description, "
+        "config_key: cfg.config_key, expected_value: rc.expected_value}) AS preconditions, "
+        "collect(DISTINCT {id: er.id, name: er.name, kind: er.kind}) AS expected_results",
+        id=t))
+    out = []
+    for r in rows:
+        if not r.get("procedure"):
+            continue
+        pres = [pp for pp in (r.get("preconditions") or []) if pp.get("name")]       # null 전제 제거
+        ers = [ee for ee in (r.get("expected_results") or []) if ee.get("id")]
+        out.append({"procedure": r["procedure"], "name": r.get("name"),
+                    "description": r.get("description"), "env": r.get("env"),
+                    "cve": r.get("cve"), "cwe": r.get("cwe"), "status": r.get("status"),
+                    "preconditions": pres, "expected_results": ers})
+    return out
+
+
+def render_procedures(procedures: list[dict], *, limit: int = 6) -> str:
+    """procedure_for_technique 결과 → 워커 프롬프트용 텍스트 블록(없으면 빈 문자열).
+
+    '이 기법의 알려진 절차+전제+목표'를 간결히 나열 — 워커가 관측에 맞는 걸 골라 payload 작성에 참고
+    (참고 절차일 뿐, 실제 명령은 워커가 스스로 쓴다).
+    """
+    procs = (procedures or [])[:limit]
+    if not procs:
+        return ""
+    lines = []
+    for p in procs:
+        env = f" [{p['env']}]" if p.get("env") else ""
+        desc = p.get("description") or p.get("name") or ""
+        lines.append(f"- {p['procedure']}{env}: {desc}")
+        for pre in (p.get("preconditions") or [])[:3]:
+            cond = f" (needs {pre['config_key']}={pre.get('expected_value')})" if pre.get("config_key") else ""
+            lines.append(f"    requires: {pre.get('name', '')}{cond}")
+        goals = [e.get("name") for e in (p.get("expected_results") or []) if e.get("kind") == "crown"]
+        if goals:
+            lines.append(f"    goal: {', '.join(g for g in goals if g)}")
+    return "\n".join(lines)
+
+
 def _demo() -> None:
     """데모 CLI:
       python -m knowledge.query --product gitlab   # 제품→기법(플래너가 받을 후보 + 실제 블록)
@@ -237,13 +297,14 @@ def _demo() -> None:
     import os
     ap = argparse.ArgumentParser(prog="knowledge.query", description="지식 그래프 조회 데모")
     ap.add_argument("--cve", help="CVE id 로 조회 (CVE→기법)")
-    ap.add_argument("--product", help="제품 용어로 조회 (Product→CPE→CVE→기법, 플래너가 받을 후보)")
+    ap.add_argument("--product", help="제품 용어로 조회 (Product→CPE→CVE→기법, 1차 플래너가 받을 후보)")
+    ap.add_argument("--technique", help="기법 id 로 조회 (Technique→Procedure 절차·전제·목표, 워커가 받을 블록)")
     ap.add_argument("--uri", default=os.environ.get("NEO4J_URI", "bolt://localhost:7687"))
     ap.add_argument("--user", default=os.environ.get("NEO4J_USER", "neo4j"))
     ap.add_argument("--password", default=os.environ.get("NEO4J_PASSWORD"))
     a = ap.parse_args()
-    if not a.cve and not a.product:
-        raise SystemExit("--product 또는 --cve 중 하나를 줘라")
+    if not (a.cve or a.product or a.technique):
+        raise SystemExit("--product / --cve / --technique 중 하나를 줘라")
     if not a.password:
         raise SystemExit("NEO4J_PASSWORD (또는 --password) 필요")
     from neo4j import GraphDatabase
@@ -252,7 +313,11 @@ def _demo() -> None:
         if a.product:
             kn = knowledge_for_terms(s, [a.product])
             out = {"product_term": a.product, "candidates": kn["aggregate"],
-                   "planner_block": render_kg_candidates(kn)}   # 플래너 situation 에 들어갈 실제 텍스트
+                   "planner_block": render_kg_candidates(kn)}   # 1차 플래너 situation 에 들어갈 실제 텍스트
+        elif a.technique:
+            procs = procedure_for_technique(s, a.technique)
+            out = {"technique": a.technique, "procedures": procs,
+                   "worker_block": render_procedures(procs)}     # 워커가 받을 절차 블록
         else:
             out = {"cve": cve_facts(s, a.cve), "techniques": techniques_for_cve(s, a.cve)}
     print(json.dumps(out, ensure_ascii=False, indent=2))

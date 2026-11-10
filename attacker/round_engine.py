@@ -145,7 +145,7 @@ class AttackRound:
 
     def run(self, start: AttackTurnStart, *, episode: int, round: int,
             graph: Optional[ExplorationGraph] = None,
-            asset_graph=None, kg_lookup=None) -> AttackTurnResult:
+            asset_graph=None, kg_lookup=None, kg_procedure_lookup=None) -> AttackTurnResult:
         t0 = self.clock()
         deadline = t0 + float(start.time_limit_sec)
         graph = graph if graph is not None else InMemoryGraph(episode=episode)
@@ -168,7 +168,7 @@ class AttackRound:
                 intent_budget_sec=self.cfg.intent_budget_sec,
                 max_steps=self.cfg.intent_max_steps,
                 react_max_tokens=(start.max_tokens or self.cfg.react_max_tokens)),
-            asset_graph=asset_graph, log=self.log)
+            asset_graph=asset_graph, kg_procedure_lookup=kg_procedure_lookup, log=self.log)
 
         foothold = _foothold_dict(start)
         foothold_line = _foothold_line(start)

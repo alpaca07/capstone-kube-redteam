@@ -12,8 +12,8 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from knowledge.query import (  # noqa: E402
-    cve_facts, cves_for_term, knowledge_for_terms, render_kg_candidates,
-    techniques_for_cve, techniques_for_product)
+    cve_facts, cves_for_term, knowledge_for_terms, procedure_for_technique,
+    render_kg_candidates, render_procedures, techniques_for_cve, techniques_for_product)
 
 
 class FakeSession:
@@ -22,13 +22,14 @@ class FakeSession:
     분기 순서 주의: Product 경로 쿼리(IDENTIFIED_BY 포함)를 CVE 레벨 분기보다 먼저 본다.
     """
     def __init__(self, *, cve_by_term=None, direct_by_cve=None, bridge_by_cve=None,
-                 facts_by_cve=None, product_direct=None, product_bridge=None):
+                 facts_by_cve=None, product_direct=None, product_bridge=None, procs_by_tech=None):
         self.cve_by_term = cve_by_term or {}        # {term_lower: [cve_id]}
         self.direct_by_cve = direct_by_cve or {}    # {cve_id: [row]}
         self.bridge_by_cve = bridge_by_cve or {}    # {cve_id: [row]}
         self.facts_by_cve = facts_by_cve or {}      # {cve_id: [row]}
         self.product_direct = product_direct or {}  # {term: [row(+cves)]}
         self.product_bridge = product_bridge or {}  # {term: [row(+cves)]}
+        self.procs_by_tech = procs_by_tech or {}    # {tech_id: [procedure row]}
 
     def run(self, q, **p):
         if "IDENTIFIED_BY" in q and "EXPLOITED_BY" in q:        # techniques_for_product (direct)
@@ -43,6 +44,8 @@ class FakeSession:
             return self.bridge_by_cve.get(p.get("id"), [])
         if "CLASSIFIED_AS" in q:                                # cve_facts
             return self.facts_by_cve.get(p.get("id"), [])
+        if "REALIZED_BY" in q:                                  # procedure_for_technique
+            return self.procs_by_tech.get(p.get("id"), [])
         return []
 
 
@@ -136,6 +139,39 @@ def test_render_kg_candidates():
 
 
 # ───────────────────── 자체 러너 ─────────────────────
+# ───────────── 핵심층 절차 질의(워커용) ─────────────
+def test_procedure_for_technique():
+    s = FakeSession(procs_by_tech={"T1059": [{
+        "procedure": "PROC-postgres-copy-program", "name": "COPY FROM PROGRAM", "description": "DB 서버 명령실행",
+        "env": "postgres", "cve": "CVE-2019-9193", "cwe": None, "status": "AUTHORED",
+        "preconditions": [{"name": "슈퍼유저 권한", "description": "d",
+                           "config_key": "copy_program_enabled", "expected_value": "true"},
+                          {"name": None, "description": None, "config_key": None, "expected_value": None}],
+        "expected_results": [{"id": "ER-crown", "name": "민감 read", "kind": "crown"},
+                             {"id": None, "name": None, "kind": None}]}]})
+    out = procedure_for_technique(s, "T1059")
+    assert len(out) == 1
+    p = out[0]
+    assert p["procedure"] == "PROC-postgres-copy-program" and p["env"] == "postgres"
+    assert len(p["preconditions"]) == 1 and p["preconditions"][0]["config_key"] == "copy_program_enabled"  # null 제거
+    assert len(p["expected_results"]) == 1 and p["expected_results"][0]["kind"] == "crown"
+
+
+def test_procedure_for_technique_empty():
+    assert procedure_for_technique(FakeSession(), "T9999") == []
+    assert procedure_for_technique(FakeSession(), "") == []
+
+
+def test_render_procedures():
+    block = render_procedures([{
+        "procedure": "PROC-x", "name": "n", "description": "do the thing", "env": "struts2",
+        "preconditions": [{"name": "취약 버전", "config_key": None, "expected_value": None}],
+        "expected_results": [{"id": "ER", "name": "host file read", "kind": "crown"}]}])
+    assert "PROC-x [struts2]: do the thing" in block
+    assert "requires: 취약 버전" in block and "goal: host file read" in block
+    assert render_procedures([]) == ""
+
+
 def _run() -> int:
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

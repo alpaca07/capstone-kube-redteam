@@ -11,7 +11,8 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from attacker.kg_bridge import _tokenize, asset_terms, make_kg_lookup  # noqa: E402
+from attacker.kg_bridge import (  # noqa: E402
+    _tokenize, asset_terms, make_kg_lookup, make_procedure_lookup)
 
 
 class _A:
@@ -76,6 +77,21 @@ def test_make_kg_lookup_no_terms_returns_empty():
     lookup = make_kg_lookup(_QSess())
     assert lookup(_AG([])) == ""
     assert lookup(_AG([_A(name="web", kind="service")])) == ""  # 전부 불용어 → 빈 용어
+
+
+def test_make_procedure_lookup():
+    """기법 → 핵심층 절차 블록(2차 워커용). REALIZED_BY 질의를 fake 로 흉내."""
+    class _PS:
+        def run(self, q, **p):
+            if "REALIZED_BY" in q:
+                return [{"procedure": "PROC-x", "name": "n", "description": "do X", "env": "struts2",
+                         "cve": None, "cwe": None, "status": None, "preconditions": [],
+                         "expected_results": [{"id": "ER", "name": "host file read", "kind": "crown"}]}]
+            return []
+    lookup = make_procedure_lookup(_PS())
+    block = lookup("T1190")
+    assert "PROC-x [struts2]: do X" in block and "goal: host file read" in block
+    assert lookup("") == ""                    # 기법 없으면 조회 안 하고 빈 블록
 
 
 def _run() -> int:

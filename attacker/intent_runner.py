@@ -150,12 +150,13 @@ class IntentRunner:
     """워커 풀에 주입하는 run_intent 콜러블. run_intent(graph, wctx, intent)->IntentOutcome."""
 
     def __init__(self, llm, cfg: IntentRunnerConfig, *, settle_llm=None,
-                 asset_graph=None,
+                 asset_graph=None, kg_procedure_lookup=None,
                  log: Optional[Callable[[str], None]] = None) -> None:
         self.llm = llm                      # 탈옥 모델(ReAct 행동 + 기본 정착)
         self.settle_llm = settle_llm or llm
         self.cfg = cfg
         self.asset_graph = asset_graph      # 자산 그래프(있으면 관측 자산 기계 포집·앵커)
+        self.kg_procedure_lookup = kg_procedure_lookup   # technique → 핵심층 절차 블록(2차 KG, 없으면 None)
         self.log = log or (lambda m: None)
 
     def __call__(self, graph: ExplorationGraph, wctx, intent: Node) -> IntentOutcome:
@@ -168,10 +169,21 @@ class IntentRunner:
         budget = self.cfg.intent_budget_sec
         if rd is not None and clk is not None:
             budget = max(5.0, min(budget, (rd - clk()) - _SETTLE_RESERVE))
+        goal = _intent_goal(self.cfg.round_goal, intent)
+        # 2차 KG: 이 의도의 기법으로 핵심층 Procedure(절차·전제·목표)를 끌어와 워커 프롬프트에
+        # 참고로 붙인다(payload 작성 보조). 알려진 절차가 없으면 블록이 비어 그대로 진행.
+        technique = str(intent.payload.get("technique", "")).strip()
+        if self.kg_procedure_lookup and technique:
+            block = self.kg_procedure_lookup(technique)
+            if block:
+                goal += ("\n\nKNOWN PROCEDURES for this technique (knowledge base — pick the one "
+                         "matching what you observe; advisory, you still write the actual commands):\n"
+                         + block)
+                self.log(f"{tag} ⟐ KG 절차 참고({technique})")
         loop = ReActLoop(
             self.llm, wctx, history,
             system_prompt=self.cfg.system_prompt,
-            goal=_intent_goal(self.cfg.round_goal, intent),
+            goal=goal,
             time_limit_sec=budget,
             max_steps=self.cfg.max_steps,
             max_tokens=self.cfg.react_max_tokens,

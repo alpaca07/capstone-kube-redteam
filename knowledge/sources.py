@@ -408,8 +408,9 @@ def _build_env(env: dict, nodes: list[Node], rels: list[Rel]) -> None:
     if proc.get("status"): pprops["status"] = proc["status"]
     mint("Procedure", proc["id"], pprops)
     if env.get("technique"):
-        rels.append({"type": "REALIZED_BY", "from_label": "Technique", "from_id": env["technique"],
-                     "to_label": "Procedure", "to_id": proc["id"], "props": {}})
+        # 기법이 SubTechnique(점 포함, 예 T1552.001)면 라벨을 맞춰야 적재 때 MATCH 된다(안 그러면 고아 Procedure)
+        rels.append({"type": "REALIZED_BY", "from_label": _tech_label(env["technique"]),
+                     "from_id": env["technique"], "to_label": "Procedure", "to_id": proc["id"], "props": {}})
 
     # Precondition (+ REQUIRES_CONFIGURATION -> Configuration)
     for pre in env.get("preconditions", []):

@@ -108,6 +108,37 @@ def test_run_one_intent_writes_fact_linked():
     assert len(yields) == 1 and yields[0].dst_id == facts[0].id
 
 
+# ── 2차 KG: intent 기법으로 핵심층 절차를 끌어와 워커 프롬프트에 붙이는지 ──
+def test_kg_procedure_lookup_called_with_technique():
+    from attacker.exec_lane import WorkerContext
+    g = InMemoryGraph()
+    iid = g.add_intent({"summary": "exploit app", "technique": "T1190"})
+    g.claim_next("w")
+    intent = g.get_node(iid)
+    seen = []
+    runner = IntentRunner(
+        _ScriptLLM([_ACT_GET], _SETTLE_ONE_FACT),
+        IntentRunnerConfig(system_prompt="sys", round_goal="read PII"),
+        kg_procedure_lookup=lambda tech: (seen.append(tech) or "- PROC-x [struts2]: do X"))
+    runner(g, WorkerContext(_lane(), "w"), intent)
+    assert seen == ["T1190"]                       # 의도 기법으로 절차 조회됨
+
+
+def test_kg_procedure_lookup_skipped_without_technique():
+    from attacker.exec_lane import WorkerContext
+    g = InMemoryGraph()
+    iid = g.add_intent({"summary": "probe"})       # technique 없음
+    g.claim_next("w")
+    intent = g.get_node(iid)
+    seen = []
+    runner = IntentRunner(
+        _ScriptLLM([_ACT_GET], _SETTLE_ONE_FACT),
+        IntentRunnerConfig(system_prompt="sys", round_goal="g"),
+        kg_procedure_lookup=lambda t: (seen.append(t) or ""))
+    runner(g, WorkerContext(_lane(), "w"), intent)
+    assert seen == []                              # 기법 없으면 조회 안 함
+
+
 # ── 기계적 침해 트리거: 정착 LLM 이 finding=null 이어도 출력에 값이 있으면 침해 기록(④ 보강) ──
 def test_mechanical_finding_when_settle_returns_null():
     from attacker.exec_lane import WorkerContext

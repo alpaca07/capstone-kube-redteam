@@ -81,10 +81,13 @@ class AttackHarness:
         # 플래너 KG 후보 조회 콜백: neo4j 백엔드일 때만(KG 도 같은 Neo4j, 라벨로 공존). 아니면
         # None → 플래너가 자기 지식으로 폴백(KG 없이도 동작). 라운드 엔진에 매 턴 주입.
         if graph_backend == "neo4j" and neo4j_driver is not None:
-            from .kg_bridge import make_kg_lookup_from_driver
+            from .kg_bridge import make_kg_lookup_from_driver, make_procedure_lookup_from_driver
             self._kg_lookup = make_kg_lookup_from_driver(neo4j_driver, neo4j_database)
+            # 2차(워커) 절차 룩업: intent 기법 → 핵심층 Procedure 블록. 1차와 짝.
+            self._proc_lookup = make_procedure_lookup_from_driver(neo4j_driver, neo4j_database)
         else:
             self._kg_lookup = None
+            self._proc_lookup = None
 
     # ── attack_turn_start → attack_turn_result (공격 모드) ──
     def attack_turn(self, start: AttackTurnStart, *, episode: int, round: int) -> AttackTurnResult:
@@ -132,7 +135,8 @@ class AttackHarness:
                 runner=self.runner, scope_policy=self.scope, cfg=self.round_cfg,
                 log=self.log)                # 웨이브·의도·겹침·진전없음·스텝 로그를 저널로
             return rnd.run(start, episode=episode, round=round, graph=self._graph,
-                           asset_graph=self._asset_graph, kg_lookup=self._kg_lookup)
+                           asset_graph=self._asset_graph, kg_lookup=self._kg_lookup,
+                           kg_procedure_lookup=self._proc_lookup)
         except Exception as e:                   # noqa: BLE001 — 하네스 오류는 ERROR로
             import traceback
             traceback.print_exc()
