@@ -279,9 +279,10 @@ button { font-family: inherit; }
 .zone-crown { margin-top: 11px; font-family: var(--font-mono); font-size: 10px; font-weight: 600; color: #9a6a0c; }
 
 /* 탐지·패치 흐름(방어 시점) */
-.rchips { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 2px; align-items: center; }
-.rchip-grp { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 4px 9px 4px 5px; border-radius: 11px; background: var(--surface-2); border: 1px solid var(--border); }
-.rchip-ep { font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; color: var(--text-3); padding: 0 3px; white-space: nowrap; }
+.rchips { display: flex; flex-direction: column; gap: 9px; align-items: stretch; margin-bottom: 4px; }
+.rchip-grp { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rchip-ep { font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--teal-600);
+  background: var(--teal-soft); border-radius: 7px; padding: 5px 11px; white-space: nowrap; min-width: 48px; text-align: center; }
 .rchip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 12px; font-weight: 600;
   padding: 5px 11px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); color: var(--text-2); cursor: pointer; }
 .rchip:hover { background: var(--surface-2); }
