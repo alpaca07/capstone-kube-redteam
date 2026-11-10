@@ -1,6 +1,16 @@
 /* Helix — 공격·방어 자동 관제 대시보드. Maze 결(밝은 표면·teal 액센트·고밀도).
    의미색(공격 빨강·방어 파랑·심판 회색·핵심자산 앰버·차단 초록)은 데이터 인코딩 전용,
-   teal 은 제품 UI 전용으로 분리. 본문 Pretendard(없으면 시스템 폰트), 손으로 그린 SVG 차트. */
+   teal 은 제품 UI 전용으로 분리. 본문 Noto Sans KR(자체 호스팅·오프라인), 손으로 그린 SVG 차트. */
+
+/* 본문 한글 폰트 — 자체 호스팅(격리망·CDN 불가 환경에서도 동일하게 렌더) */
+@font-face {
+  font-family: "Noto Sans KR"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url("/static/fonts/NotoSansKR-Regular.woff") format("woff");
+}
+@font-face {
+  font-family: "Noto Sans KR"; font-style: normal; font-weight: 700; font-display: swap;
+  src: url("/static/fonts/NotoSansKR-Bold.woff") format("woff");
+}
 
 :root {
   color-scheme: light;
@@ -21,8 +31,8 @@
   --shadow: 0 1px 2px rgba(16,30,54,.04), 0 2px 8px rgba(16,30,54,.05);
   --shadow-pop: 0 6px 24px rgba(16,30,54,.12);
   --sb-w: 248px;
-  --font-sans: "Pretendard Variable", Pretendard, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", system-ui, sans-serif;
-  --font-mono: "SFMono-Regular", ui-monospace, "SF Mono", "Cascadia Code", Consolas, "D2Coding", monospace;
+  --font-sans: "Noto Sans KR", -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", system-ui, sans-serif;
+  --font-mono: "SFMono-Regular", ui-monospace, "SF Mono", "Cascadia Code", Consolas, "D2Coding", "Noto Sans KR", monospace;
 }
 
 * { box-sizing: border-box; }
@@ -269,7 +279,9 @@ button { font-family: inherit; }
 .zone-crown { margin-top: 11px; font-family: var(--font-mono); font-size: 10px; font-weight: 600; color: #9a6a0c; }
 
 /* 탐지·패치 흐름(방어 시점) */
-.rchips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 2px; }
+.rchips { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 2px; align-items: center; }
+.rchip-grp { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 4px 9px 4px 5px; border-radius: 11px; background: var(--surface-2); border: 1px solid var(--border); }
+.rchip-ep { font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; color: var(--text-3); padding: 0 3px; white-space: nowrap; }
 .rchip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 12px; font-weight: 600;
   padding: 5px 11px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); color: var(--text-2); cursor: pointer; }
 .rchip:hover { background: var(--surface-2); }

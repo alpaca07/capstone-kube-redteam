@@ -44,7 +44,7 @@
 
   // ───────── 상태 ─────────
   var S = { rounds: [], episodes: [], runs: [], events: [], status: {}, demo: false };
-  var route = DEFAULT_ROUTE, evTab = "all", defRound = null, repEp = null, agRound = null, agSel = null, agTab = "overview";
+  var route = DEFAULT_ROUTE, evTab = "all", defSel = null, repEp = null, agRkey = null, agSel = null, agTab = "overview";
 
   // ───────── 유틸 ─────────
   function $(sel, el) { return (el || document).querySelector(sel); }
@@ -63,7 +63,18 @@
 
   // ───────── 예시 데이터(로그 비었을 때) ─────────
   function demoRounds() {
-    var spec = [
+    function mk(ep, spec) {
+      return spec.map(function (s, i) {
+        return { episode: ep, round: i + 1, verdict: s[0], crowns_reached_cum: s[1],
+          stages_reached: s[2], detection_cum: { tp: s[3][0], fp: s[3][1], fn: s[3][2] },
+          reported_techniques: s[4], patch_applied: s[0] !== "inconclusive",
+          healthcheck_passed: !(ep === 1 && i === 3), attack_end_reason: s[0] === "inconclusive" ? "deadend" : "flag",
+          defense_end_reason: s[0] === "inconclusive" ? "skipped" : "patched",
+          elapsed_attack_sec: 120 + i * 9, elapsed_defense_sec: 40 + i * 4,
+          flags_reached_cum: s[2].map(String).concat(s[1]) };
+      });
+    }
+    var ep1 = [
       ["fake_patch", ["crown-secrets"], [1, 2, 3], [1, 0, 2], ["T1552.001", "T1078"]],
       ["fake_patch", ["crown-secrets"], [1, 2, 3], [2, 1, 1], ["T1078"]],
       ["blocked", [], [1, 2], [2, 1, 1], ["T1210"]],
@@ -73,22 +84,27 @@
       ["inconclusive", [], [1], [3, 1, 0], []],
       ["blocked", [], [1, 2], [3, 1, 0], ["T1078"]]
     ];
-    return spec.map(function (s, i) {
-      return { episode: 1, round: i + 1, verdict: s[0], crowns_reached_cum: s[1],
-        stages_reached: s[2], detection_cum: { tp: s[3][0], fp: s[3][1], fn: s[3][2] },
-        reported_techniques: s[4], patch_applied: s[0] !== "inconclusive",
-        healthcheck_passed: i !== 3, attack_end_reason: s[0] === "inconclusive" ? "deadend" : "flag",
-        defense_end_reason: s[0] === "inconclusive" ? "skipped" : "patched",
-        elapsed_attack_sec: 120 + i * 9, elapsed_defense_sec: 40 + i * 4,
-        flags_reached_cum: s[2].map(String).concat(s[1]) };
-    });
+    var ep2 = [
+      ["fake_patch", ["crown-secrets"], [1, 2, 3], [4, 1, 1], ["T1078"]],
+      ["blocked", [], [1, 2], [5, 1, 0], ["T1210"]],
+      ["blocked", [], [1, 2, 3], [6, 1, 0], ["T1078", "T1213"]],
+      ["blocked", [], [1, 2], [6, 1, 0], []]
+    ];
+    return mk(1, ep1).concat(mk(2, ep2));
   }
   function demoEpisodes() {
-    return [{ episode: 1, rounds: 8, end_reason: "consecutive_defense", max_flag_depth: 3,
-      detection: { tp: 3, fp: 1, fn: 0, precision: 0.75, recall: 1.0 },
-      mttd: { mean_rounds: 1.5, detected: 3, total_true: 3, detection_rate: 1.0 },
-      verdict_counts: { blocked: 4, fake_patch: 3, inconclusive: 1 }, availability: 0.83,
-      patches: 7, crowns_reached: ["crown-secrets", "crown-pii"], goals_reached: ["db_exfil"] }];
+    return [
+      { episode: 1, rounds: 8, end_reason: "consecutive_defense", max_flag_depth: 3,
+        detection: { tp: 3, fp: 1, fn: 0, precision: 0.75, recall: 1.0 },
+        mttd: { mean_rounds: 1.5, detected: 3, total_true: 3, detection_rate: 1.0 },
+        verdict_counts: { blocked: 4, fake_patch: 3, inconclusive: 1 }, availability: 0.83,
+        patches: 7, crowns_reached: ["crown-secrets", "crown-pii"], goals_reached: ["db_exfil"] },
+      { episode: 2, rounds: 4, end_reason: "consecutive_defense", max_flag_depth: 3,
+        detection: { tp: 6, fp: 1, fn: 1, precision: 0.86, recall: 0.86 },
+        mttd: { mean_rounds: 1.0, detected: 6, total_true: 7, detection_rate: 0.86 },
+        verdict_counts: { blocked: 3, fake_patch: 1, inconclusive: 0 }, availability: 1.0,
+        patches: 4, crowns_reached: ["crown-secrets"], goals_reached: ["db_exfil"] }
+    ];
   }
   function demoEvents() {
     var out = [], base = Date.now() / 1000 - 400, A = "attacker", D = "defender", J = "judge";
@@ -154,6 +170,21 @@
     var vc = { blocked: 0, fake_patch: 0, not_blocked: 0, inconclusive: 0 };
     S.rounds.forEach(function (r) { if (vc[r.verdict] != null) vc[r.verdict]++; });
     return vc;
+  }
+  // 라운드 선택 칩 — 회차(에피소드)별로 묶어 구분. 키=에피소드-라운드. attr=선택용 데이터속성.
+  function roundChipsHtml(rounds, selKey, attr) {
+    var byEp = {}, order = [];
+    rounds.forEach(function (r) { var e = r.episode || 1; if (!byEp[e]) { byEp[e] = []; order.push(e); } byEp[e].push(r); });
+    return '<div class="rchips">' + order.map(function (e) {
+      var chips = byEp[e].map(function (r) {
+        var key = (r.episode || 1) + "-" + r.round, on = key === selKey;
+        var rv = VERDICT[r.verdict], col = rv ? rv.color : C.muted;
+        return '<button class="rchip' + (on ? " on" : "") + '" ' + attr + '="' + key + '"' +
+          (on ? ' style="border-color:' + col + ";color:" + col + '"' : "") +
+          '><span class="tag-dot" style="background:' + col + '"></span>R' + r.round + "</button>";
+      }).join("");
+      return '<span class="rchip-grp"><span class="rchip-ep">' + e + "회차</span>" + chips + "</span>";
+    }).join("") + "</div>";
   }
 
   // ───────── SVG 차트 ─────────
@@ -430,7 +461,7 @@
         emptyState("🛡", "아직 방어 기록이 없습니다", "실험을 돌리면 라운드별 탐지 → 패치 → 검증 흐름이 여기 나타납니다.", []);
       return;
     }
-    var idx = defRound != null ? rounds.map(function (r) { return r.round; }).indexOf(defRound) : rounds.length - 1;
+    var idx = defSel != null ? rounds.map(function (r) { return (r.episode || 1) + "-" + r.round; }).indexOf(defSel) : rounds.length - 1;
     if (idx < 0) idx = rounds.length - 1;
     var rec = rounds[idx], detail;
     if (S.demo) detail = demoDetail(rec);
@@ -440,8 +471,8 @@
     bindDefChips();
   }
   function bindDefChips() {
-    Array.prototype.forEach.call(document.querySelectorAll(".rchip"), function (b) {
-      b.onclick = function () { defRound = parseInt(b.getAttribute("data-rnd"), 10); pageDefGraphRender(); };
+    Array.prototype.forEach.call(document.querySelectorAll("[data-rkey]"), function (b) {
+      b.onclick = function () { defSel = b.getAttribute("data-rkey"); pageDefGraphRender(); };
     });
   }
   function pageDefGraph(detail, rec, rounds, idx) {
@@ -449,10 +480,7 @@
     var det = d.detected || [], ps = d.patch_set || [];
     var vv = v.verdict ? VERDICT[v.verdict] : null;
 
-    var chips = rounds.map(function (r, i) {
-      var rv = VERDICT[r.verdict], col = rv ? rv.color : C.muted, on = i === idx;
-      return '<button class="rchip' + (on ? " on" : "") + '" data-rnd="' + r.round + '" style="' + (on ? "border-color:" + col + ";color:" + col : "") + '"><span class="tag-dot" style="background:' + col + '"></span>R' + r.round + "</button>";
-    }).join("");
+    var chips = roundChipsHtml(rounds, (rec.episode || 1) + "-" + rec.round, "data-rkey");
 
     var detHtml = det.length ? det.map(function (x) {
       var conf = x.confidence != null ? Math.round(x.confidence * 100) : null;
@@ -475,8 +503,8 @@
     var punchCls = v.verdict === "blocked" ? "ok" : (v.verdict === "fake_patch" || v.verdict === "not_blocked") ? "atk" : "sys";
 
     return (S.demo ? demoBanner() : "") +
-      '<div class="rchips">' + chips + "</div>" +
-      '<div class="section-label">R' + rec.round + " · 탐지 → 패치 → 검증</div>" +
+      chips +
+      '<div class="section-label">' + (rec.episode || 1) + "회차 R" + rec.round + " · 탐지 → 패치 → 검증</div>" +
       '<div class="grid cols-3 flow">' +
       '<div class="card flow-card c-def"><div class="card-h">① 탐지 <span class="flow-n">' + det.length + '건</span></div>' + detHtml + "</div>" +
       '<div class="card flow-card c-teal"><div class="card-h">② 패치 <span class="flow-n">' + ps.length + '건</span></div>' + psHtml + psFoot + "</div>" +
@@ -542,9 +570,15 @@
 
   async function pageAttackGraphRender() {
     var view = $("#view"), rounds = S.rounds, g, rec = null, idx = -1;
-    if (S.demo || !rounds.length) g = demoAttackGraph();
-    else {
-      idx = agRound != null ? rounds.map(function (r) { return r.round; }).indexOf(agRound) : rounds.length - 1;
+    if (S.demo || !rounds.length) {
+      g = demoAttackGraph();
+      if (rounds.length) {
+        idx = agRkey != null ? rounds.map(function (r) { return (r.episode || 1) + "-" + r.round; }).indexOf(agRkey) : rounds.length - 1;
+        if (idx < 0) idx = rounds.length - 1;
+        rec = rounds[idx];
+      }
+    } else {
+      idx = agRkey != null ? rounds.map(function (r) { return (r.episode || 1) + "-" + r.round; }).indexOf(agRkey) : rounds.length - 1;
       if (idx < 0) idx = rounds.length - 1;
       rec = rounds[idx];
       var d = await jget("/api/attack_graph/" + (rec.episode || 1) + "/" + rec.round);
@@ -566,8 +600,8 @@
     Array.prototype.forEach.call(document.querySelectorAll("[data-agtab]"), function (b) {
       b.onclick = function () { agTab = b.getAttribute("data-agtab"); pageAttackGraphRender(); };
     });
-    Array.prototype.forEach.call(document.querySelectorAll("[data-agrnd]"), function (b) {
-      b.onclick = function () { agRound = parseInt(b.getAttribute("data-agrnd"), 10); agSel = null; pageAttackGraphRender(); };
+    Array.prototype.forEach.call(document.querySelectorAll("[data-agrk]"), function (b) {
+      b.onclick = function () { agRkey = b.getAttribute("data-agrk"); agSel = null; pageAttackGraphRender(); };
     });
   }
   function agLine(k, v) { return '<div class="rep-line"><span class="rep-k">' + esc(k) + "</span><span>" + esc(v) + "</span></div>"; }
@@ -638,8 +672,8 @@
       ["goal", "intent", "fact", "finding"].map(function (k) { return '<span><span class="tag-dot" style="background:' + kindColor(k).line + '"></span>' + kindLabel(k) + "</span>"; }).join("") +
       ["spawns", "yields", "proves"].map(function (r) { return '<span><span style="display:inline-block;width:15px;height:0;border-top:2px solid ' + relColor(r) + '"></span> ' + relLabel(r) + "</span>"; }).join("") + "</div>";
     var chips = "";
-    if (!S.demo && rounds && rounds.length > 1) {
-      chips = '<div class="rchips">' + rounds.map(function (r, i) { return '<button class="rchip' + (i === idx ? " on" : "") + '" data-agrnd="' + r.round + '">R' + r.round + "</button>"; }).join("") + "</div>";
+    if (rounds && rounds.length) {
+      chips = roundChipsHtml(rounds, rec ? (rec.episode || 1) + "-" + rec.round : "", "data-agrk");
     }
     var ctx = rec ? (rec.episode || 1) + "회차 R" + rec.round : "예시";
     return (S.demo ? demoBanner() : "") + chips +
