@@ -7,7 +7,7 @@
 (HTTP 클라이언트·govc 스냅샷·로그 소스)를 조립하고, 턴 시퀀서로 회차를 돌린다.
 라운드 기록은 JSON Lines로, 회차 요약은 별도 파일 + 콘솔로 떨군다.
 
-build_sequencer / load_flag4 는 I/O 없이 조립만 하므로 테스트 가능(실제 연결은 run 때).
+build_sequencer 는 I/O 없이 조립만 하므로 테스트 가능(실제 연결은 run 때).
 """
 from __future__ import annotations
 
@@ -37,31 +37,6 @@ from orchestrator.scorer import jsonl_file_sink  # noqa: E402
 from orchestrator.sequencer import RunParams, TurnSequencer  # noqa: E402
 from orchestrator.truth_log import TruthLog  # noqa: E402
 from orchestrator.verifier import VerificationEngine  # noqa: E402
-
-
-def _load_flag_var(path: str, var: str, *, bare_ok: bool) -> Optional[str]:
-    """flag-values.secret 에서 `<var>=값` 을 읽음. bare_ok 면 `FLAG{...}` 단독 줄도 허용."""
-    try:
-        with open(path, encoding="utf-8") as f:
-            for raw in f:
-                line = raw.strip()
-                if line.startswith(var + "="):
-                    return line.split("=", 1)[1].strip().strip('"').strip("'")
-                if bare_ok and line.startswith("FLAG{"):
-                    return line
-    except FileNotFoundError:
-        return None
-    return None
-
-
-def load_flag4(path: str) -> Optional[str]:
-    """generate-flags.sh가 심은 ④ 값을 읽음(gitignore된 secret). `FLAG_4=...` 또는 bare FLAG{...}."""
-    return _load_flag_var(path, "FLAG_4", bare_ok=True)
-
-
-def load_flag_host(path: str) -> Optional[str]:
-    """[Wave1] 노드 호스트 objective 값. 같은 secret 의 `FLAG_HOST=...` (bare 폴백 없음)."""
-    return _load_flag_var(path, "FLAG_HOST", bare_ok=False)
 
 
 def _build_snapshots(cfg: Config):
@@ -154,8 +129,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--time-limit", type=int, default=None, help="턴당 제한시간(초)")
     ap.add_argument("--max-tokens", type=int, default=None,
                     help="공격 생성 토큰 상한(실험 파라미터; 생략 시 config.dgx.max_tokens)")
-    ap.add_argument("--flag-file", default=str(_ROOT / "k8s" / "flags" / "flag-values.secret"),
-                    help="④ 값 secret 파일")
     ap.add_argument("--out-dir", default=str(_ROOT / "orchestrator" / "logs"),
                     help="로그 출력 디렉토리")
     ap.add_argument("--force-crown", action="store_true",
@@ -182,16 +155,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     seq = build_sequencer(cfg, sink=sink, progress=progress,
                           events=events, detail_dir=detail_dir, params=params)
 
-    # god-view ④ 값(크라운 DB 플래그·노드 호스트 플래그) 로드 — secret 파일 없으면 None(배너가
-    # '없음'으로 표기, 리플레이로만 ④판정). 배너가 참조하는데 로드 호출이 빠져 NameError 였음.
-    flag4 = load_flag4(args.flag_file)
-    flag_host = load_flag_host(args.flag_file)
-
     print(f"[*] 실험 시작: episodes={params.episodes} max_rounds={params.max_rounds} "
           f"time_limit={params.time_limit_sec}s "
-          f"max_tokens={params.max_tokens if params.max_tokens is not None else '무제한(config 기본)'} "
-          f"flag4={'로드됨' if flag4 else '없음(리플레이로만 ④판정)'} "
-          f"flag_host={'로드됨' if flag_host else '없음(호스트 objective 값대조 불가)'}")
+          f"max_tokens={params.max_tokens if params.max_tokens is not None else '무제한(config 기본)'}")
     print(f"    대상 VM={cfg.vmware.target_vm_name} baseline={params.baseline_snapshot}")
     print(f"    공격자={cfg.network.attacker_url}  방어자={cfg.network.defender_url}")
     foothold_desc = (f"in-cluster exec({cfg.attack.exec_namespace}/{cfg.attack.exec_pod})"

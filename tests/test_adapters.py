@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import sys
-import tempfile
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -27,7 +26,7 @@ from orchestrator.http_clients import HttpAttackerClient, HttpDefenderClient  # 
 from orchestrator.log_source import (  # noqa: E402
     AuditFalcoLogSource, map_audit_event, map_falco_event, parse_rfc3339,
 )
-from orchestrator.main import build_sequencer, load_flag4  # noqa: E402
+from orchestrator.main import build_sequencer  # noqa: E402
 from orchestrator.sequencer import TurnSequencer  # noqa: E402
 
 
@@ -213,16 +212,7 @@ def test_log_source_window_and_mapping():
     assert src.techniques_in_window(since_ts=t0, until_ts=t0 + 1) == set()
 
 
-# ───────────── main 조립 & flag 로드 ─────────────
-def test_load_flag4_formats():
-    with tempfile.TemporaryDirectory() as d:
-        p1 = Path(d) / "a.secret"; p1.write_text("FLAG_4=FLAG{abc}\n", encoding="utf-8")
-        assert load_flag4(str(p1)) == "FLAG{abc}"
-        p2 = Path(d) / "b.secret"; p2.write_text("FLAG{xyz}\n", encoding="utf-8")
-        assert load_flag4(str(p2)) == "FLAG{xyz}"
-        assert load_flag4(str(Path(d) / "missing")) is None
-
-
+# ───────────── main 조립 ─────────────
 def test_build_sequencer_from_example_config():
     cfg = load_config(_ROOT / "common" / "config.example.yaml")
     seq = build_sequencer(cfg)
