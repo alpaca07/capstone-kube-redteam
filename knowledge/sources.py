@@ -372,41 +372,8 @@ def parse_cve_attack(raw) -> tuple[list[Node], list[Rel]]:
     return nodes, rels
 
 
-# --- 바닥층 자산 allowlist (큐레이트) -----------------------------------------
-def parse_allowlist(raw) -> tuple[list[Node], list[Rel]]:
-    """CPE allowlist JSON -> Product / ServiceType + (Product)-PROVIDES_SERVICE->(ServiceType).
-
-    raw: {"service_types": {<id>: {"name":..,"default_port"?}}, "products": [{"product","vendors":[..],"service_type"}]}
-    - Product id = 제품명(버전·vendor 무관). 한 제품이 여러 vendor CPE 로 분산될 수 있어(예: nginx=f5+nginx)
-      vendors + cpe_vendor_product(= "vendor:product" 조인키 리스트)를 속성에 담는다.
-    - CPE 노드/IDENTIFIED_BY 는 여기서 '안 만든다'(설계 안-가): NVD 가 버전 박힌 full cpe:2.3 문자열을 CPE 노드로
-      쓰므로, 와일드카드 베이스 앵커를 따로 만들면 같은 제품이 두 노드로 쪼개진다(AFFECTED_BY 는 버전 CPE 에 붙음).
-      조인키만 Product 속성으로 남겨, 조회시점(또는 nvd --nvd-cpe-nodes)에 CPE 와 잇는다.
-    """
-    nodes: list[Node] = [knowledge_source_node("allowlist")]
-    rels: list[Rel] = []
-
-    for st_id, st in (raw.get("service_types") or {}).items():
-        props = {"name": (st or {}).get("name", st_id)}
-        if (st or {}).get("default_port") is not None:
-            props["default_port"] = st["default_port"]
-        nodes.append({"label": "ServiceType", "id": st_id, "props": props})
-        rels.append(_supported_by("allowlist", "ServiceType", st_id))
-
-    for p in raw.get("products") or []:
-        pid = p.get("product")
-        if not pid:
-            continue
-        vendors = p.get("vendors") or []
-        nodes.append({"label": "Product", "id": pid,
-                      "props": {"name": pid, "vendors": vendors,
-                                "cpe_vendor_product": [f"{v}:{pid}" for v in vendors]}})
-        rels.append(_supported_by("allowlist", "Product", pid))
-        st_id = p.get("service_type")
-        if st_id:
-            rels.append({"type": "PROVIDES_SERVICE", "from_label": "Product", "from_id": pid,
-                         "to_label": "ServiceType", "to_id": st_id, "props": {}})
-    return nodes, rels
+# Product/ServiceType 적재는 knowledge.load_products 가 정본(kg-cpe-allowlist.yaml + IDENTIFIED_BY 링크).
+# 여기(ETL 파서)엔 중복 두지 않는다 — 과거 parse_allowlist(안-가)는 load_products 로 통합·제거됨.
 
 
 # --- 핵심층 ④⑤ 수기 저작 (고수준 환경 스키마 -> 노드/관계로 펼침) ----------------
@@ -508,6 +475,5 @@ PARSERS = {
     "cwe": parse_cwe,
     "nvd": parse_nvd,
     "cve_attack": parse_cve_attack,
-    "allowlist": parse_allowlist,
     "core": build_core_layer,
 }

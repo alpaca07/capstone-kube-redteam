@@ -12,7 +12,8 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from knowledge.load_products import (  # noqa: E402
-    _link_pairs, emit_nvd_targets, load_allowlist, load_products, product_nodes)
+    _link_pairs, emit_nvd_targets, load_allowlist, load_products, product_nodes,
+    service_nodes_and_rels)
 
 
 class FakeSession:
@@ -43,6 +44,18 @@ def test_product_nodes_shape_and_label():
     assert nodes[0]["props"]["vendor"] == "gitlab" and nodes[0]["props"]["category"] == "cicd"
 
 
+def test_service_nodes_and_rels():
+    st_nodes, rels = service_nodes_and_rels([
+        {"vendor": "oracle", "product": "mysql", "category": "database"},
+        {"vendor": "mariadb", "product": "mariadb", "category": "database"},   # 같은 category
+        {"vendor": "f5", "product": "nginx", "category": "web_server"}])
+    assert sorted(n["id"] for n in st_nodes) == ["database", "web_server"]     # category 별 1개
+    assert all(n["label"] == "ServiceType" for n in st_nodes)
+    pairs = {(r["from_id"], r["to_id"]) for r in rels if r["type"] == "PROVIDES_SERVICE"}
+    assert ("oracle:mysql", "database") in pairs          # Product(vendor:product) → ServiceType(category)
+    assert ("mariadb:mariadb", "database") in pairs and ("f5:nginx", "web_server") in pairs
+
+
 def test_emit_nvd_targets():
     tgt = emit_nvd_targets([{"vendor": "gitlab", "product": "gitlab"},
                             {"vendor": "oracle", "product": "mysql"}])
@@ -63,6 +76,9 @@ def test_load_products_merges_and_links():
     # Product-IDENTIFIED_BY->CPE 연결 Cypher 가 pairs 와 함께 호출됐나
     assert any("IDENTIFIED_BY" in q for q, _ in sess.calls)
     assert any("pairs" in p for _, p in sess.calls)
+    # ServiceType + PROVIDES_SERVICE 도 적재됐나(병합: load_products 로 통합)
+    assert any("ServiceType" in q for q, _ in sess.calls)
+    assert any("PROVIDES_SERVICE" in q for q, _ in sess.calls)
 
 
 def test_load_allowlist_dedup():

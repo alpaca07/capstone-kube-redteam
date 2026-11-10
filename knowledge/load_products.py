@@ -53,6 +53,32 @@ def product_nodes(products: Iterable[dict]) -> list[dict]:
     return nodes
 
 
+def service_nodes_and_rels(products: Iterable[dict]) -> tuple[list[dict], list[dict]]:
+    """allowlist → (ServiceType 노드[category별 1개], Product-PROVIDES_SERVICE->ServiceType 관계).
+
+    category(web_server·database·mq_cache·container·cicd·auth_gateway·monitoring 등)가 서비스 종류.
+    자산 분류·미식별 자산 폴백 손잡이(1차 플래너가 '포트/배너로 종류 추론 → 그 종류 지식'에 쓴다).
+    """
+    st_nodes: list[dict] = []
+    rels: list[dict] = []
+    seen_st: set[str] = set()
+    for p in products:
+        cat = (p.get("category") or "").strip()
+        if not cat:
+            continue
+        if cat not in seen_st:
+            seen_st.add(cat)
+            node = {"label": "ServiceType", "id": cat, "props": {"name": cat}}
+            schema.check_node(node)
+            st_nodes.append(node)
+        rel = {"type": "PROVIDES_SERVICE", "from_label": "Product",
+               "from_id": f"{p['vendor']}:{p['product']}",
+               "to_label": "ServiceType", "to_id": cat, "props": {}}
+        schema.check_rel(rel)
+        rels.append(rel)
+    return st_nodes, rels
+
+
 def emit_nvd_targets(products: Iterable[dict]) -> dict:
     """allowlist → nvd 입력 {cve_ids:[], cpe_matches:[cpe:2.3:a:vendor:product, ...]}.
 
@@ -88,9 +114,12 @@ def link_products_to_cpe(session, products: Iterable[dict]) -> None:
 
 
 def load_products(session, products: list[dict]) -> int:
-    """Product 노드 적재 + CPE 연결. 적재한 Product 수 반환."""
+    """Product 노드 + ServiceType + PROVIDES_SERVICE 적재 + CPE 연결. 적재한 Product 수 반환."""
     nodes = product_nodes(products)
     graph_writer.merge_nodes(session, nodes)
+    st_nodes, st_rels = service_nodes_and_rels(products)
+    graph_writer.merge_nodes(session, st_nodes)
+    graph_writer.merge_rels(session, st_rels)
     link_products_to_cpe(session, products)
     return len(nodes)
 
@@ -129,7 +158,8 @@ def main() -> None:
         try:
             with driver.session() as s:
                 n = load_products(s, products)
-            print(f"[link] Product {n}개 적재 + CPE 연결 완료")
+            cats = len({(p.get("category") or "").strip() for p in products if p.get("category")})
+            print(f"[link] Product {n}개 + ServiceType {cats}개 적재 + CPE 연결 완료")
         finally:
             driver.close()
         return

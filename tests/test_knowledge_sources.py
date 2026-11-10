@@ -16,7 +16,7 @@ if str(_ROOT) not in sys.path:
 
 from knowledge import schema  # noqa: E402
 from knowledge.sources import (  # noqa: E402
-    build_core_layer, parse_allowlist, parse_attack, parse_nvd)
+    build_core_layer, parse_attack, parse_nvd)
 
 
 def _rels(rels, rtype):
@@ -69,16 +69,6 @@ NVD_SAMPLE = {"vulnerabilities": [
         "references": [{"url": "https://ex/patch", "tags": ["Patch"]}],
     }},
 ]}
-
-ALLOWLIST_SAMPLE = {
-    "service_types": {"database": {"name": "데이터베이스"},
-                      "web-server": {"name": "웹서버·리버스프록시"}},
-    "products": [
-        {"product": "mysql", "vendors": ["oracle"], "service_type": "database"},
-        {"product": "nginx", "vendors": ["f5", "nginx"], "service_type": "web-server"},
-    ],
-}
-
 
 # ───────────── parse_attack: Platform 속성 ─────────────
 def test_attack_technique_has_platforms():
@@ -145,32 +135,6 @@ def test_nvd_cpe_filter_keeps_only_allowlist():
     assert cpe_ids == ["cpe:2.3:a:oracle:mysql:8.0.1:*:*:*:*:*:*:*"]   # ubuntu 노이즈 제외
 
 
-# ───────────── parse_allowlist: Product · ServiceType · PROVIDES_SERVICE ─────────────
-def test_allowlist_product_and_servicetype():
-    nodes, rels = parse_allowlist(ALLOWLIST_SAMPLE)
-    mysql = _node(nodes, "Product", "mysql")["props"]
-    assert mysql["cpe_vendor_product"] == ["oracle:mysql"]          # 직관불일치 vendor 교정
-    nginx = _node(nodes, "Product", "nginx")["props"]
-    assert nginx["cpe_vendor_product"] == ["f5:nginx", "nginx:nginx"]   # 한 제품 여러 vendor
-    assert _node(nodes, "ServiceType", "database")["props"]["name"] == "데이터베이스"
-    provides = [(r["from_id"], r["to_id"]) for r in rels if r["type"] == "PROVIDES_SERVICE"]
-    assert ("mysql", "database") in provides and ("nginx", "web-server") in provides
-
-
-def test_allowlist_makes_no_cpe_nodes():
-    nodes, _ = parse_allowlist(ALLOWLIST_SAMPLE)
-    assert not any(n["label"] == "CPE" for n in nodes)             # 설계 안-가: CPE 노드 안 만듦
-
-
-def test_nvd_targets_from_allowlist():
-    """바닥층 커버리지 — allowlist → NVD virtualMatchString 변환(단일 출처)."""
-    from knowledge.__main__ import cpe_targets_from_allowlist
-    t = cpe_targets_from_allowlist(str(_ROOT / "knowledge" / "cpe_allowlist.json"))
-    assert len(t) >= 36 and all(s.startswith("cpe:2.3:a:") for s in t)
-    assert "cpe:2.3:a:oracle:mysql" in t                            # 직관불일치 vendor 반영
-    assert "cpe:2.3:a:f5:nginx" in t and "cpe:2.3:a:nginx:nginx" in t   # 한 제품 여러 vendor
-
-
 def test_nvd_get_retries_on_429():
     """NVD 429(레이트리밋)를 백오프 후 재시도해 성공으로 잇는지(견고성)."""
     import io
@@ -199,24 +163,6 @@ def test_nvd_get_retries_on_429():
         M.time.sleep = orig_sleep
     assert calls["n"] == 2                                          # 429 → 재시도 → 성공
     assert out == {"vulnerabilities": [], "totalResults": 0}
-
-
-def test_allowlist_real_file_loads_and_valid():
-    path = _ROOT / "knowledge" / "cpe_allowlist.json"
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    nodes, rels = parse_allowlist(raw)
-    for n in nodes:
-        schema.check_node(n)
-    for r in rels:
-        schema.check_rel(r)
-    # 전수대조로 교정한 대표 조인키 몇 개가 실제로 들어갔나
-    joins = {n["id"]: n["props"]["cpe_vendor_product"]
-             for n in nodes if n["label"] == "Product"}
-    assert joins.get("mysql") == ["oracle:mysql"]
-    assert joins.get("kong_gateway") == ["konghq:kong_gateway"]
-    assert "f5:nginx" in joins.get("nginx", []) and "nginx:nginx" in joins.get("nginx", [])
-    prod_count = sum(1 for n in nodes if n["label"] == "Product")
-    assert prod_count >= 30                                        # 재생성본 규모 하한
 
 
 # ───────────── build_core_layer: ④⑤ 펼치기 ─────────────
@@ -308,7 +254,7 @@ def test_core_real_all_envs_valid():
 # ───────────── 스키마 적합성(enrich 가 잘못된 라벨/관계 안 만들었나) ─────────────
 def test_all_nodes_and_rels_pass_schema():
     for raw, parse in [(ATTACK_SAMPLE, parse_attack), (NVD_SAMPLE, parse_nvd),
-                       (ALLOWLIST_SAMPLE, parse_allowlist), (CORE_SAMPLE, build_core_layer)]:
+                       (CORE_SAMPLE, build_core_layer)]:
         nodes, rels = parse(raw)
         for n in nodes:
             schema.check_node(n)

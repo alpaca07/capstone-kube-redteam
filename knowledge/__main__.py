@@ -29,7 +29,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
 
-from . import graph_writer, schema, sources
+from . import graph_writer, load_products, schema, sources
 
 # 공식 소스 URL (개발모드에서 직접 받기)
 URLS = {
@@ -139,9 +139,6 @@ def fetch_nvd(args) -> dict:
 
     cve_ids = list(args.nvd_cve or [])
     cpe_matches = list(args.nvd_cpe or [])
-    if args.nvd_from_allowlist:   # 바닥층 커버리지 — allowlist 40 제품을 NVD 타깃으로
-        cpe_matches += cpe_targets_from_allowlist(
-            args.allowlist or os.path.join(os.path.dirname(__file__), "cpe_allowlist.json"))
     tgt = args.nvd_targets or (os.path.join(args.data_dir, "nvd_targets.json") if args.data_dir else "nvd_targets.json")
     if os.path.exists(tgt):
         t = json.load(open(tgt))
@@ -265,28 +262,8 @@ def fetch_cve_attack(args) -> dict:
 
 
 # --- 바닥층 CPE allowlist 로드 (자산 카탈로그) --------------------------------
-def fetch_allowlist(args) -> dict:
-    """CPE allowlist JSON 로드. 우선순위: --allowlist > <data-dir>/cpe_allowlist.json > 패키지 기본 파일."""
-    path = args.allowlist or (os.path.join(args.data_dir, "cpe_allowlist.json") if args.data_dir else None)
-    if not path or not os.path.exists(path):
-        path = os.path.join(os.path.dirname(__file__), "cpe_allowlist.json")
-    if not os.path.exists(path):
-        raise SystemExit("allowlist: cpe_allowlist.json 을 못 찾음 (--allowlist 로 경로 지정)")
-    return json.load(open(path))
-
-
-def cpe_targets_from_allowlist(path: str) -> list[str]:
-    """바닥층 allowlist(cpe_allowlist.json) → NVD virtualMatchString 목록(cpe:2.3:a:vendor:product).
-    40 제품의 CVE 를 NVD 에서 당기는 바닥층 '커버리지' 수집용. 단일 출처=allowlist(중복 타깃 파일 없음)."""
-    al = json.load(open(path))
-    out: list[str] = []
-    for p in al.get("products", []):
-        prod = p.get("product")
-        if not prod:
-            continue
-        for v in (p.get("vendors") or []):
-            out.append(f"cpe:2.3:a:{v}:{prod}")
-    return out
+# Product/allowlist 는 knowledge.load_products 가 정본(Product·ServiceType·IDENTIFIED_BY, kg-cpe-allowlist.yaml).
+# nvd 입력(cpe_matches)은 load_products.emit_nvd_targets, CPE 필터는 --nvd-cpe-filter(아래) 로 그 allowlist 를 공유.
 
 
 # --- 핵심층 환경 로드 (④⑤ 수기 저작) ----------------------------------------
@@ -331,9 +308,10 @@ def run(args) -> None:
         return
     source_list = [s.strip() for s in args.sources.split(",") if s.strip()]
     sources.LOAD_NVD_CPE = bool(args.nvd_cpe_nodes)   # NVD CPE 열거 적재 여부(기본 False)
-    if args.nvd_from_allowlist and args.nvd_cpe_nodes:   # 바닥층: CPE 노드를 allowlist 제품만으로 제한
-        sources.CPE_FILTER = frozenset(cpe_targets_from_allowlist(
-            args.allowlist or os.path.join(os.path.dirname(__file__), "cpe_allowlist.json")))
+    if args.nvd_cpe_filter and args.nvd_cpe_nodes:   # 바닥층: CPE 노드를 allowlist 제품만으로 제한(노이즈·메모리 차단)
+        sources.CPE_FILTER = frozenset(
+            f"cpe:2.3:a:{p['vendor']}:{p['product']}"
+            for p in load_products.load_allowlist(args.nvd_cpe_filter))
     session = graph_writer.DryRunSession() if args.dry_run else connect(args)
     for source in source_list:
         if source not in sources.PARSERS:
@@ -342,8 +320,6 @@ def run(args) -> None:
             raw = fetch_nvd(args)
         elif source == "cve_attack":
             raw = fetch_cve_attack(args)
-        elif source == "allowlist":
-            raw = fetch_allowlist(args)
         elif source == "core":
             raw = fetch_core(args)
         else:
@@ -370,9 +346,8 @@ def main() -> None:
     ap.add_argument("--nvd-cve", default=[], type=_csv, help="NVD 타깃 CVE id (예: CVE-2021-44228,CVE-2021-45046)")
     ap.add_argument("--nvd-cpe", default=[], type=_csv, help="NVD 타깃 제품 CPE/virtualMatchString (예: cpe:2.3:a:apache:log4j)")
     ap.add_argument("--nvd-targets", default=None, help="타깃 JSON 파일 경로({\"cve_ids\":[...],\"cpe_matches\":[...]})")
-    ap.add_argument("--nvd-cpe-nodes", action="store_true", help="NVD CPE 열거도 적재(기본 꺼짐 — 벤더 제품 노이즈 차단). 바닥층 Product↔CVE 조인하려면 켜야 함")
-    ap.add_argument("--nvd-from-allowlist", action="store_true", help="바닥층 — cpe_allowlist.json 40 제품을 NVD 타깃으로 자동 변환해 그 CVE 전부 수집")
-    ap.add_argument("--allowlist", default=None, help="바닥층 CPE allowlist JSON 경로(allowlist 소스, 기본=knowledge/cpe_allowlist.json)")
+    ap.add_argument("--nvd-cpe-nodes", action="store_true", help="NVD CPE 열거도 적재(기본 꺼짐 — 벤더 제품 노이즈 차단). 바닥층 Product↔CVE 조인(load_products --link)하려면 켜야 함")
+    ap.add_argument("--nvd-cpe-filter", metavar="YAML", default=None, help="바닥층 — 이 allowlist(kg-cpe-allowlist.yaml) 제품 CPE 만 노드 생성(열거 노이즈·메모리 차단). --nvd-cpe-nodes 와 함께.")
     ap.add_argument("--core", default=None, help="핵심층 환경 JSON 파일/디렉토리(core 소스, 기본=knowledge/core_layer/)")
     ap.add_argument("--cve-map", default=None, help="CVE->ATT&CK 큐레이트 매핑 JSON 경로(cve_attack 소스)")
     ap.add_argument("--kev-json", default=None, help="CTID KEV->ATT&CK 매핑 JSON 경로(없으면 data-dir 에서 최신 자동탐색)")
