@@ -6,9 +6,11 @@
 
 # ── 1단계: libmodsecurity 3.0.5 소스 빌드 (debian 11 로 베이스 ABI 맞춤) ──
 FROM debian:11 AS build
-# debian 11(bullseye) 보안 저장소는 EOL 로 옛 .deb 가 미러에서 404 → 제외하고 main 으로 설치.
-RUN sed -i '/security/d' /etc/apt/sources.list \
- && apt-get update && apt-get install -y --no-install-recommends \
+# debian 11(bullseye) EOL — 보안 저장소를 archive.debian.org 로 돌려 옛 .deb 를 받는다.
+# (security 를 빼면 이미지에 이미 깔린 security 버전 라이브러리와 dev 패키지가 충돌한다.)
+RUN sed -i 's|deb.debian.org/debian-security|archive.debian.org/debian-security|; s|security.debian.org|archive.debian.org|' /etc/apt/sources.list \
+ && apt-get -o Acquire::Check-Valid-Until=false update \
+ && apt-get install -y --no-install-recommends \
         git ca-certificates build-essential automake autoconf libtool pkg-config \
         libpcre3-dev libxml2-dev libyajl-dev liblua5.3-dev libgeoip-dev \
         libcurl4-openssl-dev libssl-dev zlib1g-dev \
