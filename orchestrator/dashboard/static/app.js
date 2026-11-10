@@ -15,7 +15,7 @@
       { id: "attack-graph", label: "공격 추적 그래프", soon: true } ] },
     { group: "방어 관점", items: [
       { id: "defender-arch", label: "타깃 구성도" },
-      { id: "defender-graph", label: "탐지·패치 흐름", soon: true } ] },
+      { id: "defender-graph", label: "탐지·패치 흐름" } ] },
     { group: "기록", items: [
       { id: "events", label: "이벤트 로그" },
       { id: "report", label: "회차 보고서", soon: true } ] }
@@ -25,7 +25,7 @@
     "defender-arch": "타깃 구성도 (방어 시점)", "defender-graph": "탐지·패치 흐름",
     report: "회차 보고서" };
   var DEFAULT_ROUTE = "posture";
-  var REAL = { posture: 1, stats: 1, control: 1, live: 1, events: 1, "defender-arch": 1 };
+  var REAL = { posture: 1, stats: 1, control: 1, live: 1, events: 1, "defender-arch": 1, "defender-graph": 1 };
 
   // ───────── 색 상수(의미색 — CSS 변수와 1:1) ─────────
   var C = { atk: "#e5484d", def: "#3b82f6", sys: "#64748b", crown: "#e5920b",
@@ -44,7 +44,7 @@
 
   // ───────── 상태 ─────────
   var S = { rounds: [], episodes: [], runs: [], events: [], status: {}, demo: false };
-  var route = DEFAULT_ROUTE, evTab = "all";
+  var route = DEFAULT_ROUTE, evTab = "all", defRound = null;
 
   // ───────── 유틸 ─────────
   function $(sel, el) { return (el || document).querySelector(sel); }
@@ -399,6 +399,104 @@
       '<div class="legend"><span><span class="tag-dot" style="background:' + C.def + '"></span>서비스</span><span><span class="tag-dot" style="background:' + C.atk + '"></span>외부 노출 / 경계 없음</span><span><span class="tag-dot" style="background:' + C.ok + '"></span>경계 있음</span><span><span class="tag-dot" style="background:' + C.crown + '"></span>핵심 자산 영역</span></div>';
   }
 
+  // ───────── 페이지: 탐지·패치 흐름 (방어 시점) ─────────
+  var DEMO_TECH = {
+    "T1078": { ev: "admin-sa 서비스어카운트로 secrets get 다수 호출", pk: "rbac", pt: "internal/admin-tools-binding", ps: "과다 권한 롤바인딩 삭제" },
+    "T1552.001": { ev: "파드에 마운트된 시크릿 파일 직접 접근", pk: "secret", pt: "default/db-cred", ps: "노출된 시크릿 회전" },
+    "T1210": { ev: "backend 서비스 포트 스캔 후 원격 악용 시도", pk: "networkpolicy", pt: "backend", ps: "동서 트래픽 차단(수신 제한)" },
+    "T1213": { ev: "internal-wiki 런북 페이지 열람", pk: "networkpolicy", pt: "internal", ps: "wiki 접근 출처 제한" }
+  };
+  function patchKindLabel(k) { return ({ networkpolicy: "네트워크 차단", rbac: "권한(RBAC)", secret: "비밀/크리덴셜", config: "설정", image: "이미지", resource: "리소스 제한" })[k] || k || "패치"; }
+  function stillLabel(f) { return ("" + f).indexOf("crown") === 0 ? crownLabel(f) : "flag " + f; }
+
+  function demoDetail(rec) {
+    var techs = rec.reported_techniques || [];
+    var detected = techs.map(function (t) { var m = DEMO_TECH[t] || {}; return { technique: t, evidence: m.ev || "의심 행위 관측", confidence: 0.55 + (t.length % 3) * 0.12 }; });
+    var patch_set = techs.map(function (t) { var m = DEMO_TECH[t] || {}; return { kind: m.pk || "config", target: m.pt || "-", summary: m.ps || "설정 보강" }; });
+    if (!patch_set.length && rec.verdict !== "inconclusive") patch_set = [{ kind: "networkpolicy", target: "internal", summary: "기본 격리 정책 보강" }];
+    var still = (rec.verdict === "fake_patch" || rec.verdict === "not_blocked") ? (rec.crowns_reached_cum || []).slice() : [];
+    var detail = rec.verdict === "blocked" ? "재생해도 핵심 자산 재도달 실패 — 실제로 막힘"
+      : (rec.verdict === "fake_patch" || rec.verdict === "not_blocked") ? "재생하니 패치 우회로 핵심 자산 재유출 — 막은 척"
+      : "재생 불가·근거 부족으로 판정 보류";
+    return {
+      episode: rec.episode, round: rec.round,
+      attack: { end_reason: rec.attack_end_reason, flags_obtained: (rec.flags_reached_cum || []).map(function (f) { return { flag_id: f }; }) },
+      defense: (rec.verdict === "inconclusive" && !patch_set.length) ? null : {
+        patch_applied: rec.patch_applied, end_reason: rec.defense_end_reason,
+        detected: detected, patch_set: patch_set, healthcheck_passed: rec.healthcheck_passed, patch_attempts: [], patch_note: ""
+      },
+      verification: { verdict: rec.verdict, method: "replay-crown(재생 검증)", detail: detail, flags_still_reachable: still, post: { flags_reached: still } }
+    };
+  }
+
+  async function pageDefGraphRender() {
+    var view = $("#view"), rounds = S.rounds;
+    if (!rounds.length) {
+      view.innerHTML = '<p class="page-intro">방어자가 라운드마다 무엇을 탐지하고 패치했는지, 그게 검증에서 진짜 막혔는지 봅니다.</p>' +
+        emptyState("🛡", "아직 방어 기록이 없습니다", "실험을 돌리면 라운드별 탐지 → 패치 → 검증 흐름이 여기 나타납니다.", []);
+      return;
+    }
+    var idx = defRound != null ? rounds.map(function (r) { return r.round; }).indexOf(defRound) : rounds.length - 1;
+    if (idx < 0) idx = rounds.length - 1;
+    var rec = rounds[idx], detail;
+    if (S.demo) detail = demoDetail(rec);
+    else { var d = await jget("/api/round/" + (rec.episode || 1) + "/" + rec.round); detail = (d && (d.defense || d.verification)) ? d : demoDetail(rec); }
+    if (route !== "defender-graph") return;
+    view.innerHTML = pageDefGraph(detail, rec, rounds, idx);
+    bindDefChips();
+  }
+  function bindDefChips() {
+    Array.prototype.forEach.call(document.querySelectorAll(".rchip"), function (b) {
+      b.onclick = function () { defRound = parseInt(b.getAttribute("data-rnd"), 10); pageDefGraphRender(); };
+    });
+  }
+  function pageDefGraph(detail, rec, rounds, idx) {
+    var d = detail.defense || {}, v = detail.verification || {};
+    var det = d.detected || [], ps = d.patch_set || [];
+    var vv = v.verdict ? VERDICT[v.verdict] : null;
+
+    var chips = rounds.map(function (r, i) {
+      var rv = VERDICT[r.verdict], col = rv ? rv.color : C.muted, on = i === idx;
+      return '<button class="rchip' + (on ? " on" : "") + '" data-rnd="' + r.round + '" style="' + (on ? "border-color:" + col + ";color:" + col : "") + '"><span class="tag-dot" style="background:' + col + '"></span>R' + r.round + "</button>";
+    }).join("");
+
+    var detHtml = det.length ? det.map(function (x) {
+      var conf = x.confidence != null ? Math.round(x.confidence * 100) : null;
+      return '<div class="flow-item"><div class="fi-head">' + (x.technique ? '<span class="badge b-def">' + esc(x.technique) + "</span>" : '<span class="chip">기법 미상</span>') + (conf != null ? '<span class="fi-conf">확신도 ' + conf + "%</span>" : "") + "</div>" +
+        '<div class="fi-ev mono">' + esc(x.evidence || "—") + "</div>" + (conf != null ? '<div class="conf-bar"><span style="width:' + conf + '%"></span></div>' : "") + "</div>";
+    }).join("") : '<div class="flow-empty">이 라운드엔 탐지 못 함 (놓침)</div>';
+
+    var psHtml = ps.length ? ps.map(function (p) {
+      return '<div class="flow-item"><div class="fi-head"><span class="badge b-def">' + esc(patchKindLabel(p.kind)) + '</span><span class="fi-tgt mono">' + esc(p.target || "") + "</span></div>" +
+        '<div class="fi-ev">' + esc(p.summary || "—") + "</div></div>";
+    }).join("") : '<div class="flow-empty">적용한 패치 없음</div>';
+    var psFoot = detail.defense ? '<div class="flow-foot">' + (d.patch_applied ? '<span class="badge b-ok">패치 적용</span>' : '<span class="badge b-sys">패치 미적용</span>') +
+      (d.healthcheck_passed ? '<span class="badge b-ok">서비스 정상</span>' : '<span class="badge b-atk">서비스 죽음</span>') + "</div>" : "";
+
+    var still = v.flags_still_reachable || [];
+    var vHtml = detail.verification ? '<div class="flow-item"><div class="fi-head">' + (vv ? '<span class="badge ' + vv.cls + '">' + vv.label + "</span>" : '<span class="chip">—</span>') + "</div>" +
+      '<div class="fi-ev">' + esc(v.detail || "") + "</div>" + (still.length ? '<div class="fi-ev" style="color:var(--atk)">여전히 뚫리는 핵심자산: ' + still.map(stillLabel).join(", ") + "</div>" : "") +
+      '<div class="fi-tgt mono">' + esc(v.method || "") + "</div></div>" : '<div class="flow-empty">검증 기록 없음</div>';
+
+    var punchCls = v.verdict === "blocked" ? "ok" : (v.verdict === "fake_patch" || v.verdict === "not_blocked") ? "atk" : "sys";
+    var claim = detail.defense ? (d.patch_applied ? "패치를 적용했다고 보고" : "패치 안 함") : "이번 라운드 대응 없음";
+    var truth = !detail.verification ? "검증 보류" : v.verdict === "blocked" ? "재생해도 안 뚫림 → 진짜 막음"
+      : (v.verdict === "fake_patch" || v.verdict === "not_blocked") ? "재생하니 또 뚫림 → 막은 척(헛방)" : "판정 불가";
+
+    return (S.demo ? demoBanner() : "") +
+      '<p class="page-intro">방어자는 공격 정보 없이 로그·상태 변화만으로 추론합니다. 라운드마다 무엇을 <b>탐지</b>하고 무엇을 <b>패치</b>했으며, 재생 <b>검증</b>에서 진짜 막혔는지 봅니다. 라운드 색은 결과(초록 막음·빨강 헛방·회색 판정불가).</p>' +
+      '<div class="rchips">' + chips + "</div>" +
+      '<div class="section-label">R' + rec.round + " 방어 흐름 · 탐지 → 패치 → 검증</div>" +
+      '<div class="grid cols-3 flow">' +
+      '<div class="card flow-card c-def"><div class="card-h">① 탐지 <span class="flow-n">' + det.length + '건</span></div><div class="card-sub">관측에서 추론 (틀릴 수 있음)</div>' + detHtml + "</div>" +
+      '<div class="card flow-card c-teal"><div class="card-h">② 패치 <span class="flow-n">' + ps.length + '건</span></div><div class="card-sub">탐지에 따른 조치</div>' + psHtml + psFoot + "</div>" +
+      '<div class="card flow-card c-' + punchCls + '"><div class="card-h">③ 검증 결과</div><div class="card-sub">재생으로 실제 효과 확인</div>' + vHtml + "</div>" +
+      "</div>" +
+      '<div class="punch punch-' + punchCls + '"><div class="punch-h">패치가 진짜 막았나?</div>' +
+      '<div class="punch-row"><span class="punch-k">방어자 주장</span><span>' + esc(claim) + "</span></div>" +
+      '<div class="punch-row"><span class="punch-k">실제(검증)</span><span><b>' + esc(truth) + "</b></span></div></div>";
+  }
+
   // ───────── 페이지: 이벤트 로그 ─────────
   async function loadEvents() { S.events = (await jget("/api/events")) || []; if (!S.events.length) S.events = demoEvents(); }
   function pageEvents() {
@@ -429,7 +527,6 @@
   function pageStub(id) {
     var info = {
       "attack-graph": ["🕸", "공격 추적 그래프", "공격 플래너·워커가 라운드마다 무슨 의도로 어떤 공격을 했는지 노드 그래프로. 노드를 누르면 그 공격 기법 설명·문서 링크가 뜹니다. 공격 쪽 탐색 기록을 VM A에서 당겨와 그립니다.", [["교차망 연결 필요", C.atk], ["다음 단계", C.teal]]],
-      "defender-graph": ["🛡", "탐지·패치 흐름", "방어자가 무엇을 보고(관측) 무엇으로 판단했고(탐지) 무엇을 고쳤는지(패치)를 흐름으로. 패치마다 왜 했는지 설명도 함께. 라운드 상세 기록을 읽습니다.", [["라운드 상세", C.def], ["다음 단계", C.teal]]],
       "report": ["📄", "회차 보고서", "회차가 끝나면 자동 보고서. 위는 비전문가도 읽는 요약, 아래는 전문가용 상세(접힘). 실제로 뚫린 것과 방어자가 추측한 것을 나란히 비교합니다.", [["회차 집계", C.crown], ["다음 단계", C.teal]]]
     }[id] || ["•", TITLES[id] || id, "준비 중입니다.", []];
     return '<p class="page-intro">다음 단계에서 붙일 화면입니다. 필요한 데이터 기록(이벤트·라운드 상세·방어 토폴로지)은 이미 쌓고 있어서, 화면만 얹으면 됩니다.</p>' +
@@ -447,6 +544,7 @@
     setActiveNav();
     if (route === "events") { await loadEvents(); view.innerHTML = pageEvents(); bindEventTabs(); return; }
     if (route === "defender-arch") { view.innerHTML = '<p class="page-intro">구성도 불러오는 중…</p>'; var topo = await loadTopology(); if (route === "defender-arch") view.innerHTML = pageArch(topo); return; }
+    if (route === "defender-graph") { await pageDefGraphRender(); return; }
     if (!REAL[route]) { view.innerHTML = pageStub(route); return; }
     if (route === "posture") view.innerHTML = pagePosture();
     else if (route === "stats") view.innerHTML = pageStats();
