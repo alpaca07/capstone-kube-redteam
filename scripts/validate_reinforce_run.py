@@ -33,6 +33,9 @@ _RE_INTENT = re.compile(r"·\s*intent#(\d+):\s*(.*?)(?:\s*→\s*(.+?))?(?:\s*\[(
 _RE_STEP = re.compile(r"\[공격 step (\d+)\]")
 _RE_GIVEUP = re.compile(r"give_up\(막다른 길\)")
 _RE_FLAG = re.compile(r"FLAG\{[^}]*\}")
+_RE_KG_CAND = re.compile(r"KG후보 (\d+)개")              # 1차: 플래너가 받은 KG 후보 기법 수
+_RE_KG_NOLINK = re.compile(r"KG미연결")                  # KG 미배선(graph_backend≠neo4j)
+_RE_KG_PROC = re.compile(r"⟐ KG 절차 참고\(([^)]+)\)")   # 2차: 워커가 받은 핵심층 절차(기법)
 
 
 def analyze(lines) -> dict:
@@ -44,6 +47,11 @@ def analyze(lines) -> dict:
         "situ_rounds": set(),          # 태세 요약이 찍힌 라운드
         "reverify_rounds": set(),      # 지난라운드침해>0 로 재검증 후보가 들어간 라운드
         "untouched_seen": False,       # 미탐색 자산>0 을 한 번이라도 봤나
+        "kg_cand_hits": 0,             # 1차 KG 후보 기법이 플래너에 주입된 횟수(후보>0)
+        "kg_cand_total": 0,            # 주입된 KG 후보 기법 누계
+        "kg_nolink": 0,                # KG 미연결 로그 횟수(graph_backend≠neo4j)
+        "kg_proc_hits": 0,             # 2차 KG 절차가 워커에 주입된 횟수
+        "kg_proc_techs": set(),        # 절차 주입된 기법 집합
     }
     for raw in lines:
         s = raw.rstrip("\n")
@@ -53,6 +61,18 @@ def analyze(lines) -> dict:
             r["noprog_deadends"] += 1
         if _RE_EXECFAIL_END.search(s):
             r["execfail_deadends"] += 1
+        # KG 신호 — 1차 후보는 태세 라인에 붙고(그 라인은 아래서 continue) 2차 절차는 별도 라인이라,
+        # continue 전에 먼저 검사한다.
+        m = _RE_KG_CAND.search(s)
+        if m and int(m.group(1)) > 0:
+            r["kg_cand_hits"] += 1
+            r["kg_cand_total"] += int(m.group(1))
+        if _RE_KG_NOLINK.search(s):
+            r["kg_nolink"] += 1
+        m = _RE_KG_PROC.search(s)
+        if m:
+            r["kg_proc_hits"] += 1
+            r["kg_proc_techs"].add(m.group(1).strip())
         m = _RE_WAVE.search(s)
         if m:
             rd, _wv, nint, ndd = m.group(1), m.group(2), int(m.group(3)), int(m.group(4) or 0)
@@ -106,6 +126,8 @@ def render(r: dict) -> str:
     f2 = r["dedup_total"] > 0
     f3 = len(r["situ_rounds"]) > 0 and r["untouched_seen"]
     f4 = len(r["reverify_rounds"]) > 0
+    f5 = r["kg_cand_hits"] > 0          # 1차: 플래너가 KG 후보 기법을 실제로 받음
+    f6 = r["kg_proc_hits"] > 0          # 2차: 워커가 핵심층 절차를 실제로 받음
 
     out.append(f"① 반복 억제(no-progress)   {_verdict(f1)}  "
                f"— 진전없음 감지 {r['noprog_hits']}회, 조기종료 {r['noprog_deadends']}회")
@@ -116,6 +138,11 @@ def render(r: dict) -> str:
     out.append(f"④ 공진화 재검증(re-verify) {_verdict(f4)}  "
                f"— 지난라운드침해 투입 라운드 {sorted(r['reverify_rounds'])}"
                + ("" if multiround else "  (주의: 멀티라운드 로그가 아니면 ④는 원래 안 뜸)"))
+    out.append(f"⑤ KG 후보 기법 주입(1차)   {_verdict(f5)}  "
+               f"— 후보 주입 {r['kg_cand_hits']}회(누계 {r['kg_cand_total']}개)"
+               + (f", KG미연결 {r['kg_nolink']}회" if r["kg_nolink"] else ""))
+    out.append(f"⑥ KG 절차 주입(2차)        {_verdict(f6)}  "
+               f"— 절차 주입 {r['kg_proc_hits']}회, 기법 {sorted(r['kg_proc_techs'])}")
 
     out.append("\n── 라운드별 ──")
     for rd in sorted(r["rounds"], key=lambda k: (not k.isdigit(), k)):
@@ -137,7 +164,8 @@ def render(r: dict) -> str:
                    f"(낮을수록 좋음 — 억제 전엔 env|grep 반복으로 높았음)")
 
     out.append("\n── 판정 ──")
-    missing = [n for n, ok in [("①", f1), ("②", f2), ("③", f3), ("④", f4)] if not ok]
+    missing = [n for n, ok in [("①", f1), ("②", f2), ("③", f3), ("④", f4),
+                               ("⑤", f5), ("⑥", f6)] if not ok]
     if not missing:
         out.append("  네 강화 모두 로그에서 관측됨. ✅")
     else:
@@ -146,21 +174,26 @@ def render(r: dict) -> str:
             hint = "  (③④가 안 뜨면: 자산 그래프가 비었거나 병렬 경로가 아님 — mode=parallel·asset_graph 확인)"
         if "②" in missing:
             hint += "\n  (②는 플래너가 같은 자산을 두 번 안 냈으면 원래 0 — 정상일 수 있음)"
+        if "⑤" in missing or "⑥" in missing:
+            hint += ("\n  (⑤⑥ KG 미관측: graph_backend=neo4j·KG 적재 확인. 'KG미연결' 로그가 뜨면 "
+                     "백엔드가 memory라 KG 콜백이 None. ⑥은 그 라운드 의도에 technique 가 없었거나 "
+                     "그 기법의 Procedure 가 KG 에 없으면 원래 안 뜸)")
         out.append(f"  미관측: {', '.join(missing)}.{hint}")
     return "\n".join(out)
 
 
 _SELFTEST_LOG = """\
 [10:00:01] [round r1] wave 1: 플래너가 의도 3개 생성, 겹침 1개 제거
-[10:00:01] [round r1] wave 1: 태세 → 자산 6개(미탐색 5) · 지난라운드침해 0건
+[10:00:01] [round r1] wave 1: 태세 → 자산 6개(미탐색 5) · 지난라운드침해 0건 · KG후보 4개
 [10:00:02]     · intent#2: probe pg → postgres.database.svc.cluster.local [T1046]
 [10:00:02]     · intent#3: enum sa → admin-dashboard [T1078]
+[10:00:02] [work1·intent#2] ⟐ KG 절차 참고(T1046)
 [10:00:03] [work1·intent#2] [공격 step 1] llm=1.2s exec=0.1s | sh -c env|grep
 [10:00:04] [work1·intent#2] [공격] 진전 없음(반복 명령/동일 결과) 1/4 | sh env|grep
 [10:00:05] [work1·intent#2] [공격] 진전 없음(반복 명령/동일 결과) 2/4 | sh env|grep
 [10:00:06] [work1·intent#2] [공격 step 5] → give_up(막다른 길)
 [10:00:20] [round r2] wave 1: 플래너가 의도 2개 생성
-[10:00:20] [round r2] wave 1: 태세 → 자산 9개(미탐색 4) · 지난라운드침해 2건
+[10:00:20] [round r2] wave 1: 태세 → 자산 9개(미탐색 4) · 지난라운드침해 2건 · KG후보 3개
 [10:00:21]     · intent#7: re-verify creds → postgres.database.svc.cluster.local [T1552]
 [10:00:30] [work0·intent#7] [공격] 연속 진전 없음 4회(반복 낭비) → 턴 종료
 [10:00:31] [work1·intent#8] [공격] 연속 실행 실패 8회(경로 차단 추정) → 턴 종료
@@ -180,6 +213,10 @@ def _selftest() -> int:
         "untouched_seen": r["untouched_seen"] is True,
         "flags>=1": r["flags"] >= 1,
         "give_ups>=1": r["give_ups"] >= 1,
+        "kg_cand_hits==2": r["kg_cand_hits"] == 2,
+        "kg_cand_total==7": r["kg_cand_total"] == 7,       # 4 + 3
+        "kg_proc_hits>=1": r["kg_proc_hits"] >= 1,
+        "kg_proc_techs has T1046": "T1046" in r["kg_proc_techs"],
     }
     ok = all(checks.values())
     for name, passed in checks.items():
