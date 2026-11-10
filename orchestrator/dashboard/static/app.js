@@ -18,14 +18,14 @@
       { id: "defender-graph", label: "탐지·패치 흐름" } ] },
     { group: "기록", items: [
       { id: "events", label: "이벤트 로그" },
-      { id: "report", label: "회차 보고서", soon: true } ] }
+      { id: "report", label: "회차 보고서" } ] }
   ];
   var TITLES = { posture: "보안 현황", stats: "공격·방어 통계", control: "실험 제어",
     live: "실시간 현황", events: "이벤트 로그", "attack-graph": "공격 추적 그래프",
     "defender-arch": "타깃 구성도 (방어 시점)", "defender-graph": "탐지·패치 흐름",
     report: "회차 보고서" };
   var DEFAULT_ROUTE = "posture";
-  var REAL = { posture: 1, stats: 1, control: 1, live: 1, events: 1, "defender-arch": 1, "defender-graph": 1 };
+  var REAL = { posture: 1, stats: 1, control: 1, live: 1, events: 1, "defender-arch": 1, "defender-graph": 1, report: 1 };
 
   // ───────── 색 상수(의미색 — CSS 변수와 1:1) ─────────
   var C = { atk: "#e5484d", def: "#3b82f6", sys: "#64748b", crown: "#e5920b",
@@ -44,7 +44,7 @@
 
   // ───────── 상태 ─────────
   var S = { rounds: [], episodes: [], runs: [], events: [], status: {}, demo: false };
-  var route = DEFAULT_ROUTE, evTab = "all", defRound = null;
+  var route = DEFAULT_ROUTE, evTab = "all", defRound = null, repEp = null;
 
   // ───────── 유틸 ─────────
   function $(sel, el) { return (el || document).querySelector(sel); }
@@ -210,24 +210,23 @@
         '<div class="tile-v">' + t.v + '</div><div class="tile-sub">' + t.sub + "</div></div>";
     }).join("");
 
-    var evoCard = '<div class="card"><div class="card-h">공격 성공률 vs 방어 성공률</div><div class="card-sub">라운드가 갈수록 누가 이기는지 (누적 비율)</div>' +
+    var evoCard = '<div class="card"><div class="card-h">공격 성공률 vs 방어 성공률</div>' +
       lineChart([{ color: C.def, points: ev.map(function (e) { return e.def; }) },
         { color: C.atk, points: ev.map(function (e) { return e.atk; }) }], Math.max(ev.length, 1), { pct: true }) +
       '<div class="legend"><span><span class="tag-dot" style="background:' + C.def + '"></span>방어 성공 (공격을 막음)</span>' +
       '<span><span class="tag-dot" style="background:' + C.atk + '"></span>공격 성공 (막은 척 뚫음)</span></div></div>';
 
     var vc = verdictCounts();
-    var vcard = '<div class="card"><div class="card-h">검증 결과</div><div class="card-sub">패치가 공격을 실제로 막았는지</div>' +
+    var vcard = '<div class="card"><div class="card-h">검증 결과</div>' +
       barChart([{ label: "막음", value: vc.blocked, color: C.ok }, { label: "헛방", value: vc.fake_patch, color: C.atk },
         { label: "판정불가", value: vc.inconclusive, color: C.sys }]) + "</div>";
 
     var hl = highlights();
-    var hcard = '<div class="card"><div class="card-h">주요 사건</div><div class="card-sub">먼저 봐야 할 것</div>' +
+    var hcard = '<div class="card"><div class="card-h">주요 사건</div>' +
       (hl.length ? hl.map(function (x) { return '<div class="hl-row"><span class="hl-ic" style="background:' + x.color + '"></span><div><div>' + x.text + '</div><div class="mono">' + x.meta + "</div></div></div>"; }).join("")
         : '<div class="tile-sub">특이 사건 없음</div>') + "</div>";
 
     return (S.demo ? demoBanner() : "") +
-      '<p class="page-intro">실험이 지금 만들고 있는 보안 상태를 한눈에. 핵심정보가 뚫렸는지, 패치가 진짜 막았는지, 놓친 공격은 없는지.</p>' +
       '<div class="grid cols-6">' + tileHtml + "</div>" +
       '<div class="section-label">성공률 추세</div>' + evoCard +
       '<div class="section-label">검증 결과 · 주요 사건</div><div class="grid cols-2">' + vcard + hcard + "</div>";
@@ -248,24 +247,23 @@
   // ───────── 페이지: 공격·방어 통계 ─────────
   function pageStats() {
     var a = agg(), ev = evolution();
-    var evoCard = '<div class="card"><div class="card-h">공격 성공률 vs 방어 성공률</div><div class="card-sub">누적 비율 (연구 핵심 그래프)</div>' +
+    var evoCard = '<div class="card"><div class="card-h">공격 성공률 vs 방어 성공률</div>' +
       lineChart([{ color: C.def, points: ev.map(function (e) { return e.def; }) }, { color: C.atk, points: ev.map(function (e) { return e.atk; }) }], Math.max(ev.length, 1), { pct: true }) +
       '<div class="legend"><span><span class="tag-dot" style="background:' + C.def + '"></span>방어</span><span><span class="tag-dot" style="background:' + C.atk + '"></span>공격</span></div></div>';
 
     var vc = verdictCounts();
-    var vcard = '<div class="card"><div class="card-h">검증 결과</div><div class="card-sub">막음 / 헛방 / 판정불가</div>' +
+    var vcard = '<div class="card"><div class="card-h">검증 결과</div>' +
       barChart([{ label: "막음", value: vc.blocked, color: C.ok }, { label: "헛방", value: vc.fake_patch, color: C.atk }, { label: "판정불가", value: vc.inconclusive, color: C.sys }]) + "</div>";
 
-    var dcard = '<div class="card"><div class="card-h">공격 탐지 정확도</div><div class="card-sub">방어자 판단 vs 실제 (누적)</div>' +
+    var dcard = '<div class="card"><div class="card-h">공격 탐지 정확도</div>' +
       barChart([{ label: "정탐", value: a.det.tp, color: C.ok, sub: "맞게 탐지" }, { label: "오탐", value: a.det.fp, color: C.crown, sub: "잘못 탐지" }, { label: "미탐", value: a.det.fn, color: C.atk, sub: "놓침" }]) +
       '<div class="tile-sub" style="margin-top:8px">탐지율 ' + pct(a.recall) + ' · 놓친 공격 ' + a.det.fn + "건 (방어 사각)</div></div>";
 
     var depth = S.rounds.map(function (r) { return (r.stages_reached || []).length ? Math.max.apply(null, r.stages_reached) : 0; });
-    var fcard = '<div class="card"><div class="card-h">침투 단계 추이</div><div class="card-sub">라운드별 공격자가 어디까지 뚫었나 (최대 4)</div>' +
+    var fcard = '<div class="card"><div class="card-h">침투 단계 추이</div>' +
       lineChart([{ color: C.crown, points: depth }], Math.max(depth.length, 1), { ymax: 4 }) + "</div>";
 
     return (S.demo ? demoBanner() : "") +
-      '<p class="page-intro">공격·방어가 라운드마다 어떻게 갈리는지, 탐지가 얼마나 정확한지, 어디까지 뚫렸는지.</p>' +
       evoCard + '<div class="section-label">검증 · 탐지 · 침투 단계</div><div class="grid cols-3">' + vcard + dcard + fcard + "</div>";
   }
 
@@ -278,8 +276,7 @@
         "</td><td class='mono'>" + (p.episodes || "?") + "회차 · " + (p.max_rounds || "?") + "라운드 · " + (p.time_limit || "?") + "s</td><td class='mono'>" + esc(r.mode || "") + "</td></tr>";
     }).join("") : "<tr><td colspan='4' class='tile-sub'>아직 실행 기록이 없습니다.</td></tr>";
 
-    return '<p class="page-intro">실험 조건을 정해 시작하거나 중지합니다. 진행 로그는 아래에 실시간으로 쌓입니다.</p>' +
-      '<div class="card"><div class="card-h">새 실험 시작</div><div class="card-sub">시작하면 이미 떠 있는 공격·방어 하네스를 호출해 경기를 돌립니다.</div>' +
+    return '<div class="card"><div class="card-h">새 실험 시작</div>' +
       '<div class="form-row" style="margin-bottom:14px">' +
       field("회차 수", "f-eps", "number", 1) + field("회차당 최대 라운드", "f-mr", "number", 10) +
       field("턴 제한시간(초)", "f-tl", "number", 180) + field("생성 토큰 상한", "f-mt", "number", 1024) +
@@ -327,8 +324,7 @@
   function pageLive() {
     var st = S.status || {}, running = !!st.running;
     if (!running && !S.demo && (!st.status || st.status === "idle"))
-      return '<p class="page-intro">지금 공격·방어가 무엇을 주고받는지 실시간으로. 2.5초마다 갱신.</p>' +
-        emptyState("⏸", "지금 도는 실험이 없습니다", "실험 제어에서 시작하면 진행 단계·남은 시간·공격 진행이 여기 실시간으로 뜹니다.", []);
+      return emptyState("⏸", "지금 도는 실험이 없습니다", "실험 제어에서 시작하면 진행 단계·남은 시간·공격 진행이 여기 실시간으로 뜹니다.", []);
 
     var demo = S.demo ? { phase: 2, episode: 1, round: 4, active: "defender", turn_started: Date.now() / 1000 - 48, time_limit_sec: 180, last_verdict: "fake_patch", flags_reached: ["1", "2", "3"], crowns_reached: ["crown-secrets"] } : st;
     var ph = demo.phase || 0;
@@ -342,7 +338,6 @@
     var lv = demo.last_verdict ? VERDICT[demo.last_verdict] : null;
 
     return (S.demo ? demoBanner() : "") +
-      '<p class="page-intro">지금 무엇이 오가는지. 2.5초마다 자동 갱신.</p>' +
       '<div class="card"><div class="card-h">진행 단계</div><div class="phases">' + steps + "</div></div>" +
       '<div class="grid cols-4" style="margin-top:14px">' +
       '<div class="tile accent-teal"><div class="tile-k">회차 · 라운드</div><div class="tile-v">' + (demo.episode || 0) + " · " + (demo.round || 0) + '</div></div>' +
@@ -350,7 +345,7 @@
       '<div class="tile"><div class="tile-k">턴 경과 / 제한</div><div class="tile-v" style="font-size:20px">' + elapsed + "s<span style='font-size:12px;color:var(--text-3)'> / " + budget + 's</span></div><div class="progressbar"><span style="width:' + (bp * 100) + '%"></span></div></div>' +
       '<div class="tile"><div class="tile-k">직전 결과</div><div class="tile-v" style="font-size:16px;margin-top:12px">' + (lv ? '<span class="badge ' + lv.cls + '">' + lv.label + "</span>" : "—") + "</div></div></div>" +
       '<div class="section-label">공격 진행</div>' +
-      '<div class="card"><div class="card-sub">지금까지 공격이 어디까지 뚫었나</div>' +
+      '<div class="card">' +
       '<div style="display:flex;gap:7px;flex-wrap:wrap">' +
       (["1", "2", "3", "4"].map(function (s) { var on = (demo.flags_reached || []).indexOf(s) >= 0; return '<span class="chip" style="' + (on ? "background:var(--crown-soft);color:#9a6a0c;border-color:#f3dca6" : "") + '">' + s + "단계" + (on ? " ✓" : "") + "</span>"; }).join("")) +
       ((demo.crowns_reached || []).map(function (c) { return '<span class="badge b-atk">' + esc(crownLabel(c)) + "</span>"; }).join("")) +
@@ -387,7 +382,6 @@
     var openCount = nss.filter(function (n) { return !n.has_network_policy; }).length;
     var crownCount = nss.filter(function (n) { return crownNs[n.name]; }).length;
     return (topo.demo ? demoBanner() : "") +
-      '<p class="page-intro">방어 하네스가 대상을 직접 훑어 그린 구성도입니다. god-view 실제 도면이 아니라 <b>방어자가 관측으로 재구성한 지도</b> — 빨간 "경계 없음"은 가로막는 NetworkPolicy가 없어 옆 영역에서 바로 드나들 수 있는 곳입니다.</p>' +
       '<div class="grid cols-4" style="margin-bottom:6px">' +
       '<div class="tile"><div class="tile-k">영역 수</div><div class="tile-v">' + nss.length + '개</div><div class="tile-sub">네임스페이스</div></div>' +
       '<div class="tile accent-atk"><div class="tile-k">경계 없는 영역</div><div class="tile-v">' + openCount + '개</div><div class="tile-sub">가로막는 규칙 없음 = 열림</div></div>' +
@@ -479,22 +473,15 @@
       '<div class="fi-tgt mono">' + esc(v.method || "") + "</div></div>" : '<div class="flow-empty">검증 기록 없음</div>';
 
     var punchCls = v.verdict === "blocked" ? "ok" : (v.verdict === "fake_patch" || v.verdict === "not_blocked") ? "atk" : "sys";
-    var claim = detail.defense ? (d.patch_applied ? "패치를 적용했다고 보고" : "패치 안 함") : "이번 라운드 대응 없음";
-    var truth = !detail.verification ? "검증 보류" : v.verdict === "blocked" ? "재생해도 안 뚫림 → 진짜 막음"
-      : (v.verdict === "fake_patch" || v.verdict === "not_blocked") ? "재생하니 또 뚫림 → 막은 척(헛방)" : "판정 불가";
 
     return (S.demo ? demoBanner() : "") +
-      '<p class="page-intro">방어자는 공격 정보 없이 로그·상태 변화만으로 추론합니다. 라운드마다 무엇을 <b>탐지</b>하고 무엇을 <b>패치</b>했으며, 재생 <b>검증</b>에서 진짜 막혔는지 봅니다. 라운드 색은 결과(초록 막음·빨강 헛방·회색 판정불가).</p>' +
       '<div class="rchips">' + chips + "</div>" +
-      '<div class="section-label">R' + rec.round + " 방어 흐름 · 탐지 → 패치 → 검증</div>" +
+      '<div class="section-label">R' + rec.round + " · 탐지 → 패치 → 검증</div>" +
       '<div class="grid cols-3 flow">' +
-      '<div class="card flow-card c-def"><div class="card-h">① 탐지 <span class="flow-n">' + det.length + '건</span></div><div class="card-sub">관측에서 추론 (틀릴 수 있음)</div>' + detHtml + "</div>" +
-      '<div class="card flow-card c-teal"><div class="card-h">② 패치 <span class="flow-n">' + ps.length + '건</span></div><div class="card-sub">탐지에 따른 조치</div>' + psHtml + psFoot + "</div>" +
-      '<div class="card flow-card c-' + punchCls + '"><div class="card-h">③ 검증 결과</div><div class="card-sub">재생으로 실제 효과 확인</div>' + vHtml + "</div>" +
-      "</div>" +
-      '<div class="punch punch-' + punchCls + '"><div class="punch-h">패치가 진짜 막았나?</div>' +
-      '<div class="punch-row"><span class="punch-k">방어자 주장</span><span>' + esc(claim) + "</span></div>" +
-      '<div class="punch-row"><span class="punch-k">실제(검증)</span><span><b>' + esc(truth) + "</b></span></div></div>";
+      '<div class="card flow-card c-def"><div class="card-h">① 탐지 <span class="flow-n">' + det.length + '건</span></div>' + detHtml + "</div>" +
+      '<div class="card flow-card c-teal"><div class="card-h">② 패치 <span class="flow-n">' + ps.length + '건</span></div>' + psHtml + psFoot + "</div>" +
+      '<div class="card flow-card c-' + punchCls + '"><div class="card-h">③ 검증</div>' + vHtml + "</div>" +
+      "</div>";
   }
 
   // ───────── 페이지: 이벤트 로그 ─────────
@@ -505,7 +492,6 @@
     var evs = S.events.filter(function (e) { return evTab === "all" || e.actor === evTab; }).slice().reverse();
     var rows = evs.length ? evs.map(evRow).join("") : '<div class="tile-sub" style="padding:14px">이벤트 없음</div>';
     return (S.demo ? demoBanner() : "") +
-      '<p class="page-intro">공격·방어·심판이 한 행동을 한 줄씩, 시간순으로. 무슨 일이 있었는지 그대로 재구성합니다.</p>' +
       '<div class="tabs">' + tabHtml + "</div>" +
       '<div class="card" style="padding:6px 8px">' + rows + "</div>";
   }
@@ -523,14 +509,80 @@
     return '<div class="ev-row"><span class="ev-ts">' + hhmmss(e.ts) + '</span><span class="ev-type ' + m[0] + '">' + m[1] + '</span><span class="ev-body">R' + (e.round || "?") + " · " + body + "</span></div>";
   }
 
+  // ───────── 페이지: 회차 보고서 ─────────
+  function endReasonLabel(r) { return ({ consecutive_defense: "방어 연속 성공", max_rounds: "최대 라운드 도달", crown_exfil: "핵심정보 유출", attacker_deadend: "공격 막다름", error: "오류" })[r] || r || "—"; }
+  function reportLine(k, v) { return '<div class="rep-line"><span class="rep-k">' + esc(k) + "</span><span>" + esc(v) + "</span></div>"; }
+  function pageReport() {
+    var eps = S.episodes;
+    if (!eps.length) return emptyState("📄", "아직 끝난 회차가 없습니다", "회차(여러 라운드)가 종료되면 요약·상세 보고서가 여기 만들어집니다.", []);
+    var idx = repEp != null ? eps.map(function (e) { return e.episode; }).indexOf(repEp) : eps.length - 1;
+    if (idx < 0) idx = eps.length - 1;
+    var e = eps[idx];
+    var rs = S.rounds.filter(function (r) { return r.episode === e.episode; });
+    if (!rs.length) rs = S.rounds;
+
+    var vc = e.verdict_counts || {};
+    var blocked = vc.blocked || 0, fake = (vc.fake_patch || 0) + (vc.not_blocked || 0);
+    var det = e.detection || { tp: 0, fp: 0, fn: 0 };
+    var recall = det.recall != null ? det.recall : (det.tp + det.fn ? det.tp / (det.tp + det.fn) : null);
+    var crowns = e.crowns_reached || [], mttd = e.mttd || {};
+
+    var chips = eps.length > 1 ? '<div class="rchips">' + eps.map(function (x, i) {
+      var col = (x.crowns_reached && x.crowns_reached.length) ? C.atk : C.ok;
+      return '<button class="rchip' + (i === idx ? " on" : "") + '" data-ep="' + x.episode + '"><span class="tag-dot" style="background:' + col + '"></span>' + x.episode + "회차</button>";
+    }).join("") + "</div>" : "";
+
+    var tiles = [
+      ["라운드", e.rounds + "회", "", "accent-teal", C.teal],
+      ["핵심정보 유출", crowns.length + "종", crowns.length ? crowns.map(crownLabel).join(", ") : "없음", crowns.length ? "accent-atk" : "accent-ok", crowns.length ? C.atk : C.ok],
+      ["진짜 차단", blocked + "회", "헛방 " + fake + "회", "accent-ok", C.ok],
+      ["서비스 정상", pct(e.availability), "패치 후 가용성", "accent-def", C.def],
+      ["공격 탐지율", pct(recall), "놓침 " + det.fn + "건", "accent-teal", C.teal],
+      ["최고 침투", (e.max_flag_depth || 0) + "단계", "최대 4", "accent-crown", C.crown]
+    ].map(function (t) {
+      return '<div class="tile ' + t[3] + '"><div class="tile-k"><span class="tag-dot" style="background:' + t[4] + '"></span>' + t[0] + '</div><div class="tile-v">' + t[1] + "</div>" + (t[2] ? '<div class="tile-sub">' + t[2] + "</div>" : "") + "</div>";
+    }).join("");
+
+    var narr = "총 " + e.rounds + "라운드를 진행했습니다. " +
+      (crowns.length ? "공격자가 핵심정보 " + crowns.length + "종(" + crowns.map(crownLabel).join(", ") + ")을 빼냈고, " : "공격자는 핵심정보를 빼내지 못했고, ") +
+      "방어는 " + blocked + "번 실제로 막았지만 " + fake + "번은 패치하고도 못 막았습니다(막은 척). " +
+      "공격 탐지율은 " + pct(recall) + ", 패치 후 서비스가 살아있던 비율은 " + pct(e.availability) + "입니다. " +
+      "공격은 최대 " + (e.max_flag_depth || 0) + "단계까지 들어왔습니다.";
+
+    var reported = {}; rs.forEach(function (r) { (r.reported_techniques || []).forEach(function (t) { reported[t] = 1; }); });
+    var repList = Object.keys(reported);
+    var cmp = '<div class="grid cols-2">' +
+      '<div class="card flow-card c-atk"><div class="card-h">실제로 일어난 일</div>' +
+        reportLine("핵심정보 유출", crowns.length ? crowns.map(crownLabel).join(", ") : "없음") +
+        reportLine("최고 침투 단계", (e.max_flag_depth || 0) + "단계") +
+        reportLine("달성 목표", (e.goals_reached || []).length ? e.goals_reached.join(", ") : "없음") + "</div>" +
+      '<div class="card flow-card c-def"><div class="card-h">방어자가 파악한 것</div>' +
+        reportLine("탐지한 기법", repList.length ? repList.join(", ") : "없음") +
+        reportLine("탐지 정확도", "정탐 " + det.tp + " · 오탐 " + det.fp + " · 놓침 " + det.fn) +
+        reportLine("평균 탐지 소요", mttd.mean_rounds != null ? mttd.mean_rounds + "라운드" : "—") + "</div></div>";
+
+    var vbars = barChart([{ label: "막음", value: vc.blocked || 0, color: C.ok }, { label: "헛방", value: fake, color: C.atk }, { label: "판정불가", value: vc.inconclusive || 0, color: C.sys }]);
+    var rows = rs.map(function (r) {
+      var vv = VERDICT[r.verdict], depth = (r.stages_reached || []).length ? Math.max.apply(null, r.stages_reached) : 0;
+      return "<tr><td class='mono'>R" + r.round + "</td><td>" + (vv ? '<span class="badge ' + vv.cls + '">' + vv.label + "</span>" : esc(r.verdict)) + "</td><td class='mono'>" + ((r.reported_techniques || []).join(", ") || "—") + "</td><td class='mono'>" + depth + "단계</td><td>" + (r.healthcheck_passed ? '<span class="badge b-ok">정상</span>' : '<span class="badge b-atk">죽음</span>') + "</td></tr>";
+    }).join("");
+    var detail = '<details class="rep-details"><summary>전문가용 상세 보기</summary>' +
+      '<div class="section-label">판정 분포</div><div class="card">' + vbars + "</div>" +
+      '<div class="section-label">라운드별 타임라인</div><div class="card" style="padding:0;overflow:hidden"><table class="tbl"><thead><tr><th>라운드</th><th>판정</th><th>탐지 기법</th><th>침투</th><th>서비스</th></tr></thead><tbody>' + rows + "</tbody></table></div></details>";
+
+    return (S.demo ? demoBanner() : "") + chips +
+      '<div class="rep-head">' + e.episode + "회차 · " + e.rounds + "라운드 · " + esc(endReasonLabel(e.end_reason)) + "</div>" +
+      '<div class="grid cols-6" style="margin:10px 0 2px">' + tiles + "</div>" +
+      '<div class="card rep-narr">' + esc(narr) + "</div>" +
+      '<div class="section-label">실제 vs 방어자 추측</div>' + cmp + detail;
+  }
+
   // ───────── 스텁(다음 단계) ─────────
   function pageStub(id) {
     var info = {
-      "attack-graph": ["🕸", "공격 추적 그래프", "공격 플래너·워커가 라운드마다 무슨 의도로 어떤 공격을 했는지 노드 그래프로. 노드를 누르면 그 공격 기법 설명·문서 링크가 뜹니다. 공격 쪽 탐색 기록을 VM A에서 당겨와 그립니다.", [["교차망 연결 필요", C.atk], ["다음 단계", C.teal]]],
-      "report": ["📄", "회차 보고서", "회차가 끝나면 자동 보고서. 위는 비전문가도 읽는 요약, 아래는 전문가용 상세(접힘). 실제로 뚫린 것과 방어자가 추측한 것을 나란히 비교합니다.", [["회차 집계", C.crown], ["다음 단계", C.teal]]]
+      "attack-graph": ["🕸", "공격 추적 그래프", "공격 플래너·워커가 라운드마다 무슨 의도로 어떤 공격을 했는지 노드 그래프로. 노드를 누르면 그 공격 기법 설명·문서 링크가 뜹니다. 공격 쪽 탐색 기록을 VM A에서 당겨와 그립니다.", [["교차망 연결 필요", C.atk], ["다음 단계", C.teal]]]
     }[id] || ["•", TITLES[id] || id, "준비 중입니다.", []];
-    return '<p class="page-intro">다음 단계에서 붙일 화면입니다. 필요한 데이터 기록(이벤트·라운드 상세·방어 토폴로지)은 이미 쌓고 있어서, 화면만 얹으면 됩니다.</p>' +
-      emptyState(info[0], info[1], info[2], info[3]);
+    return emptyState(info[0], info[1], info[2], info[3]);
   }
   function emptyState(mark, title, desc, feeds) {
     return '<div class="empty"><div class="e-mark">' + mark + '</div><h3>' + esc(title) + "</h3><p>" + esc(desc) + "</p>" +
@@ -550,6 +602,12 @@
     else if (route === "stats") view.innerHTML = pageStats();
     else if (route === "control") { view.innerHTML = pageControl(); bindControl(); }
     else if (route === "live") view.innerHTML = pageLive();
+    else if (route === "report") { view.innerHTML = pageReport(); bindRepChips(); }
+  }
+  function bindRepChips() {
+    Array.prototype.forEach.call(document.querySelectorAll(".rchip[data-ep]"), function (b) {
+      b.onclick = function () { repEp = parseInt(b.getAttribute("data-ep"), 10); $("#view").innerHTML = pageReport(); bindRepChips(); };
+    });
   }
   function bindEventTabs() {
     Array.prototype.forEach.call(document.querySelectorAll(".tab"), function (b) {

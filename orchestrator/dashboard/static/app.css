@@ -301,6 +301,18 @@ button { font-family: inherit; }
 .punch-row { display: flex; gap: 12px; font-size: 13px; padding: 4px 0; }
 .punch-k { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); width: 86px; flex: none; }
 
+/* 회차 보고서 */
+.rep-head { font-weight: 700; font-size: 15.5px; letter-spacing: -.01em; }
+.rep-narr { font-size: 13.5px; line-height: 1.75; color: var(--text); margin-top: 14px; }
+.rep-line { display: flex; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--surface-3); font-size: 13px; }
+.rep-line:last-child { border-bottom: none; }
+.rep-k { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); width: 112px; flex: none; }
+.rep-details { margin-top: 22px; }
+.rep-details > summary { cursor: pointer; font-weight: 600; font-size: 13px; color: var(--teal-600); padding: 10px 0; list-style: none; }
+.rep-details > summary::-webkit-details-marker { display: none; }
+.rep-details > summary::before { content: "▸ "; color: var(--text-3); }
+.rep-details[open] > summary::before { content: "▾ "; }
+
 /* 반응형: 좁은 폭에서 사이드바 접기 */
 @media (max-width: 860px) {
   .app { grid-template-columns: 1fr; }
