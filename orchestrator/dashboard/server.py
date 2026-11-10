@@ -102,6 +102,11 @@ def topology(episode: int, rnd: int) -> JSONResponse:
     return JSONResponse(_read_json(_LOGS / "defense_topology" / f"{episode}-{rnd}.json"))
 
 
+@app.get("/api/attack_graph/{episode}/{rnd}")
+def attack_graph(episode: int, rnd: int) -> JSONResponse:
+    return JSONResponse(_read_json(_LOGS / "attack_graph" / f"{episode}-{rnd}.json"))
+
+
 @app.get("/api/status")
 def live_status() -> JSONResponse:
     prog = _read_json(_LOGS / "progress.json") or {"status": "idle"}

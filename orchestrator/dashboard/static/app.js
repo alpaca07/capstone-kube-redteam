@@ -12,7 +12,7 @@
       { id: "posture", label: "보안 현황" },
       { id: "stats", label: "공격·방어 통계" } ] },
     { group: "공격 관점", items: [
-      { id: "attack-graph", label: "공격 추적 그래프", soon: true } ] },
+      { id: "attack-graph", label: "공격 추적 그래프" } ] },
     { group: "방어 관점", items: [
       { id: "defender-arch", label: "타깃 구성도" },
       { id: "defender-graph", label: "탐지·패치 흐름" } ] },
@@ -25,7 +25,7 @@
     "defender-arch": "타깃 구성도 (방어 시점)", "defender-graph": "탐지·패치 흐름",
     report: "회차 보고서" };
   var DEFAULT_ROUTE = "posture";
-  var REAL = { posture: 1, stats: 1, control: 1, live: 1, events: 1, "defender-arch": 1, "defender-graph": 1, report: 1 };
+  var REAL = { posture: 1, stats: 1, control: 1, live: 1, events: 1, "defender-arch": 1, "defender-graph": 1, "attack-graph": 1, report: 1 };
 
   // ───────── 색 상수(의미색 — CSS 변수와 1:1) ─────────
   var C = { atk: "#e5484d", def: "#3b82f6", sys: "#64748b", crown: "#e5920b",
@@ -44,7 +44,7 @@
 
   // ───────── 상태 ─────────
   var S = { rounds: [], episodes: [], runs: [], events: [], status: {}, demo: false };
-  var route = DEFAULT_ROUTE, evTab = "all", defRound = null, repEp = null;
+  var route = DEFAULT_ROUTE, evTab = "all", defRound = null, repEp = null, agRound = null, agSel = null, agTab = "overview";
 
   // ───────── 유틸 ─────────
   function $(sel, el) { return (el || document).querySelector(sel); }
@@ -509,6 +509,143 @@
     return '<div class="ev-row"><span class="ev-ts">' + hhmmss(e.ts) + '</span><span class="ev-type ' + m[0] + '">' + m[1] + '</span><span class="ev-body">R' + (e.round || "?") + " · " + body + "</span></div>";
   }
 
+  // ───────── 페이지: 공격 추적 그래프 ─────────
+  function kindLabel(k) { return ({ goal: "목표", intent: "의도", fact: "사실", finding: "발견", hint: "단서" })[k] || k; }
+  function kindColor(k) {
+    return ({ goal: { bg: "#fdf1dc", line: "#b8740a" }, intent: { bg: "#fdecec", line: "#d13b40" },
+      fact: { bg: "#e8f0fe", line: "#2f6fe0" }, finding: { bg: "#fbdcde", line: "#b4303a" },
+      hint: { bg: "#eef1f5", line: "#5b6676" } })[k] || { bg: "#eef1f5", line: "#5b6676" };
+  }
+  function relColor(r) { return ({ spawns: "#e5484d", yields: "#3b82f6", proves: "#b4303a", derived_from: "#94a3b8" })[r] || "#94a3b8"; }
+  function relLabel(r) { return ({ spawns: "의도 생성", yields: "사실 도출", proves: "침해 입증", derived_from: "근거 파생" })[r] || r; }
+  function stateLabel(s) { return ({ open: "열림", running: "실행중", done: "완료", blocked: "막힘", exhausted: "시간소진", stopped: "중단" })[s] || s; }
+  function mitreUrl(t) { return "https://attack.mitre.org/techniques/" + String(t).replace(".", "/") + "/"; }
+  function truncate(s, n) { s = String(s == null ? "" : s); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
+
+  function demoAttackGraph() {
+    return { demo: true, nodes: [
+      { id: 1, kind: "goal", summary: "internal DB의 핵심 비밀 획득", technique: "" },
+      { id: 2, kind: "intent", state: "done", owner: "w1", summary: "admin 서비스어카운트 권한 악용", technique: "T1078", target: "internal/admin-sa", why: "과다 권한 보유 추정" },
+      { id: 3, kind: "intent", state: "done", owner: "w2", summary: "backend API 원격 취약점 탐색", technique: "T1210", target: "backend/catalog-api", why: "노출 포트 다수" },
+      { id: 4, kind: "intent", state: "blocked", owner: "w1", summary: "internal-wiki 런북 수집", technique: "T1213", target: "internal/internal-wiki", why: "문서에 크리덴셜 가능성" },
+      { id: 5, kind: "fact", summary: "admin-sa가 전 네임스페이스 secrets get 가능", evidence: "kubectl auth can-i get secrets -A → yes", confidence: 0.9 },
+      { id: 6, kind: "fact", summary: "catalog-api 알려진 RCE 취약 버전", evidence: "버전 배너 노출", confidence: 0.6 },
+      { id: 7, kind: "fact", summary: "wiki 런북에 DB 접속정보 평문", evidence: "/runbook 페이지", confidence: 0.75 },
+      { id: 8, kind: "finding", summary: "admin-sa로 DB 시크릿 유출", severity: "critical", technique: "T1078", occurrences: 2 },
+      { id: 9, kind: "finding", summary: "유출 크리덴셜로 DB 직접 접근", severity: "high", technique: "T1213", occurrences: 1 }
+    ], edges: [
+      { src: 1, rel: "spawns", dst: 2 }, { src: 1, rel: "spawns", dst: 3 }, { src: 1, rel: "spawns", dst: 4 },
+      { src: 2, rel: "yields", dst: 5 }, { src: 3, rel: "yields", dst: 6 }, { src: 4, rel: "yields", dst: 7 },
+      { src: 5, rel: "proves", dst: 8 }, { src: 7, rel: "proves", dst: 9 }, { src: 5, rel: "spawns", dst: 4 }
+    ] };
+  }
+
+  async function pageAttackGraphRender() {
+    var view = $("#view"), rounds = S.rounds, g, rec = null, idx = -1;
+    if (S.demo || !rounds.length) g = demoAttackGraph();
+    else {
+      idx = agRound != null ? rounds.map(function (r) { return r.round; }).indexOf(agRound) : rounds.length - 1;
+      if (idx < 0) idx = rounds.length - 1;
+      rec = rounds[idx];
+      var d = await jget("/api/attack_graph/" + (rec.episode || 1) + "/" + rec.round);
+      g = (d && d.graph && (d.graph.nodes || []).length) ? d.graph : demoAttackGraph();
+    }
+    if (route !== "attack-graph") return;
+    var nodes = g.nodes || [];
+    if (agSel == null || !nodes.some(function (n) { return n.id === agSel; })) {
+      var f = nodes.filter(function (n) { return n.kind === "finding"; });
+      agSel = f.length ? f[0].id : (nodes[0] ? nodes[0].id : null);
+    }
+    view.innerHTML = pageAttackGraph(g, rounds, idx, rec);
+    bindAttackGraph();
+  }
+  function bindAttackGraph() {
+    Array.prototype.forEach.call(document.querySelectorAll(".ag-node"), function (el) {
+      el.addEventListener("click", function () { agSel = parseInt(el.getAttribute("data-nid"), 10); pageAttackGraphRender(); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-agtab]"), function (b) {
+      b.onclick = function () { agTab = b.getAttribute("data-agtab"); pageAttackGraphRender(); };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-agrnd]"), function (b) {
+      b.onclick = function () { agRound = parseInt(b.getAttribute("data-agrnd"), 10); agSel = null; pageAttackGraphRender(); };
+    });
+  }
+  function agLine(k, v) { return '<div class="rep-line"><span class="rep-k">' + esc(k) + "</span><span>" + esc(v) + "</span></div>"; }
+  function agPanel(nodes) {
+    var n = nodes.filter(function (x) { return x.id === agSel; })[0];
+    if (!n) return "";
+    var col = kindColor(n.kind);
+    var tabs = '<div class="tabs"><button class="tab' + (agTab === "overview" ? " active" : "") + '" data-agtab="overview">개요</button>' +
+      '<button class="tab' + (agTab === "knowledge" ? " active" : "") + '" data-agtab="knowledge">지식</button></div>';
+    var head = '<div class="ag-ph"><span class="badge" style="background:' + col.bg + ";color:" + col.line + '">' + kindLabel(n.kind) + "</span>" +
+      (n.technique ? '<span class="badge b-atk">' + esc(n.technique) + "</span>" : "") +
+      (n.state ? '<span class="chip">' + esc(stateLabel(n.state)) + "</span>" : "") +
+      (n.severity ? '<span class="chip">심각도 ' + esc(n.severity) + "</span>" : "") + "</div>" +
+      '<div class="ag-sum">' + esc(n.summary || "—") + "</div>";
+    var body;
+    if (agTab === "overview") {
+      body = (n.target ? agLine("대상", n.target) : "") +
+        (n.why ? agLine("의도 근거", n.why) : "") +
+        (n.evidence ? agLine("관측 근거", n.evidence) : "") +
+        (n.detail ? agLine("상세", n.detail) : "") +
+        (n.confidence != null ? agLine("확신도", Math.round(n.confidence * 100) + "%") : "") +
+        (n.occurrences ? agLine("보고 횟수", n.occurrences + "회") : "") +
+        (n.owner ? agLine("담당 워커", n.owner) : "") || '<div class="tile-sub">추가 정보 없음</div>';
+    } else {
+      body = (n.technique ? agLine("MITRE 기법", n.technique) +
+          '<div class="rep-line"><span class="rep-k">참고 문서</span><span><a href="' + mitreUrl(n.technique) + '" target="_blank" rel="noopener">MITRE ATT&CK에서 보기 ↗</a></span></div>'
+        : '<div class="tile-sub">연결된 MITRE 기법 없음</div>') +
+        (n.anchors && n.anchors.length ? agLine("앵커 자산", n.anchors.join(", ")) : "") +
+        '<div class="tile-sub" style="margin-top:10px">제품·CVE 심층 조회(지식그래프)는 다음 단계 브리지에서 연결됩니다.</div>';
+    }
+    return '<div class="section-label">노드 상세</div><div class="card ag-panel" style="border-top:3px solid ' + col.line + '">' + tabs + head + '<div class="ag-body">' + body + "</div></div>";
+  }
+  function pageAttackGraph(g, rounds, idx, rec) {
+    var nodes = g.nodes || [], edges = g.edges || [];
+    var colOf = { goal: 0, hint: 0, intent: 1, fact: 2, finding: 3 };
+    var cols = [[], [], [], []];
+    nodes.forEach(function (n) { var c = colOf[n.kind]; if (c == null) c = 1; cols[c].push(n); });
+    var NW = 188, NH = 56, VGAP = 14, CW = 236, X0 = 16, colX = [X0, X0 + CW, X0 + 2 * CW, X0 + 3 * CW];
+    var maxRows = Math.max(1, cols[0].length, cols[1].length, cols[2].length, cols[3].length);
+    var H = Math.max(maxRows * (NH + VGAP) + 44, 240), W = X0 + 3 * CW + NW + 16;
+    var pos = {};
+    cols.forEach(function (col, ci) {
+      var colH = col.length * (NH + VGAP), y0 = (H - colH) / 2 + 16;
+      col.forEach(function (n, ri) { pos[n.id] = { x: colX[ci], y: y0 + ri * (NH + VGAP) }; });
+    });
+    var heads = ["목표", "의도 (플래너)", "사실 (워커)", "발견"].map(function (t, ci) {
+      return '<text class="agk" x="' + (colX[ci] + 2) + '" y="15" font-size="11" font-weight="700" fill="#8a97ab">' + t + "</text>";
+    }).join("");
+    var edgeSvg = edges.map(function (e) {
+      var a = pos[e.src], b = pos[e.dst]; if (!a || !b) return "";
+      var x1 = a.x + NW, y1 = a.y + NH / 2, x2 = b.x, y2 = b.y + NH / 2, mx = (x1 + x2) / 2;
+      var hot = (agSel === e.src || agSel === e.dst);
+      return '<path d="M' + x1 + " " + y1 + " C" + mx + " " + y1 + " " + mx + " " + y2 + " " + x2 + " " + y2 + '" fill="none" stroke="' + relColor(e.rel) + '" stroke-width="' + (hot ? 2.2 : 1.3) + '" opacity="' + (hot ? 0.95 : 0.38) + '"/>';
+    }).join("");
+    var nodeSvg = nodes.map(function (n) {
+      var p = pos[n.id]; if (!p) return "";
+      var col = kindColor(n.kind), sel = (agSel === n.id);
+      var faded = n.kind === "intent" && (n.state === "blocked" || n.state === "exhausted" || n.state === "stopped");
+      var l1 = kindLabel(n.kind) + (n.technique ? " · " + esc(n.technique) : "");
+      var l2 = esc(truncate(n.summary || kindLabel(n.kind), 15));
+      return '<g class="ag-node" data-nid="' + n.id + '" opacity="' + (faded ? 0.5 : 1) + '">' +
+        '<rect x="' + p.x + '" y="' + p.y + '" width="' + NW + '" height="' + NH + '" rx="10" fill="' + col.bg + '" stroke="' + col.line + '" stroke-width="' + (sel ? 2.6 : 1.2) + '"/>' +
+        '<text class="agk" x="' + (p.x + 13) + '" y="' + (p.y + 21) + '" font-size="9.5" font-weight="700" fill="' + col.line + '">' + l1 + "</text>" +
+        '<text x="' + (p.x + 13) + '" y="' + (p.y + 39) + '" font-size="11.5" fill="#0f1b2d">' + l2 + "</text></g>";
+    }).join("");
+    var svg = '<div class="ag-wrap"><svg viewBox="0 0 ' + W + " " + H + '" class="ag-svg">' + heads + edgeSvg + nodeSvg + "</svg></div>";
+    var legend = '<div class="legend">' +
+      ["goal", "intent", "fact", "finding"].map(function (k) { return '<span><span class="tag-dot" style="background:' + kindColor(k).line + '"></span>' + kindLabel(k) + "</span>"; }).join("") +
+      ["spawns", "yields", "proves"].map(function (r) { return '<span><span style="display:inline-block;width:15px;height:0;border-top:2px solid ' + relColor(r) + '"></span> ' + relLabel(r) + "</span>"; }).join("") + "</div>";
+    var chips = "";
+    if (!S.demo && rounds && rounds.length > 1) {
+      chips = '<div class="rchips">' + rounds.map(function (r, i) { return '<button class="rchip' + (i === idx ? " on" : "") + '" data-agrnd="' + r.round + '">R' + r.round + "</button>"; }).join("") + "</div>";
+    }
+    var ctx = rec ? (rec.episode || 1) + "회차 R" + rec.round : "예시";
+    return (S.demo ? demoBanner() : "") + chips +
+      '<div class="section-label">' + ctx + " · 공격 추론 그래프 (목표 → 의도 → 사실 → 발견)</div>" + svg + legend + agPanel(nodes);
+  }
+
   // ───────── 페이지: 회차 보고서 ─────────
   function endReasonLabel(r) { return ({ consecutive_defense: "방어 연속 성공", max_rounds: "최대 라운드 도달", crown_exfil: "핵심정보 유출", attacker_deadend: "공격 막다름", error: "오류" })[r] || r || "—"; }
   function reportLine(k, v) { return '<div class="rep-line"><span class="rep-k">' + esc(k) + "</span><span>" + esc(v) + "</span></div>"; }
@@ -579,9 +716,7 @@
 
   // ───────── 스텁(다음 단계) ─────────
   function pageStub(id) {
-    var info = {
-      "attack-graph": ["🕸", "공격 추적 그래프", "공격 플래너·워커가 라운드마다 무슨 의도로 어떤 공격을 했는지 노드 그래프로. 노드를 누르면 그 공격 기법 설명·문서 링크가 뜹니다. 공격 쪽 탐색 기록을 VM A에서 당겨와 그립니다.", [["교차망 연결 필요", C.atk], ["다음 단계", C.teal]]]
-    }[id] || ["•", TITLES[id] || id, "준비 중입니다.", []];
+    var info = {}[id] || ["•", TITLES[id] || id, "준비 중입니다.", []];
     return emptyState(info[0], info[1], info[2], info[3]);
   }
   function emptyState(mark, title, desc, feeds) {
@@ -597,6 +732,7 @@
     if (route === "events") { await loadEvents(); view.innerHTML = pageEvents(); bindEventTabs(); return; }
     if (route === "defender-arch") { view.innerHTML = '<p class="page-intro">구성도 불러오는 중…</p>'; var topo = await loadTopology(); if (route === "defender-arch") view.innerHTML = pageArch(topo); return; }
     if (route === "defender-graph") { await pageDefGraphRender(); return; }
+    if (route === "attack-graph") { await pageAttackGraphRender(); return; }
     if (!REAL[route]) { view.innerHTML = pageStub(route); return; }
     if (route === "posture") view.innerHTML = pagePosture();
     else if (route === "stats") view.innerHTML = pageStats();

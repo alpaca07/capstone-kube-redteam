@@ -313,6 +313,18 @@ button { font-family: inherit; }
 .rep-details > summary::before { content: "▸ "; color: var(--text-3); }
 .rep-details[open] > summary::before { content: "▾ "; }
 
+/* 공격 추적 그래프 */
+.ag-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); box-shadow: var(--shadow); padding: 8px 6px; }
+.ag-svg { display: block; min-width: 760px; width: 100%; height: auto; }
+.ag-svg text { font-family: var(--font-sans); }
+.ag-svg .agk { font-family: var(--font-mono); }
+.ag-node { cursor: pointer; }
+.ag-node:hover rect { stroke-width: 2.6; }
+.ag-panel { margin-top: 2px; }
+.ag-ph { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; margin: 2px 0 9px; }
+.ag-sum { font-size: 14px; font-weight: 600; margin-bottom: 11px; line-height: 1.5; }
+.ag-body .rep-line:first-child { border-top: none; }
+
 /* 반응형: 좁은 폭에서 사이드바 접기 */
 @media (max-width: 860px) {
   .app { grid-template-columns: 1fr; }

@@ -172,6 +172,24 @@ def test_anchored_asset_ids_union():
     assert g.anchored_asset_ids() == {10, 11, 12, 20}
 
 
+def test_snapshot_flattens_nodes_and_edges():
+    g = InMemoryGraph(episode=2)
+    goal = g.add_goal({"summary": "crown"})
+    it = g.add_intent({"summary": "probe", "technique": "T1078", "target": "ns/sa"},
+                      spawned_by=goal)
+    fid = g.add_fact({"summary": "sa over-privileged", "evidence": "can-i yes"}, intent_id=it)
+    g.add_finding({"summary": "secret exfil", "severity": "critical"}, proved_by=[fid])
+    snap = g.snapshot()
+    kinds = {n["kind"] for n in snap["nodes"]}
+    assert kinds == {"goal", "intent", "fact", "finding"}
+    rels = {e["rel"] for e in snap["edges"]}
+    assert "spawns" in rels and "yields" in rels and "proves" in rels
+    intent = next(n for n in snap["nodes"] if n["kind"] == "intent")
+    assert intent["technique"] == "T1078" and intent["target"] == "ns/sa"
+    import json
+    assert isinstance(json.dumps(snap), str)          # 교차망 전송 직렬화 가능
+
+
 def _run() -> int:
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

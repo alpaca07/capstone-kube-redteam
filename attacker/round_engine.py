@@ -242,10 +242,12 @@ class AttackRound:
         else:
             end = AttackEndReason.DEADEND
 
+        snap_fn = getattr(graph, "snapshot", None)    # 탐색 그래프 스냅샷(표시 전용, 있으면 실음)
         return AttackTurnResult(
             end_reason=end, replay_script=lane.script,
             attack_summary=self._summary(graph, lane, waves),
-            elapsed_sec=self.clock() - t0)
+            elapsed_sec=self.clock() - t0,
+            graph_snapshot=snap_fn() if callable(snap_fn) else None)
 
     def _summary(self, graph: ExplorationGraph, lane: ExecutionLane, waves: int) -> str:
         """VM C 기록용 자연어 요약(방어자엔 안 감). 그래프 사실·발견 집계."""

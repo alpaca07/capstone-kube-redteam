@@ -53,6 +53,11 @@ def write_round_detail(out_dir: Optional[str], episode: int, round: int, *,
             _atomic_write(Path(out_dir) / "defense_topology" / f"{episode}-{round}.json",
                           {"episode": episode, "round": round, "ts": time.time(),
                            "topology": topo})
+        snap = getattr(attack, "graph_snapshot", None)       # 공격 탐색 그래프(표시 전용)
+        if snap:
+            _atomic_write(Path(out_dir) / "attack_graph" / f"{episode}-{round}.json",
+                          {"episode": episode, "round": round, "ts": time.time(),
+                           "graph": snap})
     except Exception:                      # noqa: BLE001 — 보조 로깅, 실패해도 실험 지속
         pass
 

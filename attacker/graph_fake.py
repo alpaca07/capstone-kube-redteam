@@ -188,6 +188,31 @@ class InMemoryGraph(ExplorationGraph):
                 out.update(n.anchors)
             return out
 
+    # ── 표시용 스냅샷(대시보드 공격 추적 그래프) ──
+    def snapshot(self) -> dict:
+        """탐색 그래프 전체(노드·엣지)를 표시용 dict 로. 판정 무관·표시 전용.
+
+        대시보드가 읽는 공격 노드 그래프의 원자료 — payload 에서 표시 필드만 평탄화한다.
+        """
+        with self._lock:
+            nodes = []
+            for n in sorted(self._nodes.values(), key=lambda x: x.id):
+                p = n.payload or {}
+                nodes.append({
+                    "id": n.id,
+                    "kind": n.kind.value if hasattr(n.kind, "value") else str(n.kind),
+                    "state": n.state, "owner": n.owner, "priority": n.priority,
+                    "summary": p.get("summary", ""), "target": p.get("target", ""),
+                    "why": p.get("why", ""), "technique": p.get("technique", ""),
+                    "evidence": p.get("evidence", ""), "detail": p.get("detail", ""),
+                    "severity": p.get("severity", ""), "confidence": p.get("confidence"),
+                    "occurrences": p.get("occurrences"), "anchors": list(n.anchors),
+                })
+            edges = [{"src": e.src_id,
+                      "rel": e.rel.value if hasattr(e.rel, "value") else str(e.rel),
+                      "dst": e.dst_id} for e in self._edges]
+            return {"nodes": nodes, "edges": edges}
+
     # ── 테스트 편의 ──
     def edges_from(self, src_id: int, rel: Optional[Rel] = None) -> list[Edge]:
         with self._lock:

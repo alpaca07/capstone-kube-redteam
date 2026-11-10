@@ -109,6 +109,7 @@ class AttackTurnResult(Payload):
     replay_script: Optional[ReplayScript] = None   # ★ 검증 핵심(VM C가 재생 위임)
     attack_summary: str = ""           # 자연어 요약 — 심판(VM C) 기록용. 방어자엔 안 감.
     elapsed_sec: float = 0.0
+    graph_snapshot: Optional[dict] = None   # 탐색 그래프 스냅샷(대시보드 공격 추적 그래프용). 판정 무관·표시 전용
 
 
 # ───────────────── ③ defense_turn_start (C→B) ─────────────────

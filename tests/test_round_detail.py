@@ -22,12 +22,12 @@ from orchestrator.round_detail import round_detail_dict, write_round_detail  # n
 from orchestrator.verifier import Verdict, VerificationResult  # noqa: E402
 
 
-def _attack() -> AttackTurnResult:
+def _attack(graph=None) -> AttackTurnResult:
     script = ReplayScript(session_id="vmA", episode=1, round=1, steps=[
         Step(step=0, step_id="1.0", command=Command(tool="kubectl", args=["get", "ns"]),
              result=StepResultRec(success=True))])
     return AttackTurnResult(end_reason=AttackEndReason.FLAG, replay_script=script,
-                            attack_summary="요약", elapsed_sec=1.5)
+                            attack_summary="요약", elapsed_sec=1.5, graph_snapshot=graph)
 
 
 def _defense(topology=None) -> DefenseTurnResult:
@@ -91,6 +91,27 @@ def test_no_topology_no_file():
         write_round_detail(tmp, 1, 1, attack=_attack(), defense=_defense(topology=None),
                            verification=_verif())
         assert not (Path(tmp) / "defense_topology" / "1-1.json").exists()
+
+
+def test_attack_graph_written_separately_when_present():
+    snap = {"nodes": [{"id": 1, "kind": "goal", "summary": "크라운"},
+                      {"id": 2, "kind": "intent", "summary": "권한탐색", "technique": "T1078"}],
+            "edges": [{"src": 1, "rel": "spawns", "dst": 2}]}
+    with tempfile.TemporaryDirectory() as tmp:
+        write_round_detail(tmp, 3, 2, attack=_attack(graph=snap), defense=_defense(),
+                           verification=_verif())
+        gf = Path(tmp) / "attack_graph" / "3-2.json"
+        assert gf.exists(), "스냅샷 있는데 attack_graph/3-2.json 안 생김"
+        loaded = json.loads(gf.read_text(encoding="utf-8"))
+        assert loaded["graph"]["nodes"][1]["technique"] == "T1078"
+        assert loaded["graph"]["edges"][0]["rel"] == "spawns"
+
+
+def test_no_attack_graph_no_file():
+    with tempfile.TemporaryDirectory() as tmp:
+        write_round_detail(tmp, 1, 1, attack=_attack(graph=None), defense=_defense(),
+                           verification=_verif())
+        assert not (Path(tmp) / "attack_graph" / "1-1.json").exists()
 
 
 def test_out_dir_none_noop():
