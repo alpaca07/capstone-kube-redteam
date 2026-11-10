@@ -1,16 +1,11 @@
-# corp DMZ — WAF (ModSecurity + OWASP CRS) + IDS 사이드카 (Suricata)
-# ① WAF: owasp/modsecurity-crs:nginx 리버스프록시. corp-ext → WAF → Tomcat/Solr (유일 진입점).
-#    설정 반영은 '템플릿' 경로(/etc/nginx/templates/conf.d/default.conf.template)에 넣는다.
-#    이미지가 이 템플릿을 conf.d/default.conf 로 생성하므로, 과거처럼 default.conf 를
-#    읽기전용으로 덮어써 생기던 CrashLoop(Read-only file system)이 사라진다.
-#    nginx 변수($host 등)는 이미지 envsubst 가 '정의된 환경변수'만 치환하므로 그대로 보존된다.
-# ② IDS: Suricata 를 WAF 파드 사이드카로 붙여 같은 네트워크 공간(eth0)의 진입 트래픽을 관측한다.
-#    설정은 /etc/suricata 를 덮어쓰지 않고 /config/suricata.yaml 에 두고 -c 로 가리킨다
-#    → 이미지 엔트리포인트의 /etc/suricata chown 과 겹치지 않아 권한 충돌이 없다.
-#    관측 전용(IDS, 차단 아님)이라 물리 인터페이스가 아니어도 동작한다(IPS copy-mode 미사용).
-#    role=defense-appliance 로 '방어 장비' 표시 — 1단계에선 방어자(VM D)가 운용하지 않고 로그만 쓴다.
-# ※ 이미지 태그는 실존 최신(owasp/modsecurity-crs:nginx, jasonish/suricata:latest).
-#   설계가 겨눈 '취약 버전'(CRS 3.3.x 우회·Suricata 회피) 고정은 태그 핀 작업으로 추후 정밀화.
+# corp DMZ — 취약 WAF (ModSecurity + CRS 3.3.0 룰)
+# 이미지는 waf-vuln/Dockerfile 로 VM B 에서 로컬 빌드 → k3s containerd 로 적재한다:
+#   cd k8s/corp/dmz/waf-vuln
+#   podman build -t localhost/corp-waf:vuln .
+#   podman save localhost/corp-waf:vuln -o /tmp/corp-waf.tar
+#   sudo k3s ctr images import /tmp/corp-waf.tar
+# corp-ext → WAF → Tomcat/Solr (유일 진입점). server 블록 설정은 nginx 템플릿 경로로 주입.
+# IDS(Suricata) 사이드카는 2단계로 분리 — 이전 사이드카 포함 버전은 git 커밋 82c43c8 에 보존.
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -18,57 +13,23 @@ metadata:
   name: waf-nginx-conf
   namespace: corp-dmz
 data:
-  # 템플릿으로 들어가 conf.d/default.conf 로 생성된다. ModSecurity(+CRS)는 이미지가
-  # 상위(http) 수준에서 이미 켜므로, 이 블록은 프록시만 정의한다(중복 선언 시 nginx 기동 실패).
   default.conf.template: |
     server {
         listen 8080;
         server_name _;
 
-        # ModSecurity(+CRS)는 이미지가 상위(http) 수준에서 이미 켜고 setup.conf 를 로드한다.
-        # 여기서 다시 선언하면 규칙이 중복 로드돼 nginx 가 죽는다("Rule id 200000 is duplicated").
-        # 이 블록은 프록시만 정의 — ModSecurity 검사는 전역 설정을 그대로 상속한다.
-
-        # Solr 는 /solr/ 하위로 (Log4Shell 입구)
+        # ModSecurity(+CRS 3.3.0)는 이미지가 상위(http) 수준에서 켠다 — 이 블록은 프록시만.
         location /solr/ {
             proxy_pass http://solr:8983;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
         }
-        # 그 외는 Tomcat (PUT 웹셸·Ghostcat 입구)
         location / {
             proxy_pass http://tomcat:8080;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
         }
     }
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: ids-suricata-conf
-  namespace: corp-dmz
-data:
-  suricata.yaml: |
-    %YAML 1.1
-    ---
-    af-packet:
-      - interface: eth0
-        cluster-id: 99
-        cluster-type: cluster_flow
-        defrag: yes
-    # 규칙은 1단계에선 비움(진입 트래픽 http/flow 관측이 목적). alert 규칙은 suricata-update 로 추후.
-    default-rule-path: /var/lib/suricata/rules
-    rule-files: []
-    outputs:
-      - eve-log:
-          enabled: yes
-          filetype: regular
-          filename: /var/log/suricata/eve.json
-          types:
-            - http
-            - flow
-            - alert
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -86,10 +47,11 @@ spec:
     spec:
       containers:
         - name: waf
-          image: owasp/modsecurity-crs:nginx
+          image: localhost/corp-waf:vuln     # waf-vuln/Dockerfile 로 로컬 빌드 후 k3s ctr import
+          imagePullPolicy: Never             # 로컬 이미지만 사용(레지스트리 조회 안 함)
           env:
-            - { name: MODSEC_RULE_ENGINE, value: "On" }   # 차단 동작(기본 On, 명시)
-            - { name: PORT, value: "8080" }               # 비권한 유저 기본 포트
+            - { name: MODSEC_RULE_ENGINE, value: "On" }   # 엔진 On — 취약 룰(3.3.0)로 검사
+            - { name: PORT, value: "8080" }
           ports:
             - { containerPort: 8080 }
           volumeMounts:
@@ -100,25 +62,9 @@ spec:
             tcpSocket: { port: 8080 }
             initialDelaySeconds: 10
             periodSeconds: 5
-        - name: ids
-          image: jasonish/suricata:latest
-          args: ["-c", "/config/suricata.yaml", "-i", "eth0"]   # /etc/suricata 안 건드림 → 권한 충돌 없음
-          securityContext:
-            capabilities:
-              add: ["NET_ADMIN", "NET_RAW", "SYS_NICE"]
-          volumeMounts:
-            - name: suricata-conf
-              mountPath: /config
-              readOnly: true
-            - name: suricata-log
-              mountPath: /var/log/suricata
       volumes:
         - name: nginx-template
           configMap: { name: waf-nginx-conf }
-        - name: suricata-conf
-          configMap: { name: ids-suricata-conf }
-        - name: suricata-log
-          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
