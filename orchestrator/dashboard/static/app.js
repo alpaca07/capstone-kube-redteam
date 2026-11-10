@@ -6,7 +6,7 @@
   // ───────── 내비 구성(좌측 세로 탭, 5그룹) ─────────
   var NAV = [
     { group: "관제", items: [
-      { id: "control", label: "실험 제어" },
+      { id: "control", label: "실행 제어" },
       { id: "live", label: "실시간 현황" } ] },
     { group: "분석", items: [
       { id: "posture", label: "보안 현황" },
@@ -20,7 +20,7 @@
       { id: "events", label: "이벤트 로그" },
       { id: "report", label: "회차 보고서" } ] }
   ];
-  var TITLES = { posture: "보안 현황", stats: "공격·방어 통계", control: "실험 제어",
+  var TITLES = { posture: "보안 현황", stats: "공격·방어 통계", control: "실행 제어",
     live: "실시간 현황", events: "이벤트 로그", "attack-graph": "공격 추적 그래프",
     "defender-arch": "타깃 구성도 (방어 시점)", "defender-graph": "탐지·패치 흐름",
     report: "회차 보고서" };
@@ -129,7 +129,7 @@
   }
 
   // ───────── 로드 ─────────
-  // rounds.jsonl / episodes.jsonl 은 실험을 여러 번 돌리면 누적된다(fresh 안 쓰면).
+  // rounds.jsonl / episodes.jsonl 은 실행을 여러 번 돌리면 누적된다(fresh 안 쓰면).
   // 각 실행은 1회차 1라운드로 다시 시작하므로, 마지막 "1회차 1라운드" 이후가 최신 실행.
   function latestRunRounds(rs) {
     var s = 0;
@@ -320,21 +320,24 @@
       evoCard + '<div class="section-label">검증 · 탐지 · 침투 단계</div><div class="grid cols-3">' + vcard + dcard + fcard + "</div>";
   }
 
-  // ───────── 페이지: 실험 제어 ─────────
+  // ───────── 페이지: 실행 제어 ─────────
+  // 모드 = 파라미터 프리셋. 데모=짧은 1회차 시연, 통계=여러 회차 반복 수집.
+  var MODES = { demo: { eps: 1, mr: 4, tl: 120, mt: 1024 }, stat: { eps: 10, mr: 10, tl: 180, mt: 1024 } };
   function pageControl() {
     var running = !!(S.status && S.status.running);
     var runsRows = S.runs.length ? S.runs.map(function (r) {
       var p = r.params || {};
       return "<tr><td class='mono'>" + esc(r.id) + "</td><td>" + (r.status === "running" ? '<span class="badge b-ok">진행 중</span>' : '<span class="chip">완료</span>') +
-        "</td><td class='mono'>" + (p.episodes || "?") + "회차 · " + (p.max_rounds || "?") + "라운드 · " + (p.time_limit || "?") + "s</td><td class='mono'>" + esc(r.mode || "") + "</td></tr>";
+        "</td><td class='mono'>" + (p.episodes || "?") + "회차 · " + (p.max_rounds || "?") + "라운드 · " + (p.time_limit || "?") + "s</td><td class='mono'>" + esc(({ demo: "데모", stat: "통계" })[r.mode] || r.mode || "") + "</td></tr>";
     }).join("") : "<tr><td colspan='4' class='tile-sub'>아직 실행 기록이 없습니다.</td></tr>";
 
-    return '<div class="card"><div class="card-h">새 실험 시작</div>' +
+    return '<div class="card"><div class="card-h">새 실행 시작</div>' +
       '<div class="form-row" style="margin-bottom:14px">' +
-      field("회차 수", "f-eps", "number", 1) + field("회차당 최대 라운드", "f-mr", "number", 10) +
-      field("턴 제한시간(초)", "f-tl", "number", 180) +
+      field("회차 수", "f-eps", "number", 1) + field("회차당 최대 라운드", "f-mr", "number", 4) +
+      field("턴 제한시간(초)", "f-tl", "number", 120) +
       '<div class="field"><label for="f-mt">생성 토큰 상한</label><div class="mt-wrap"><input id="f-mt" type="number" value="1024"><label class="toggle mt-unl"><input type="checkbox" id="f-mt-unl"> 무제한</label></div></div>' +
       '<div class="field"><label>모드</label><select id="f-mode"><option value="demo">데모</option><option value="stat">통계</option></select></div></div>' +
+      '<div class="tile-sub" style="margin:-4px 0 12px">모드 = 파라미터 프리셋 · 데모(1회차 빠른 시연) / 통계(10회차 반복 수집) · 선택 후 값 직접 수정 가능</div>' +
       '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">' +
       '<label class="toggle"><input type="checkbox" id="f-fresh"> 기존 로그 지우고 시작</label>' +
       '<button class="btn btn-primary" id="btn-start"' + (running ? " disabled" : "") + '>▶ 시작</button>' +
@@ -352,6 +355,13 @@
     var start = $("#btn-start"), stop = $("#btn-stop"), msg = $("#ctl-msg");
     var unl = $("#f-mt-unl");
     if (unl) unl.onchange = function () { var inp = $("#f-mt"); if (inp) { inp.disabled = unl.checked; inp.style.opacity = unl.checked ? 0.45 : 1; } };
+    var mode = $("#f-mode");
+    if (mode) mode.onchange = function () {       // 모드 선택 → 파라미터 프리셋 자동 세팅
+      var m = MODES[mode.value]; if (!m) return;
+      $("#f-eps").value = m.eps; $("#f-mr").value = m.mr; $("#f-tl").value = m.tl;
+      if (unl) unl.checked = false;
+      var mt = $("#f-mt"); if (mt) { mt.disabled = false; mt.style.opacity = 1; mt.value = m.mt; }
+    };
     if (start) start.onclick = async function () {
       msg.textContent = "시작 요청…";
       var body = { episodes: +$("#f-eps").value, max_rounds: +$("#f-mr").value, time_limit: +$("#f-tl").value,
@@ -380,7 +390,7 @@
   function pageLive() {
     var st = S.status || {}, running = !!st.running;
     if (!running && !S.demo && (!st.status || st.status === "idle"))
-      return emptyState("⏸", "지금 도는 실험이 없습니다", "실험 제어에서 시작하면 진행 단계·남은 시간·공격 진행이 여기 실시간으로 뜹니다.", []);
+      return emptyState("⏸", "지금 도는 실행이 없습니다", "실행 제어에서 시작하면 진행 단계·남은 시간·공격 진행이 여기 실시간으로 뜹니다.", []);
 
     var demo = S.demo ? { phase: 2, episode: 1, round: 4, active: "defender", turn_started: Date.now() / 1000 - 48, time_limit_sec: 180, last_verdict: "fake_patch", flags_reached: ["1", "2", "3"], crowns_reached: ["crown-secrets"] } : st;
     var ph = demo.phase || 0;
@@ -483,7 +493,7 @@
     var view = $("#view"), rounds = S.rounds;
     if (!rounds.length) {
       view.innerHTML = '<p class="page-intro">방어자가 라운드마다 무엇을 탐지하고 패치했는지, 검증에서 실제 차단되었는지 확인합니다.</p>' +
-        emptyState("🛡", "아직 방어 기록이 없습니다", "실험을 돌리면 라운드별 탐지 → 패치 → 검증 흐름이 여기 나타납니다.", []);
+        emptyState("🛡", "아직 방어 기록이 없습니다", "실행하면 라운드별 탐지 → 패치 → 검증 흐름이 여기 나타납니다.", []);
       return;
     }
     var idx = defSel != null ? rounds.map(function (r) { return (r.episode || 1) + "-" + r.round; }).indexOf(defSel) : rounds.length - 1;
@@ -782,7 +792,7 @@
     return '<div class="empty"><div class="e-mark">' + mark + '</div><h3>' + esc(title) + "</h3><p>" + esc(desc) + "</p>" +
       (feeds && feeds.length ? '<div class="e-feeds">' + feeds.map(function (f) { return '<span class="chip"><span class="tag-dot" style="background:' + f[1] + '"></span>' + esc(f[0]) + "</span>"; }).join("") + "</div>" : "") + "</div>";
   }
-  function demoBanner() { return '<div class="demo-banner"><b>예시 데이터</b> · 아직 실험 로그가 없어 샘플을 보여줍니다. 실험을 돌리면 실제 값으로 바뀝니다.</div>'; }
+  function demoBanner() { return '<div class="demo-banner"><b>예시 데이터</b> · 아직 실행 로그가 없어 샘플을 보여줍니다. 실행하면 실제 값으로 바뀝니다.</div>'; }
 
   // ───────── 렌더 ─────────
   async function render() {
@@ -832,7 +842,7 @@
     var st = await jget("/api/status");
     var dot = $("#conn-dot"), ct = $("#conn-text");
     if (st === null) { dot.className = S.demo ? "" : "off"; ct.textContent = S.demo ? "데모 모드" : "서버 연결 끊김"; }
-    else { S.status = st; dot.className = st.running ? "live" : ""; ct.textContent = st.running ? "실험 진행 중" : "대기"; }
+    else { S.status = st; dot.className = st.running ? "live" : ""; ct.textContent = st.running ? "실행 진행 중" : "대기"; }
     var pill = $("#run-pill"), pt = $("#run-pill-text");
     if (st && st.running) { pill.className = "run-pill running"; pt.textContent = "R" + (st.round || 0) + " · " + (PHASES[st.phase || 0] || ""); }
     else { pill.className = "run-pill"; pt.textContent = S.demo ? "데모" : "대기"; }
