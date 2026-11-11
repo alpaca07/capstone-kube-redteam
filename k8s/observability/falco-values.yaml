@@ -70,3 +70,21 @@ customRules:
         proc=%proc.name cmd=%proc.cmdline)
       priority: NOTICE
       tags: [network, mitre_network_service_discovery, T1046]
+    # ── [사후] 리소스 탈취 (T1496 Resource Hijacking) ──
+    - rule: Cryptocurrency mining in container
+      desc: >-
+        컨테이너에서 암호화폐 채굴 프로세스 기동 = T1496 리소스 탈취. 모델망 격리(채굴풀
+        연결 불가)라 네트워크 대신 프로세스 시그니처로 포착(마이너 바이너리명·채굴 인자).
+        베이스라인엔 없는 신호라 공격 결정적 — 프로세스 기동 레벨이라 크라운(실행) 달성 포착.
+      condition: >-
+        spawned_process and container
+        and (proc.name in (xmrig, minerd, cpuminer, cpuminer-multi, ethminer, cgminer,
+                           bfgminer, xmr-stak, nbminer, t-rex, phoenixminer, nanominer)
+             or proc.cmdline contains "stratum+tcp"
+             or proc.cmdline contains "--donate-level"
+             or (proc.cmdline contains "--algo" and proc.cmdline contains "--pool"))
+      output: >-
+        Cryptominer launched (ns=%k8s.ns.name pod=%k8s.pod.name
+        proc=%proc.name cmd=%proc.cmdline image=%container.image.repository)
+      priority: CRITICAL
+      tags: [process, mitre_impact, T1496]

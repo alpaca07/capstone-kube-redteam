@@ -99,6 +99,11 @@ CROWN_INTERNAL_SECRETS = "internal_secrets"   # ④ 목표물(과거 값기반 F
 CROWN_CUSTOMERS_PII = "customers_pii"          # 고객 PII(이름·이메일·전화·주소·주민번호)
 CROWN_TARGETS = (CROWN_INTERNAL_SECRETS, CROWN_CUSTOMERS_PII)
 
+# ── 사후 크라운(런타임·API 통로) — app·db 반출과 별개 축. 감사/Falco 로그로 판정(이벤트라 시간창에 묶임). ──
+CROWN_RESOURCE_HIJACK = "resource_hijack"     # T1496 — 마이너 프로세스 실행(Falco)
+CROWN_CONTAINER_DEPLOY = "container_deploy"   # T1610 — 공격자 SA 의 파드 배포(감사)
+POSTEX_CROWNS = (CROWN_RESOURCE_HIJACK, CROWN_CONTAINER_DEPLOY)
+
 
 def crown_target(ev: dict) -> Optional[str]:
     """crown_exfil 자백 줄 → 반출된 크라운 자산 키. 자백 줄이 아니면 None.
@@ -139,5 +144,6 @@ __all__ = [
     "WEB_BOLA", "WEB_MASSASSIGN", "WEB_AUTHN", "WEB_TECHNIQUES",
     "is_internal_or_file", "classify", "map_app_event",
     "CROWN_INTERNAL_SECRETS", "CROWN_CUSTOMERS_PII", "CROWN_TARGETS",
+    "CROWN_RESOURCE_HIJACK", "CROWN_CONTAINER_DEPLOY", "POSTEX_CROWNS",
     "crown_target", "crown_of_sql",
 ]
