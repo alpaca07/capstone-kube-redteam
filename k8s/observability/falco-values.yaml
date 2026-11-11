@@ -88,10 +88,12 @@ customRules:
     - rule: corp DMZ web shell
       desc: >-
         corp-dmz 웹 컨테이너(tomcat/solr)에서 셸·리버스셸 도구 기동 = 통과 ① 원격코드실행.
-        정상 웹 서비스는 셸을 띄우지 않으므로 공격 신호. (nginx WAF 초기 기동 셸은 튜닝으로 제외)
+        정상 웹 서비스는 셸을 띄우지 않으므로 공격 신호. (WAF 는 방어장비 — 엔트리포인트 셸이
+        정상이므로 pod 이름으로 제외. tomcat/solr 만 공격 신호로 본다.)
       condition: >-
         spawned_process and container
         and k8s.ns.name=corp-dmz and proc.name in (sh, bash, nc, ncat)
+        and not k8s.pod.name startswith "waf"
       output: >-
         corp DMZ shell (ns=%k8s.ns.name pod=%k8s.pod.name
         proc=%proc.name cmd=%proc.cmdline)
@@ -102,9 +104,11 @@ customRules:
       desc: >-
         corp-crown PostgreSQL 컨테이너에서 셸 기동 = COPY FROM PROGRAM 등 수퍼유저 명령실행.
         정상 DB 는 셸을 띄우지 않으므로 공격 신호(크라운 침해 직전).
+        (readinessProbe 의 'sh -c pg_isready' 헬스체크는 정상이므로 cmdline 으로 제외 — 자해 방지)
       condition: >-
         spawned_process and container
         and k8s.ns.name=corp-crown and proc.name in (sh, bash)
+        and not proc.cmdline contains "pg_isready"
       output: >-
         corp crown exec (ns=%k8s.ns.name pod=%k8s.pod.name
         proc=%proc.name cmd=%proc.cmdline)
