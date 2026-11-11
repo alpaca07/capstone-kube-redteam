@@ -12,7 +12,8 @@
       { id: "posture", label: "보안 현황" },
       { id: "stats", label: "공격·방어 통계" } ] },
     { group: "공격 관점", items: [
-      { id: "attack-graph", label: "공격 추적 그래프" } ] },
+      { id: "attack-graph", label: "공격 추적 그래프" },
+      { id: "attack-log", label: "공격 저널" } ] },
     { group: "방어 관점", items: [
       { id: "defender-arch", label: "타깃 구성도" },
       { id: "defender-graph", label: "탐지·패치 흐름" } ] },
@@ -21,11 +22,11 @@
       { id: "report", label: "회차 보고서" } ] }
   ];
   var TITLES = { posture: "보안 현황", stats: "공격·방어 통계", control: "실행 제어",
-    live: "실시간 현황", events: "이벤트 로그", "attack-graph": "공격 추적 그래프",
+    live: "실시간 현황", events: "이벤트 로그", "attack-graph": "공격 추적 그래프", "attack-log": "공격 저널",
     "defender-arch": "타깃 구성도 (방어 시점)", "defender-graph": "탐지·패치 흐름",
     report: "회차 보고서" };
   var DEFAULT_ROUTE = "posture";
-  var REAL = { posture: 1, stats: 1, control: 1, live: 1, events: 1, "defender-arch": 1, "defender-graph": 1, "attack-graph": 1, report: 1 };
+  var REAL = { posture: 1, stats: 1, control: 1, live: 1, events: 1, "defender-arch": 1, "defender-graph": 1, "attack-graph": 1, "attack-log": 1, report: 1 };
 
   // ───────── 색 상수(의미색 — CSS 변수와 1:1) ─────────
   var C = { atk: "#e5484d", def: "#3b82f6", sys: "#64748b", crown: "#e5920b",
@@ -340,7 +341,7 @@
       '<div class="field"><label>모드</label><select id="f-mode"><option value="demo">데모</option><option value="stat">통계</option></select></div></div>' +
       '<div class="tile-sub" style="margin:-4px 0 12px">모드 = 파라미터 프리셋 · 데모(1회차 빠른 시연) / 통계(10회차 반복 수집) · 선택 후 값 직접 수정 가능</div>' +
       '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">' +
-      '<label class="toggle"><input type="checkbox" id="f-fresh"> 기존 로그 지우고 시작</label>' +
+      '<label class="toggle"><input type="checkbox" id="f-fresh"> 이전 실행 보관 후 새로 시작</label>' +
       '<button class="btn btn-primary" id="btn-start"' + (running ? " disabled" : "") + '>▶ 시작</button>' +
       '<button class="btn btn-danger" id="btn-stop"' + (running ? "" : " disabled") + '>■ 중지</button>' +
       '<span class="tile-sub" id="ctl-msg"></span></div></div>' +
@@ -368,7 +369,7 @@
       var body = { episodes: +$("#f-eps").value, max_rounds: +$("#f-mr").value, time_limit: +$("#f-tl").value,
         max_tokens: ($("#f-mt-unl") && $("#f-mt-unl").checked) ? null : +$("#f-mt").value, mode: $("#f-mode").value, fresh: $("#f-fresh").checked };
       var r = await fetch("/api/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then(function (x) { return x.json(); }).catch(function () { return { ok: false, error: "서버 연결 실패(데모 모드)" }; });
-      msg.textContent = r.ok ? "시작됨: " + r.id : "실패: " + (r.error || "");
+      msg.textContent = r.ok ? ("시작됨: " + r.id + (r.archived ? " · 이전 실행 보관됨" : "")) : "실패: " + (r.error || "");
       refreshRunStatus();
     };
     if (stop) stop.onclick = async function () {
@@ -636,6 +637,38 @@
     return '<div class="ev-row"><span class="ev-ts">' + hhmmss(e.ts) + '</span><span class="ev-type ' + m[0] + '">' + m[1] + '</span><span class="ev-body">R' + (e.round || "?") + " · " + body + "</span></div>";
   }
 
+  // ───────── 페이지: 공격 저널(실시간 명령 로그) ─────────
+  // 공격자 이벤트만 추려 콘솔처럼. 이벤트는 라운드 종료 시 기록되므로 라운드 단위로 흘러든다.
+  function journalRow(e) {
+    var p = e.payload || {}, t = hhmmss(e.ts), r = "R" + (e.round || "?");
+    if (e.type === "attack_turn") {
+      return '<div class="jr jr-turn"><span class="jr-ts">' + t + '</span><span class="jr-r">' + r + '</span>' +
+        '<span class="jr-body">공격 턴 종료 · ' + esc(reasonLabel(p.end_reason)) + " · 명령 " + num(p.steps) + "개" +
+        (p.elapsed_sec ? " · " + Math.round(p.elapsed_sec) + "s" : "") + "</span></div>";
+    }
+    if (e.type === "planner_wave")
+      return '<div class="jr jr-plan"><span class="jr-ts">' + t + '</span><span class="jr-r">' + r + '</span><span class="jr-body">계획 수립(웨이브)</span></div>';
+    var cmd = (String(p.tool || "") + " " + (p.args || []).join(" ")).trim();
+    var badge = p.flag ? '<span class="badge b-crown">목표 획득</span>'
+      : p.success ? '<span class="jr-ok">성공</span>' : '<span class="jr-fail">실패</span>';
+    var nd = (p.determinism && p.determinism !== "deterministic") ? ' <span class="jr-nd">비결정</span>' : "";
+    return '<div class="jr' + (p.flag ? " jr-flag" : "") + '"><span class="jr-ts">' + t + '</span><span class="jr-r">' + r + '</span>' +
+      '<span class="jr-cmd mono">' + (cmd ? esc(cmd) : '<span class="jr-dim">(명령 없음)</span>') + '</span><span class="jr-meta">' + badge + nd + "</span></div>";
+  }
+  function pageAttackLog() {
+    var evs = S.events.filter(function (e) { return e.actor === "attacker"; });
+    if (!evs.length)
+      return (S.demo ? demoBanner() : "") + emptyState("📓", "아직 공격 저널이 없습니다", "공격 턴이 돌면 실행한 명령과 결과가 라운드별로 여기 쌓입니다.", []);
+    var nSteps = 0, nFlag = 0;
+    evs.forEach(function (e) { if (e.type === "attack_step") { nSteps++; if ((e.payload || {}).flag) nFlag++; } });
+    var rows = evs.slice().reverse().map(journalRow).join("");
+    return (S.demo ? demoBanner() : "") +
+      '<div class="jhead"><span class="jhead-m"><span class="jhead-k">실행 명령</span><span class="jhead-v">' + nSteps + "건</span></span>" +
+      (nFlag ? '<span class="jhead-m"><span class="jhead-k">목표 획득</span><span class="jhead-v atk">' + nFlag + "건</span></span>" : "") +
+      '<span class="jhead-note">최신순 · 실행 중 자동 갱신(라운드 종료 시 반영)</span></div>' +
+      '<div class="journal">' + rows + "</div>";
+  }
+
   // ───────── 페이지: 공격 추적 그래프 ─────────
   function kindLabel(k) { return ({ goal: "Goal", intent: "Intent", fact: "Fact", finding: "Finding", hint: "Hint" })[k] || k; }
   function kindColor(k) {
@@ -646,6 +679,9 @@
   function relColor(r) { return ({ spawns: "#e5484d", yields: "#3b82f6", proves: "#b4303a", derived_from: "#94a3b8" })[r] || "#94a3b8"; }
   function relLabel(r) { return ({ spawns: "spawns", yields: "yields", proves: "proves", derived_from: "derived" })[r] || r; }
   function stateLabel(s) { return ({ open: "Open", running: "Running", done: "Done", blocked: "Blocked", exhausted: "Exhausted", stopped: "Stopped" })[s] || s; }
+  // 노드 상태 — 화면 표기는 쉬운 우리말(상태는 식별자 아닌 진행 상황이라 한글이 명확)
+  function stateKo(s) { return ({ open: "대기", running: "실행 중", done: "완료", blocked: "차단", exhausted: "소진", stopped: "중단" })[s] || s; }
+  function stateColor(s) { return ({ running: "#0d9488", done: "#0ea371", blocked: "#e5484d", exhausted: "#e5920b", stopped: "#64748b" })[s] || "#8a97ab"; }
   function mitreUrl(t) { return "https://attack.mitre.org/techniques/" + String(t).replace(".", "/") + "/"; }
   function truncate(s, n) { s = String(s == null ? "" : s); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
 
@@ -729,7 +765,7 @@
       '<button class="tab' + (agTab === "knowledge" ? " active" : "") + '" data-agtab="knowledge">지식</button></div>';
     var head = '<div class="ag-ph"><span class="badge" style="background:' + col.bg + ";color:" + col.line + '">' + kindLabel(n.kind) + "</span>" +
       (n.technique ? '<span class="badge b-atk">' + esc(n.technique) + "</span>" : "") +
-      (n.state ? '<span class="chip">' + esc(stateLabel(n.state)) + "</span>" : "") +
+      (n.state ? '<span class="chip ag-state" style="color:' + stateColor(n.state) + ';border-color:' + stateColor(n.state) + '33">' + esc(stateKo(n.state)) + "</span>" : "") +
       (n.severity ? '<span class="chip">심각도 ' + esc(n.severity) + "</span>" : "") + "</div>" +
       '<div class="ag-sum">' + esc(n.summary || "—") + "</div>" +
       (n.desc ? '<div class="ag-desc">' + esc(n.desc) + "</div>" : "") +
@@ -775,10 +811,18 @@
     var newSet = {}; nodes.forEach(function (n) { if (n._new) newSet[n.id] = 1; });
     var edgeSvg = edges.map(function (e) {
       var a = pos[e.src], b = pos[e.dst]; if (!a || !b) return "";
-      var x1 = a.x + NW, y1 = a.y + NH / 2, x2 = b.x, y2 = b.y + NH / 2, mx = (x1 + x2) / 2;
+      var fwd = b.x > a.x;                 // 앞으로(열 증가) vs 뒤로(파생 — fact가 새 intent 낳는 등)
+      var x1 = fwd ? a.x + NW : a.x, y1 = a.y + NH / 2;
+      var x2 = fwd ? b.x : b.x + NW, y2 = b.y + NH / 2;
       var hot = (agSel === e.src || agSel === e.dst), isNew = newSet[e.dst] || newSet[e.src];
-      return '<path class="ag-edge' + (isNew ? " ag-new" : "") + '" d="M' + x1 + " " + y1 + " C" + mx + " " + y1 + " " + mx + " " + y2 + " " + x2 + " " + y2 +
-        '" fill="none" stroke="' + relColor(e.rel) + '" stroke-width="' + (hot ? 2.2 : 1.3) + '" opacity="' + (hot ? 0.95 : 0.38) + '"' + (isNew ? ' style="animation-delay:280ms"' : "") + "/>";
+      var d;
+      if (fwd) { var mx = (x1 + x2) / 2; d = "M" + x1 + " " + y1 + " C" + mx + " " + y1 + " " + mx + " " + y2 + " " + x2 + " " + y2; }
+      else {                              // 뒤로 가는 엣지는 위로 둥글게 — 노드 뒤를 가로지르지 않게
+        var my = Math.min(y1, y2) - Math.max(26, Math.abs(y2 - y1) * 0.55);
+        d = "M" + x1 + " " + y1 + " C" + (x1 + 30) + " " + my + " " + (x2 - 30) + " " + my + " " + x2 + " " + y2;
+      }
+      return '<path class="ag-edge' + (isNew ? " ag-new" : "") + (hot ? " ag-hot" : "") + '" d="' + d +
+        '" fill="none" stroke="' + relColor(e.rel) + '" stroke-width="' + (hot ? 2.2 : 1.3) + '" opacity="' + (hot ? 0.95 : 0.32) + '"' + (isNew ? ' style="animation-delay:280ms"' : "") + "/>";
     }).join("");
     var nIdx = 0;
     var nodeSvg = nodes.map(function (n) {
@@ -789,15 +833,22 @@
       var delay = n._new ? (nIdx++ * 55) : 0;
       var l1 = kindLabel(n.kind) + (n.technique ? " · " + esc(n.technique) : "");
       var l2 = esc(truncate(n.summary || kindLabel(n.kind), 15));
-      return '<g class="' + cls + '" data-nid="' + n.id + '"' + (delay ? ' style="animation-delay:' + delay + 'ms"' : "") + ' opacity="' + (dead ? 0.5 : 1) + '">' +
-        '<rect x="' + p.x + '" y="' + p.y + '" width="' + NW + '" height="' + NH + '" rx="10" fill="' + col.bg + '" stroke="' + col.line + '" stroke-width="' + (sel ? 2.6 : 1.2) + '"' + (dead ? ' stroke-dasharray="4 3"' : "") + "/>" +
-        '<text class="agk" x="' + (p.x + 13) + '" y="' + (p.y + 21) + '" font-size="9.5" font-weight="700" fill="' + col.line + '">' + l1 + "</text>" +
+      // 상태 뱃지(대기·완료 외에만) — 점선/흐림이 '깨짐'이 아니라 '차단·실행 중' 표기임을 노드에서 바로 알림
+      var showSt = n.kind === "intent" && n.state && n.state !== "open" && n.state !== "done";
+      var stBadge = showSt ? '<text x="' + (p.x + NW - 11) + '" y="' + (p.y + 21) + '" text-anchor="end" font-size="8.5" font-weight="700" fill="' + stateColor(n.state) + '">' + esc(stateKo(n.state)) + "</text>" : "";
+      return '<g class="' + cls + '" data-nid="' + n.id + '"' + (delay ? ' style="animation-delay:' + delay + 'ms"' : "") + ' opacity="' + (dead ? 0.9 : 1) + '">' +
+        '<rect x="' + p.x + '" y="' + p.y + '" width="' + NW + '" height="' + NH + '" rx="10" fill="' + col.bg + '" stroke="' + col.line + '" stroke-width="' + (sel ? 2.6 : 1.2) + '"' + (dead ? ' stroke-dasharray="5 3"' : "") + "/>" +
+        '<text class="agk" x="' + (p.x + 13) + '" y="' + (p.y + 21) + '" font-size="9.5" font-weight="700" fill="' + col.line + '">' + l1 + "</text>" + stBadge +
         '<text x="' + (p.x + 13) + '" y="' + (p.y + 39) + '" font-size="11.5" fill="#0f1b2d">' + l2 + "</text></g>";
     }).join("");
     var svg = '<div class="ag-wrap"><svg viewBox="0 0 ' + W + " " + H + '" class="ag-svg">' + heads + edgeSvg + nodeSvg + "</svg></div>";
-    var legend = '<div class="legend">' +
+    var legend = '<div class="ag-legend"><div class="legend">' +
       ["goal", "intent", "fact", "finding"].map(function (k) { return '<span><span class="tag-dot" style="background:' + kindColor(k).line + '"></span>' + kindLabel(k) + "</span>"; }).join("") +
-      ["spawns", "yields", "proves"].map(function (r) { return '<span><span style="display:inline-block;width:15px;height:0;border-top:2px solid ' + relColor(r) + '"></span> ' + relLabel(r) + "</span>"; }).join("") + "</div>";
+      ["spawns", "yields", "proves"].map(function (r) { return '<span><span style="display:inline-block;width:15px;height:0;border-top:2px solid ' + relColor(r) + '"></span> ' + relLabel(r) + "</span>"; }).join("") + "</div>" +
+      '<div class="legend ag-legend-st"><span class="agl-k">상태</span>' +
+      '<span><span class="agls agls-run"></span>실행 중(맥동)</span>' +
+      '<span><span class="agls agls-dead"></span>차단·소진(점선·흐림)</span>' +
+      '<span><span class="agls agls-done"></span>완료</span></div></div>';
     var chips = "";
     if (rounds && rounds.length) {
       chips = roundChipsHtml(rounds, rec ? (rec.episode || 1) + "-" + rec.round : "", "data-agrk");
@@ -891,6 +942,7 @@
     var view = $("#view"); $("#page-title").textContent = TITLES[route] || route;
     setActiveNav();
     if (route === "events") { await loadEvents(); view.innerHTML = pageEvents(); bindEventTabs(); return; }
+    if (route === "attack-log") { await loadEvents(); view.innerHTML = pageAttackLog(); return; }
     if (route === "defender-arch") { view.innerHTML = '<p class="page-intro">구성도 불러오는 중…</p>'; var topo = await loadTopology(); if (route === "defender-arch") view.innerHTML = pageArch(topo); return; }
     if (route === "defender-graph") { await pageDefGraphRender(); return; }
     if (route === "attack-graph") { await pageAttackGraphRender(); return; }
@@ -935,12 +987,14 @@
     var dot = $("#conn-dot"), ct = $("#conn-text");
     if (st === null) { dot.className = S.demo ? "" : "off"; ct.textContent = S.demo ? "데모 모드" : "서버 연결 끊김"; }
     else { S.status = st; dot.className = st.running ? "live" : ""; ct.textContent = st.running ? "실행 진행 중" : "대기"; }
-    var pill = $("#run-pill"), pt = $("#run-pill-text");
-    if (st && st.running) { pill.className = "run-pill running"; pt.textContent = (st.episode || 0) + "회차 R" + (st.round || 0) + " · " + (PHASES[st.phase || 0] || ""); }
-    else { pill.className = "run-pill"; pt.textContent = S.demo ? "데모" : "대기"; }
+    renderStatusBar(st === null ? S.status : st);
 
-    // 실행 중(또는 방금 종료)이면 로그 데이터도 재적재하고 현재 보는 개요 페이지를 갱신 — 실시간 반영
     var running = !!(st && st.running);
+    if (running && !_wasRunning) {   // 새 실험 시작 감지 — 지난 실험의 선택·캐시 비워 '현재 실행만' 표시
+      agRkey = null; agSel = null; S.agSeen = {}; S.agSig = null;
+      defSel = null; S.defSig = null; repEp = null;
+    }
+    // 실행 중(또는 방금 종료)이면 로그 데이터도 재적재하고 현재 보는 개요 페이지를 갱신 — 실시간 반영
     if (running || _wasRunning) {
       await loadCore();
       await refreshLivePage();
@@ -950,11 +1004,35 @@
     if (route === "live") $("#view").innerHTML = pageLive();
     if (route === "control") refreshRunStatus();
   }
+  // 상단 상태바 — 모든 화면 공통. 실행 중이면 회차·라운드·단계·차례·경과를 한 줄로.
+  function actorKo(a) { return a === "attacker" ? "공격" : a === "defender" ? "방어" : a === "judge" ? "심판" : "—"; }
+  function renderStatusBar(st) {
+    var el = $("#run-status"); if (!el) return;
+    if (!(st && st.running)) {
+      el.innerHTML = '<div class="sbar"><span class="sbar-state"><span class="sbar-dot"></span>' + (S.demo ? "예시 데이터" : "대기") + "</span></div>";
+      return;
+    }
+    var phase = PHASES[st.phase || 0] || "—", acls = st.active === "attacker" ? "a-atk" : st.active === "defender" ? "a-def" : "a-sys";
+    // 단계명이 '공격/방어 차례'면 차례 중복 → 그 외(검증·채점 등)에서만 담당 표기
+    var showActor = st.active && st.phase !== 1 && st.phase !== 2;
+    var started = st.turn_started || 0, limit = st.time_limit_sec || 180;
+    var elapsed = started ? Math.max(0, Math.round(Date.now() / 1000 - started)) : 0, bp = clamp(elapsed / limit, 0, 1) * 100;
+    var lv = st.last_verdict ? VERDICT[st.last_verdict] : null;
+    el.innerHTML = '<div class="sbar live">' +
+      '<span class="sbar-state on"><span class="sbar-dot"></span>실행 중</span>' +
+      '<span class="sbar-seg"><span class="sbar-k">회차·R</span><span class="sbar-v ' + acls + '">' + (st.episode || 0) + " · " + (st.round || 0) + "</span></span>" +
+      '<span class="sbar-seg sb-hide-sm"><span class="sbar-k">단계</span><span class="sbar-v">' + esc(phase) + "</span></span>" +
+      (showActor ? '<span class="sbar-seg sb-hide-sm"><span class="sbar-k">담당</span><span class="sbar-v ' + acls + '">' + actorKo(st.active) + "</span></span>" : "") +
+      '<span class="sbar-seg sb-time sb-hide-sm"><span class="sbar-v">' + elapsed + "s<i>/" + limit + 's</i></span><span class="sbar-bar"><b style="width:' + bp + '%"></b></span></span>' +
+      (lv ? '<span class="sbar-seg sb-hide-sm"><span class="sbar-k">직전</span><span class="badge ' + lv.cls + '">' + lv.label + "</span></span>" : "") +
+      "</div>";
+  }
   async function refreshLivePage() {
     // 선택 상태 없는 개요 페이지만 자동 갱신(그래프·보고서는 사용자 선택 보존 위해 제외 — 재방문 시 최신)
     if (route === "posture") $("#view").innerHTML = pagePosture();
     else if (route === "stats") $("#view").innerHTML = pageStats();
     else if (route === "events") { await loadEvents(); $("#view").innerHTML = pageEvents(); bindEventTabs(); }
+    else if (route === "attack-log") { await loadEvents(); $("#view").innerHTML = pageAttackLog(); }
     else if (route === "attack-graph") await pageAttackGraphRender();
     else if (route === "defender-graph") { if (!document.querySelector(".modal-ov")) await pageDefGraphRender(); }
     else if (route === "defender-arch") { var topo = await loadTopology(); if (route === "defender-arch") $("#view").innerHTML = pageArch(topo); }

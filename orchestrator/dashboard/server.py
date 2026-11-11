@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 from fastapi import Body, FastAPI
 from fastapi.responses import FileResponse, JSONResponse
@@ -63,6 +65,33 @@ def _read_json(path: Path) -> dict:
 def _running() -> bool:
     p = _run["proc"]
     return bool(p and p.poll() is None)
+
+
+# 지난 실행 내역(회차 로그·라운드 상세·공격 그래프 스냅샷)을 runs_archive/<ts>/ 로 이관.
+# 라이브 디렉토리를 비워 "지금 실행 중인 실험"만 남긴다. runs.jsonl·progress.json 은 보존.
+_ARCHIVE_JSONL = ("rounds.jsonl", "episodes.jsonl", "events.jsonl")
+_ARCHIVE_DIRS = ("round_detail", "defense_topology", "attack_graph")
+
+
+def _archive_run_logs() -> Optional[str]:
+    dest = _LOGS / "runs_archive" / time.strftime("%Y%m%d-%H%M%S")
+    moved = False
+    try:
+        for name in _ARCHIVE_JSONL:
+            src = _LOGS / name
+            if src.exists() and src.stat().st_size > 0:
+                dest.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src), str(dest / name))
+                moved = True
+        for name in _ARCHIVE_DIRS:
+            src = _LOGS / name
+            if src.is_dir() and any(src.iterdir()):
+                dest.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src), str(dest / name))
+                moved = True
+    except OSError:
+        return None
+    return str(dest) if moved else None
 
 
 # ───────────── 조회 API ─────────────
@@ -142,12 +171,9 @@ def run_start(payload: dict = Body(default={})) -> JSONResponse:
         return JSONResponse({"ok": False, "error": "잘못된 파라미터"}, status_code=400)
 
     _LOGS.mkdir(parents=True, exist_ok=True)
+    archived = None
     if payload.get("fresh"):
-        for f in ("rounds.jsonl", "episodes.jsonl", "events.jsonl"):
-            try:
-                (_LOGS / f).write_text("", encoding="utf-8")
-            except OSError:
-                pass
+        archived = _archive_run_logs()      # 지운다 아님 — 지난 실행을 runs_archive/ 로 보관 후 라이브 비움
 
     cmd = [sys.executable, "-u", "-m", "orchestrator.main",
            "--episodes", str(eps), "--max-rounds", str(mr),
@@ -168,7 +194,8 @@ def run_start(payload: dict = Body(default={})) -> JSONResponse:
                                 "params": _run["params"]}, ensure_ascii=False) + "\n")
     except OSError:
         pass
-    return JSONResponse({"ok": True, "pid": proc.pid, "id": run_id, "params": _run["params"]})
+    return JSONResponse({"ok": True, "pid": proc.pid, "id": run_id, "params": _run["params"],
+                         "archived": archived})
 
 
 @app.post("/api/run/stop")

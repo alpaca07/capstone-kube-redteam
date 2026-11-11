@@ -106,15 +106,22 @@ button { font-family: inherit; }
 .topbar-status { margin-left: auto; }
 .nav-toggle { display: none; background: none; border: 1px solid var(--border); border-radius: 8px;
   width: 36px; height: 34px; font-size: 18px; color: var(--text-2); cursor: pointer; }
-.run-pill {
-  display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: 999px;
-  background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; font-weight: 600;
-  color: var(--text-2); font-family: var(--font-mono);
-}
-.run-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sys); }
-.run-pill.running { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
-.run-pill.running .run-dot { background: var(--ok); animation: pulse 1.6s ease-in-out infinite; }
+/* 상단 상태바 — 모든 화면 공통. 실행 중이면 회차·라운드·단계·차례·경과를 한 줄로 */
+.sbar { display: inline-flex; align-items: center; gap: 10px; font-family: var(--font-mono); font-size: 12px; }
+.sbar-state { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; padding: 5px 11px; border-radius: 999px;
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2); white-space: nowrap; }
+.sbar-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sys); flex: none; }
+.sbar.live .sbar-state { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+.sbar.live .sbar-dot { background: var(--ok); animation: pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+.sbar-seg { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; padding-left: 10px; border-left: 1px solid var(--border); }
+.sbar-k { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-3); }
+.sbar-v { font-weight: 700; color: var(--text); }
+.sbar-v.a-atk { color: var(--atk); } .sbar-v.a-def { color: var(--def); } .sbar-v.a-sys { color: var(--sys); }
+.sbar-time .sbar-v i { color: var(--text-3); font-style: normal; font-weight: 500; }
+.sbar-bar { width: 54px; height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.sbar-bar > b { display: block; height: 100%; background: var(--teal); border-radius: 999px; transition: width .4s; }
+@media (max-width: 1040px) { .sb-hide-sm { display: none !important; } }
 
 .view { padding: 22px 24px 48px; overflow-y: auto; min-height: 0; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
@@ -245,6 +252,31 @@ button { font-family: inherit; }
 .ev-body { color: var(--text); min-width: 0; }
 .ev-body .mono { color: var(--text-2); font-size: 11.5px; }
 
+/* 공격 저널(실시간 명령 로그) */
+.jhead { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-bottom: 12px; }
+.jhead-m { display: inline-flex; align-items: baseline; gap: 7px; }
+.jhead-k { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--text-3); }
+.jhead-v { font-family: var(--font-mono); font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.jhead-v.atk { color: var(--atk); }
+.jhead-note { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+.journal { border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+.jr { display: grid; grid-template-columns: 62px 40px 1fr auto; gap: 11px; align-items: baseline; padding: 7px 13px; border-bottom: 1px solid var(--surface-3); font-size: 12.5px; }
+.jr:last-child { border-bottom: none; }
+.jr:hover { background: var(--surface-2); }
+.jr-ts { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+.jr-r { font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--text-2); }
+.jr-cmd { font-size: 11.5px; color: var(--text); min-width: 0; word-break: break-word; }
+.jr-dim { color: var(--text-3); }
+.jr-meta { white-space: nowrap; font-family: var(--font-mono); font-size: 10.5px; }
+.jr-ok { color: var(--ok); font-weight: 700; }
+.jr-fail { color: var(--text-3); font-weight: 700; }
+.jr-nd { color: var(--crown); background: var(--crown-soft); border-radius: 5px; padding: 1px 6px; }
+.jr-turn { grid-template-columns: 62px 40px 1fr; background: var(--surface-2); }
+.jr-turn .jr-body { font-weight: 600; color: var(--text-2); }
+.jr-plan { grid-template-columns: 62px 40px 1fr; }
+.jr-plan .jr-body { color: var(--text-3); }
+.jr-flag { background: var(--crown-soft); }
+
 /* 빈 상태(스텁) */
 .empty {
   display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
@@ -352,6 +384,17 @@ button { font-family: inherit; }
 @keyframes agpop { from { opacity: 0; transform: scale(.72) translateY(9px); } to { opacity: 1; transform: scale(1); } }
 @keyframes agdraw { from { stroke-dashoffset: 680; } to { stroke-dashoffset: 0; } }
 @keyframes agglow { 0%, 100% { filter: drop-shadow(0 0 0 rgba(209,59,64,0)); } 50% { filter: drop-shadow(0 0 6px rgba(209,59,64,.6)); } }
+.ag-edge.ag-hot { filter: none; }
+/* 그래프 범례(종류·관계·상태) */
+.ag-legend { display: flex; flex-direction: column; gap: 7px; margin-top: 12px; }
+.ag-legend .legend { margin-top: 0; }
+.ag-legend-st { align-items: center; }
+.agl-k { font-family: var(--font-mono); font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--text-3); }
+.agls { display: inline-block; width: 13px; height: 10px; border-radius: 3px; vertical-align: -1px; }
+.agls-run { background: var(--teal-soft); border: 1.5px solid var(--teal); animation: pulse 1.7s ease-in-out infinite; }
+.agls-dead { background: var(--atk-soft); border: 1.5px dashed var(--atk); opacity: .9; }
+.agls-done { background: var(--ok-soft); border: 1.5px solid var(--ok); }
+.ag-state { font-weight: 700; }
 
 /* 상세 모달(판단 근거) */
 .modal-ov { position: fixed; inset: 0; background: rgba(15,27,45,.5); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 24px; }
