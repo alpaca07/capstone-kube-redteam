@@ -15,7 +15,8 @@ if str(_ROOT) not in sys.path:
 
 from common.app_signals import CROWN_CUSTOMERS_PII, CROWN_INTERNAL_SECRETS
 from orchestrator.objectives import (
-    Condition, ObjectiveRegistry, ObjectiveSpec, default_objectives)
+    Condition, ObjectiveRegistry, ObjectiveSpec, default_objectives,
+    DEFAULT_ASSET_GOAL, objectives_for, resolve_objectives, resolve_goal)
 
 
 def _obs(*crowns) -> dict:
@@ -108,6 +109,68 @@ def test_duplicate_id_rejected():
     except ValueError:
         return
     raise AssertionError("중복 objective_id 인데 에러 안 남")
+
+
+# ───────────────────── 목표 2모드 해석(free | asset) ─────────────────────
+def test_resolve_objectives_free_is_empty():
+    """free 모드 = 빈 레지스트리 → 크라운 반출돼도 채점 off(탐색·데모)."""
+    reg = resolve_objectives("free", [])
+    assert reg.all_ids() == []
+    assert reg.reached_goals(_obs(CROWN_INTERNAL_SECRETS)) == set()
+
+
+def test_resolve_objectives_asset_all_when_empty():
+    """asset 모드 + 빈 목록 = 전체 크라운(기존 동작 보존)."""
+    assert set(resolve_objectives("asset", []).all_ids()) == set(default_objectives().all_ids())
+
+
+def test_resolve_objectives_asset_subset():
+    """asset 모드 + 명시 선택 = 그 자산만 활성(자산별 채점)."""
+    reg = resolve_objectives("asset", ["crown-pii"])
+    assert reg.all_ids() == ["crown-pii"]
+    assert reg.is_reached("crown-pii", _obs(CROWN_CUSTOMERS_PII))
+    assert reg.get("crown-secrets") is None            # 안 고른 자산은 채점 대상 아님
+
+
+def test_resolve_objectives_bad_mode_raises():
+    try:
+        resolve_objectives("bogus", [])
+    except ValueError:
+        return
+    raise AssertionError("알 수 없는 모드인데 에러 안 남")
+
+
+def test_objectives_for_unknown_id_raises():
+    """시작 가드: 정의 안 된 자산 id → 실험 시작 전에 바로 터짐."""
+    try:
+        objectives_for(["crown-nope"])
+    except ValueError:
+        return
+    raise AssertionError("알 수 없는 자산 id 인데 에러 안 남")
+
+
+def test_resolve_goal_free_uses_text():
+    assert resolve_goal("free", "고객 PII 를 반출하라", []) == "고객 PII 를 반출하라"
+
+
+def test_resolve_goal_free_empty_raises():
+    """시작 가드: free 인데 목표 문구 비어 있으면 중단."""
+    try:
+        resolve_goal("free", "   ", [])
+    except ValueError:
+        return
+    raise AssertionError("free 빈 문구인데 에러 안 남")
+
+
+def test_resolve_goal_asset_all_is_default():
+    assert resolve_goal("asset", "", []) == DEFAULT_ASSET_GOAL
+
+
+def test_resolve_goal_asset_subset_is_derived():
+    """명시 선택 시 goal 은 선택 자산 설명에서 생성(기본 문구와 다름)."""
+    g = resolve_goal("asset", "", ["crown-pii"])
+    assert g != DEFAULT_ASSET_GOAL
+    assert "고객 PII" in g                             # crown-pii 설명이 녹아듦
 
 
 # ───────────────────── 자체 러너 ─────────────────────

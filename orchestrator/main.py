@@ -25,7 +25,7 @@ if str(_ROOT) not in sys.path:
 from common.config import Config, load_config  # noqa: E402
 from orchestrator.baseline import BaselineManager, kubectl_runner  # noqa: E402
 from orchestrator.flags import default_registry  # noqa: E402
-from orchestrator.objectives import default_objectives  # noqa: E402
+from orchestrator.objectives import resolve_objectives, resolve_goal  # noqa: E402
 from orchestrator.govc_snapshot import GovcSnapshotManager  # noqa: E402
 from orchestrator.http_clients import HttpAttackerClient, HttpDefenderClient  # noqa: E402
 from orchestrator.log_source import AuditFalcoLogSource, file_line_reader  # noqa: E402
@@ -76,7 +76,8 @@ def build_sequencer(cfg: Config, *, sink=None, progress=None, events=None,
         manifest_paths=(str(_ROOT / "k8s" / "killchain"),),
         baseline_name=cfg.vmware.baseline_snapshot)
     registry = default_registry()               # 상태검증·탐지 채점용(①②③·web·esc·disc)
-    objectives = default_objectives()           # 크라운(최종 침해) 조건표 — 접근기록 판정
+    objectives = resolve_objectives(            # free=빈(채점 끔) / asset=선택(비면 전체)
+        cfg.experiment.objective_mode, cfg.experiment.target_assets)
     logs = CompositeLogSource(
         AuditFalcoLogSource(file_line_reader(cfg.observability.audit_log_path),
                             file_line_reader(cfg.observability.falco_log_path)),
@@ -97,6 +98,8 @@ def build_sequencer(cfg: Config, *, sink=None, progress=None, events=None,
             time_limit_sec=cfg.experiment.time_limit_sec,
             max_tokens=cfg.dgx.max_tokens,
             baseline_snapshot=cfg.vmware.baseline_snapshot,
+            goal=resolve_goal(cfg.experiment.objective_mode,       # free=사람 문구 / asset=선택 자산 생성
+                              cfg.experiment.objective, cfg.experiment.target_assets),
             # exec_mode면 발판은 외부 URL 이 아니라 '클러스터 내부 파드'라 endpoint 를 비운다.
             attack_endpoint=(None if cfg.attack.exec_mode else cfg.target.attack_endpoint))
     return TurnSequencer(attacker=attacker, defender=defender, snapshots=baseline,
@@ -115,6 +118,8 @@ def _params_from_args(cfg: Config, args: argparse.Namespace) -> RunParams:
         time_limit_sec=args.time_limit if args.time_limit is not None else cfg.experiment.time_limit_sec,
         max_tokens=args.max_tokens if args.max_tokens is not None else cfg.dgx.max_tokens,
         baseline_snapshot=cfg.vmware.baseline_snapshot,
+        goal=resolve_goal(cfg.experiment.objective_mode,           # 모드별 목표 문구(cfg는 CLI로 이미 덮임)
+                          cfg.experiment.objective, cfg.experiment.target_assets),
         # exec_mode면 발판은 외부 URL 이 아니라 '클러스터 내부 파드'라 endpoint 를 비운다.
         attack_endpoint=(None if cfg.attack.exec_mode else cfg.target.attack_endpoint),
         skip_revert=args.no_revert,
@@ -137,9 +142,23 @@ def main(argv: Optional[list[str]] = None) -> int:
                     help="회차 init 의 baseline revert 생략 — 라이브(이미 취약 상태) 클러스터를 "
                          "그대로 공격. vmrun revert 가 k3s exec 을 느리게 만드는 인프라 이슈 회피용 "
                          "단발 포획·디버그. 다중 회차 리셋 불가.")
+    ap.add_argument("--objective-mode", default=None, choices=["free", "asset"],
+                    help="목표 모드(config 덮어씀): free=자유 목표 문구(크라운 채점 없음) / "
+                         "asset=크라운 자산 선택(자산별 채점)")
+    ap.add_argument("--objective", default=None,
+                    help="free 모드 목표 문구 — 공격자에게 줄 '무엇을'(어디서·어떻게는 안 줌)")
+    ap.add_argument("--target-assets", default=None,
+                    help="asset 모드 크라운 자산 id 쉼표구분(예: crown-pii,crown-secrets). 비우면 전체")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
+    # CLI 가 config 의 목표 설정을 덮어씀(지정된 것만) — _params_from_args·build_sequencer 가 이 cfg 를 읽는다.
+    if args.objective_mode is not None:
+        cfg.experiment.objective_mode = args.objective_mode
+    if args.objective is not None:
+        cfg.experiment.objective = args.objective
+    if args.target_assets is not None:
+        cfg.experiment.target_assets = [s.strip() for s in args.target_assets.split(",") if s.strip()]
     params = _params_from_args(cfg, args)
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -163,6 +182,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     foothold_desc = (f"in-cluster exec({cfg.attack.exec_namespace}/{cfg.attack.exec_pod})"
                      if cfg.attack.exec_mode else f"외부 endpoint({cfg.target.attack_endpoint})")
     print(f"    발판={foothold_desc}")
+    if cfg.experiment.objective_mode == "asset":
+        _sel = ",".join(cfg.experiment.target_assets) if cfg.experiment.target_assets else "(전체)"
+        print(f"    목표 모드=asset  채점 자산={_sel}")
+    else:
+        print(f"    목표 모드=free  (크라운 채점 없음 — 탐색·데모)")
+    _g = params.goal
+    print(f"    공격자 목표={_g[:70] + ('…' if len(_g) > 70 else '')}")
 
     summaries = seq.run_experiment()
 

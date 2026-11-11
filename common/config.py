@@ -95,6 +95,12 @@ class ExperimentConfig(BaseModel):
     max_rounds: int = 20               # 회차당 최대 라운드
     episodes: int = 50                 # 반복 회차 수(통계용)
     n_consecutive_defense: int = 3     # N라운드 연속 방어 성공 시 종료
+    # ── 목표 설정: 두 모드, 분리해서 각각 사용(CLI 로 덮어쓰기 가능) ──
+    #   free : 목표 문구를 사람이 자유 입력(objective) → 크라운 채점 없음(탐색·데모용).
+    #   asset: 크라운 자산을 골라(target_assets) god-view 가 자산별로 채점. 목표 문구는 선택 자산에서 자동 생성.
+    objective_mode: str = "asset"                           # free | asset
+    objective: str = ""                                     # free 모드 전용: 공격자에게 줄 자유 목표 문구
+    target_assets: list[str] = Field(default_factory=list)  # asset 모드 전용: 크라운 objective_id 목록(비면 전체)
 
 
 class FlagsConfig(BaseModel):
