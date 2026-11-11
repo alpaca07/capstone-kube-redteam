@@ -92,7 +92,11 @@ _RESET = "MATCH (n:Explore {episode:$episode}) DETACH DELETE n"
 _SCHEMA = [
     "CREATE INDEX explore_id IF NOT EXISTS FOR (n:Explore) ON (n.episode, n.id)",
     "CREATE INDEX intent_state IF NOT EXISTS FOR (n:Intent) ON (n.episode, n.state)",
-    "CREATE INDEX finding_dedup IF NOT EXISTS FOR (n:Finding) ON (n.episode, n.dedup_key)",
+    # (episode, dedup_key)는 add_finding 의 MERGE 키 — 유니크 제약으로 병렬 워커가 같은 발견을
+    # 동시에 MERGE 해도 중복 Finding 이 안 생기게 한다. dedup_key 없는 발견은 null 이라 복합
+    # 제약에서 자동 면제(_create 경로). 제약이 뒷받침 인덱스를 만드므로 기존 범위 인덱스는 버린다.
+    "DROP INDEX finding_dedup IF EXISTS",
+    "CREATE CONSTRAINT finding_dedup_uniq IF NOT EXISTS FOR (n:Finding) REQUIRE (n.episode, n.dedup_key) IS UNIQUE",
 ]
 
 
@@ -110,10 +114,19 @@ class Neo4jGraph(ExplorationGraph):
             return [r.data() for r in s.run(query, episode=self._episode, **params)]
 
     def ensure_schema(self) -> None:
-        """인덱스 생성(최초 1회). 운영 배포 시 호출."""
+        """인덱스·유니크 제약 생성(최초 1회). 운영 배포 시 호출."""
         with self._driver.session(database=self._db) as s:
             for q in _SCHEMA:
-                s.run(q)
+                try:
+                    s.run(q)
+                except Exception as e:                       # noqa: BLE001
+                    if q.startswith("CREATE CONSTRAINT"):     # 보통 기존 중복 노드 때문
+                        raise RuntimeError(
+                            "Finding (episode,dedup_key) 유니크 제약 생성 실패 — 보통 기존 중복 노드 때문입니다. "
+                            "VM-A 에서 먼저 비우세요: MATCH (n:Finding) DETACH DELETE n "
+                            "(KG 는 다른 라벨이라 영향 없음). 그 뒤 다시 실행. "
+                            f"원인: {e}") from e
+                    raise
 
     def reset_episode(self) -> None:
         """이 회차의 탐색 노드만 통에서 비운다(KG는 :Explore 없어 보존)."""
@@ -158,7 +171,8 @@ class Neo4jGraph(ExplorationGraph):
                     anchors: Optional[list[int]] = None,
                     dedup_key: Optional[str] = None) -> int:
         if dedup_key:
-            # 같은 dedup_key를 트랜잭션으로 원자적 get-or-merge(동시 워커 안전)
+            # 같은 dedup_key를 get-or-merge. 동시 워커 안전은 (episode,dedup_key) 유니크 제약이
+            # 보장한다(_SCHEMA) — execute_write 는 원자성·재시도만 주지 유일성은 제약 몫.
             nid = self._driver.session(database=self._db).execute_write(
                 self._merge_finding_tx, dedup_key, payload, anchors)
         else:

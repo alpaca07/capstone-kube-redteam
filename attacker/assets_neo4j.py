@@ -47,7 +47,11 @@ _CHILDREN = ("MATCH (:Asset {episode:$episode, id:$id})-[:CONTAINS]->(c:Asset {e
 _RESET = "MATCH (n:Asset {episode:$episode}) DETACH DELETE n"
 _SCHEMA = [
     "CREATE INDEX asset_id IF NOT EXISTS FOR (n:Asset) ON (n.episode, n.id)",
-    "CREATE INDEX asset_name IF NOT EXISTS FOR (n:Asset) ON (n.episode, n.name)",
+    # (episode, name)은 add_asset 의 MERGE 키 — 유니크 제약이 있어야 병렬 워커의 MERGE 경합이
+    # 직렬화돼 중복 Asset 노드가 안 생긴다(인덱스는 조회만 빠를 뿐 유일성 미보장). 제약이
+    # 뒷받침 인덱스를 자동 생성하므로 기존 asset_name 범위 인덱스는 버린다.
+    "DROP INDEX asset_name IF EXISTS",
+    "CREATE CONSTRAINT asset_name_uniq IF NOT EXISTS FOR (n:Asset) REQUIRE (n.episode, n.name) IS UNIQUE",
     "CREATE INDEX asset_cpe IF NOT EXISTS FOR (n:Asset) ON (n.episode, n.cpe)",
 ]
 
@@ -65,7 +69,16 @@ class Neo4jAssetGraph(AssetGraph):
     def ensure_schema(self) -> None:
         with self._driver.session(database=self._db) as s:
             for q in _SCHEMA:
-                s.run(q)
+                try:
+                    s.run(q)
+                except Exception as e:                       # noqa: BLE001
+                    if q.startswith("CREATE CONSTRAINT"):     # 보통 기존 중복 노드 때문
+                        raise RuntimeError(
+                            "Asset (episode,name) 유니크 제약 생성 실패 — 보통 기존 중복 노드 때문입니다. "
+                            "VM-A 에서 먼저 비우세요: MATCH (n:Asset) DETACH DELETE n "
+                            "(KG 는 :Product/:CVE 등 다른 라벨이라 영향 없음). 그 뒤 다시 실행. "
+                            f"원인: {e}") from e
+                    raise
 
     def reset_episode(self) -> None:
         self._run(_RESET)
