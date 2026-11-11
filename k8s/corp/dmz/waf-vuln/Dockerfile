@@ -31,7 +31,10 @@ COPY --from=build /usr/local/modsecurity/lib/ /usr/local/modsecurity/lib/
 RUN set -eux; \
     rm -f /usr/local/modsecurity/lib/libmodsecurity.so.3.0.8; \
     ldconfig 2>/dev/null || true; \
-    echo "[엔진 so 링크]"; ls -l /usr/local/modsecurity/lib/libmodsecurity.so.3
+    echo "[엔진 so 링크]"; ls -l /usr/local/modsecurity/lib/libmodsecurity.so.3; \
+    # 3.0.5 엔진이 모르는 3.0.6+ 지시어(SecRequestBodyJsonDepthLimit)를 설정에서 제거 — 있으면 기동 실패.
+    find /etc/nginx /etc/modsecurity.d -type f \( -name "*.conf" -o -name "*.template" \) \
+      -exec sed -i '/SecRequestBodyJsonDepthLimit/d' {} + 2>/dev/null || true
 
 # 룰 교체: CRS 3.3.0 룰·데이터만 내린다(crs-setup 은 3.3.x 호환이라 베이스 유지).
 ADD https://github.com/coreruleset/coreruleset/archive/refs/tags/v3.3.0.tar.gz /tmp/crs330.tar.gz
