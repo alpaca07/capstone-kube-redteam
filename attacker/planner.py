@@ -74,14 +74,20 @@ covered by recent facts or in-flight intents — spend new intents on unexplored
 fact or known asset is a concrete lead toward the GOAL (a secret/credential/token endpoint, a \
 reachable service on the path to the crown), dedicate at least one intent to DRIVING THAT LEAD \
 to an actual compromise end-to-end. A single path finished to the goal beats ten assets mapped.
+- MATCH the method to the asset. Data held in a DATABASE is exfiltrated by connecting to that DB \
+service with a DB credential and running a query on the target tables — NOT with a Kubernetes \
+service-account token or the K8s secrets API, which return cluster objects, not table rows. When \
+the goal asset is a database and a DB credential has been found, dedicate an intent to connecting \
+to the DB service and reading the target tables directly.
 - SELECTED KNOWLEDGE (when shown) lists ATT&CK techniques stage-1 already judged applicable to \
 the observed assets (with the asset, a why, and applicability). Build intents around these and \
 reuse their technique ids; add an intent with your own technique only when the situation clearly \
 calls for one not in the list. Put a MITRE id in "technique" when one fits, else "".
 - "plan": an ORDERED list of 2-5 concrete sub-steps the worker should follow for this intent — \
 still direction-level (what to retrieve / which endpoint / what to do with it), NEVER raw \
-commands or payloads. Example: ["fetch the admin-dashboard secret endpoint", "extract the SA \
-token", "call the K8s API with it to list secrets in the database namespace"].
+commands or payloads. Example: ["locate the DB service and port on the path to the goal", \
+"authenticate to it with the discovered DB credential", "query the target tables and read the \
+sensitive rows"].
 - "from": list the fact id numbers (the #N in RECENT FACTS) this intent builds on. Use [] only \
 for the opening move with no facts yet. This links each direction to the evidence that motivated it.
 - PREVIOUSLY BREACHED, when shown, lists accesses achieved in an EARLIER round. The defender may \
