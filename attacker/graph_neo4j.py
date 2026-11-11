@@ -82,6 +82,7 @@ _RUNNING = "MATCH (n:Intent {episode:$episode, state:'running'}) RETURN n{.*} AS
 _RECENT = ("MATCH (n:" + _LABEL + " {episode:$episode}) "
            "RETURN n{.*} AS props ORDER BY n.id DESC LIMIT $limit")
 _GET = "MATCH (n:Explore {episode:$episode, id:$id}) RETURN n{.*} AS props"
+_GOAL_EXISTING = "MATCH (n:Goal {episode:$episode}) RETURN n.id AS id ORDER BY n.id LIMIT 1"
 # 이 회차 탐색 노드들이 앵커한 자산 id 전체(union) — explored/untouched 판정용
 _ANCHORED = ("MATCH (n:Explore {episode:$episode}) "
              "UNWIND coalesce(n.anchors, []) AS aid RETURN DISTINCT aid AS aid")
@@ -154,6 +155,9 @@ class Neo4jGraph(ExplorationGraph):
 
     # ── 쓰기 ──
     def add_goal(self, payload: dict, *, anchors: Optional[list[int]] = None) -> int:
+        existing = self._run(_GOAL_EXISTING)      # 회차당 goal 하나 — 라운드마다 중복 생성 방지
+        if existing:
+            return int(existing[0]["id"])
         return self._create("Goal", NodeKind.GOAL, payload, "", 0, anchors)
 
     def add_intent(self, payload: dict, *, priority: int = 0,

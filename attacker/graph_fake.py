@@ -54,6 +54,9 @@ class InMemoryGraph(ExplorationGraph):
     # ── 쓰기 ──
     def add_goal(self, payload: dict, *, anchors: Optional[list[int]] = None) -> int:
         with self._lock:
+            for n in self._nodes.values():      # 회차당 goal 하나 — 라운드마다 중복 생성 방지(이미 있으면 재사용)
+                if n.kind == NodeKind.GOAL:
+                    return n.id
             return self._new_node(NodeKind.GOAL, payload, "", 0, anchors)
 
     def add_intent(self, payload: dict, *, priority: int = 0,

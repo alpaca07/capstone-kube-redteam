@@ -93,8 +93,9 @@
     },
     state: {
       "실행 중": "워커가 이 의도를 지금 수행 중", "차단": "이 의도가 경로 차단으로 중단됨",
-      "소진": "더 시도할 수단이 없어 탐색 종료", "완료": "이 의도를 끝까지 수행함",
-      "대기": "아직 착수 전(프런티어 대기)", "중단": "외부 중지로 멈춤"
+      "막다름": "더 시도할 수단이 없어 탐색이 막힘", "완료": "이 의도를 끝까지 수행함",
+      "대기": "아직 착수 전(프런티어 대기)", "중단": "외부 중지로 멈춤",
+      "확인됨": "관측으로 확인된 사실", "포착": "침해 신호를 포착한 발견"
     }
   };
   var _TIP_SEL = ".badge, .chip, .jr-ok, .jr-fail, .jr-nd, .det-coll";
@@ -857,6 +858,7 @@
   // 실시간 저널 우선(attack_journal.jsonl, 턴 중 스트리밍) → 없으면 이벤트 로그의 공격자 항목으로 폴백
   async function loadJournal() {
     var j = (await jget("/api/attack_journal")) || [];
+    S.journalLive = j.length > 0;      // 실시간 스트림 소스 여부(없으면 라운드 종료 집계로 폴백 — 의도 정보 없음)
     if (!j.length) { await loadEvents(); j = S.events.filter(function (e) { return e.actor === "attacker"; }); }
     S.journal = j;
   }
@@ -913,6 +915,7 @@
       (nIntents ? '<span class="jhead-m"><span class="jhead-k">의도</span><span class="jhead-v">' + nIntents + "개</span></span>" : "") +
       (nFlag ? '<span class="jhead-m"><span class="jhead-k">목표 획득</span><span class="jhead-v atk">' + nFlag + "건</span></span>" : "") +
       '<span class="jhead-note">실행 중 자동 갱신(라운드 종료 시 반영)</span></div>' +
+      (!S.journalLive ? '<div class="jwarn">실시간 저널 미연결 — 라운드 종료 집계만 표시되어 의도 정보가 없습니다(그래서 \'의도 외\'). 오케스트레이터(VM C)가 최신 코드로 실행 중인지 확인하세요.</div>' : "") +
       tabs + body;
   }
   function bindAttackLog() {
@@ -923,17 +926,19 @@
 
   // ───────── 페이지: 공격 추적 그래프 ─────────
   function kindLabel(k) { return ({ goal: "Goal", intent: "Intent", fact: "Fact", finding: "Finding", hint: "Hint" })[k] || k; }
+  function kindLabelFull(k) { return ({ goal: "Goal · 목표", intent: "Intent · 의도", fact: "Fact · 사실", finding: "Finding · 발견", hint: "Hint · 힌트" })[k] || kindLabel(k); }
   function kindColor(k) {
     return ({ goal: { bg: "#fdf1dc", line: "#b8740a" }, intent: { bg: "#fdecec", line: "#d13b40" },
       fact: { bg: "#e8f0fe", line: "#2f6fe0" }, finding: { bg: "#fbdcde", line: "#b4303a" },
       hint: { bg: "#eef1f5", line: "#5b6676" } })[k] || { bg: "#eef1f5", line: "#5b6676" };
   }
   function relColor(r) { return ({ spawns: "#e5484d", yields: "#3b82f6", proves: "#b4303a", derived_from: "#94a3b8" })[r] || "#94a3b8"; }
-  function relLabel(r) { return ({ spawns: "spawns", yields: "yields", proves: "proves", derived_from: "derived" })[r] || r; }
-  function stateLabel(s) { return ({ open: "Open", running: "Running", done: "Done", blocked: "Blocked", exhausted: "Exhausted", stopped: "Stopped" })[s] || s; }
+  // 관계 — 사람이 읽는 우리말(엣지 의미가 더 직관적)
+  function relLabel(r) { return ({ spawns: "파생", yields: "산출", proves: "입증", derived_from: "유도" })[r] || r; }
+  function relDesc(r) { return ({ spawns: "목표·사실이 새 의도를 낳음", yields: "의도가 사실을 산출", proves: "사실이 발견을 입증", derived_from: "사실이 다른 사실에서 유도됨" })[r] || ""; }
   // 노드 상태 — 화면 표기는 쉬운 우리말(상태는 식별자 아닌 진행 상황이라 한글이 명확)
-  function stateKo(s) { return ({ open: "대기", running: "실행 중", done: "완료", blocked: "차단", exhausted: "소진", stopped: "중단" })[s] || s; }
-  function stateColor(s) { return ({ running: "#0d9488", done: "#0ea371", blocked: "#e5484d", exhausted: "#e5920b", stopped: "#64748b" })[s] || "#8a97ab"; }
+  function stateKo(s) { return ({ open: "대기", running: "실행 중", done: "완료", blocked: "차단", exhausted: "막다름", stopped: "중단", confirmed: "확인됨", claimed: "포착" })[s] || s; }
+  function stateColor(s) { return ({ running: "#0d9488", done: "#0ea371", blocked: "#e5484d", exhausted: "#e5920b", stopped: "#64748b", confirmed: "#2f6fe0", claimed: "#b4303a" })[s] || "#8a97ab"; }
   function mitreUrl(t) { return "https://attack.mitre.org/techniques/" + String(t).replace(".", "/") + "/"; }
   function truncate(s, n) { s = String(s == null ? "" : s); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
 
@@ -1022,7 +1027,7 @@
     var col = kindColor(n.kind);
     var tabs = '<div class="tabs"><button class="tab' + (agTab === "overview" ? " active" : "") + '" data-agtab="overview">개요</button>' +
       '<button class="tab' + (agTab === "knowledge" ? " active" : "") + '" data-agtab="knowledge">지식</button></div>';
-    var head = '<div class="ag-ph"><span class="badge" style="background:' + col.bg + ";color:" + col.line + '">' + kindLabel(n.kind) + "</span>" +
+    var head = '<div class="ag-ph"><span class="badge" style="background:' + col.bg + ";color:" + col.line + '">' + kindLabelFull(n.kind) + "</span>" +
       (n.technique ? '<span class="badge b-atk">' + esc(n.technique) + "</span>" : "") +
       (n.state ? '<span class="chip ag-state" style="color:' + stateColor(n.state) + ';border-color:' + stateColor(n.state) + '33">' + esc(stateKo(n.state)) + "</span>" : "") +
       (n.severity ? '<span class="chip">심각도 ' + esc(n.severity) + "</span>" : "") + "</div>" +
@@ -1033,7 +1038,7 @@
     if (agTab === "overview") {
       body = (n.target ? agLine("대상", n.target) : "") +
         (n.why ? agLine("판단 근거", n.why) : "") +
-        (n.confidence != null ? agLine("확신도", Math.round(n.confidence * 100) + "%") : "") +
+        (n.confidence != null && isFinite(n.confidence) ? agLine("확신도", Math.round(n.confidence * 100) + "%") : "") +
         (n.occurrences ? agLine("재현 횟수", n.occurrences + "회") : "") +
         (n.owner ? agLine("담당 워커", n.owner) : "") +
         (n.evidence ? '<div class="ag-ev-sm">관측: ' + esc(n.evidence) + "</div>" : "");
@@ -1057,16 +1062,15 @@
     var colOf = { goal: 0, hint: 0, intent: 1, fact: 2, finding: 3 };
     var cols = [[], [], [], []];
     nodes.forEach(function (n) { var c = colOf[n.kind]; if (c == null) c = 1; cols[c].push(n); });
-    var NW = 188, NH = 56, VGAP = 14, CW = 236, X0 = 16, colX = [X0, X0 + CW, X0 + 2 * CW, X0 + 3 * CW];
+    var NW = 188, NH = 56, VGAP = 16, CW = 236, X0 = 16, TOP = 42, colX = [X0, X0 + CW, X0 + 2 * CW, X0 + 3 * CW];
     var maxRows = Math.max(1, cols[0].length, cols[1].length, cols[2].length, cols[3].length);
-    var H = Math.max(maxRows * (NH + VGAP) + 44, 240), W = X0 + 3 * CW + NW + 16;
+    var H = Math.max(TOP + maxRows * (NH + VGAP) + 16, 220), W = X0 + 3 * CW + NW + 16;
     var pos = {};
-    cols.forEach(function (col, ci) {
-      var colH = col.length * (NH + VGAP), y0 = (H - colH) / 2 + 16;
-      col.forEach(function (n, ri) { pos[n.id] = { x: colX[ci], y: y0 + ri * (NH + VGAP) }; });
+    cols.forEach(function (col, ci) {      // 위 정렬 고정 — 노드가 추가돼도 기존 노드 위치가 안 밀림(새로고침 느낌 제거)
+      col.forEach(function (n, ri) { pos[n.id] = { x: colX[ci], y: TOP + ri * (NH + VGAP) }; });
     });
-    var heads = ["Goal", "Intent · planner", "Fact · worker", "Finding"].map(function (t, ci) {
-      return '<text class="agk" x="' + (colX[ci] + 2) + '" y="15" font-size="11" font-weight="700" fill="#8a97ab">' + t + "</text>";
+    var heads = ["Goal · 목표", "Intent · 의도", "Fact · 사실", "Finding · 발견"].map(function (t, ci) {
+      return '<text class="agk" x="' + (colX[ci] + 2) + '" y="16" font-size="10.5" font-weight="700" fill="#8a97ab">' + t + "</text>";
     }).join("");
     var newSet = {}; nodes.forEach(function (n) { if (n._new) newSet[n.id] = 1; });
     var edgeSvg = edges.map(function (e) {
@@ -1077,8 +1081,8 @@
       var hot = (agSel === e.src || agSel === e.dst), isNew = newSet[e.dst] || newSet[e.src];
       var d;
       if (fwd) { var mx = (x1 + x2) / 2; d = "M" + x1 + " " + y1 + " C" + mx + " " + y1 + " " + mx + " " + y2 + " " + x2 + " " + y2; }
-      else {                              // 뒤로 가는 엣지는 위로 둥글게 — 노드 뒤를 가로지르지 않게
-        var my = Math.min(y1, y2) - Math.max(26, Math.abs(y2 - y1) * 0.55);
+      else {                              // 뒤로 가는 엣지는 위로 둥글게 — 노드 뒤를 가로지르지 않게. 위쪽 8px 밑으로 클램프(화면 밖 이탈 방지)
+        var my = Math.max(8, Math.min(y1, y2) - Math.max(26, Math.abs(y2 - y1) * 0.55));
         d = "M" + x1 + " " + y1 + " C" + (x1 + 30) + " " + my + " " + (x2 - 30) + " " + my + " " + x2 + " " + y2;
       }
       return '<path class="ag-edge' + (isNew ? " ag-new" : "") + (hot ? " ag-hot" : "") + '" d="' + d +
@@ -1089,7 +1093,7 @@
       var p = pos[n.id]; if (!p) return "";
       var col = kindColor(n.kind), sel = (agSel === n.id);
       var dead = n.kind === "intent" && (n.state === "blocked" || n.state === "exhausted" || n.state === "stopped");
-      var cls = "ag-node" + (n._new ? " ag-new" : "") + (n.state === "running" ? " ag-run" : "") + (dead ? " ag-dead" : "");
+      var cls = "ag-node" + (n._new ? " ag-new" : "") + (n.state === "running" ? " ag-run" : "") + (dead ? " ag-dead" : "") + (n.kind === "finding" ? " ag-find" : "");
       var delay = n._new ? (nIdx++ * 55) : 0;
       var l1 = kindLabel(n.kind) + (n.technique ? " · " + esc(n.technique) : "");
       var l2 = esc(truncate(n.summary || kindLabel(n.kind), 15));
@@ -1104,10 +1108,10 @@
     var svg = '<div class="ag-wrap"><svg viewBox="0 0 ' + W + " " + H + '" class="ag-svg">' + heads + edgeSvg + nodeSvg + "</svg></div>";
     var legend = '<div class="ag-legend"><div class="legend">' +
       ["goal", "intent", "fact", "finding"].map(function (k) { return '<span><span class="tag-dot" style="background:' + kindColor(k).line + '"></span>' + kindLabel(k) + "</span>"; }).join("") +
-      ["spawns", "yields", "proves"].map(function (r) { return '<span><span style="display:inline-block;width:15px;height:0;border-top:2px solid ' + relColor(r) + '"></span> ' + relLabel(r) + "</span>"; }).join("") + "</div>" +
+      ["spawns", "yields", "proves", "derived_from"].map(function (r) { return '<span title="' + esc(relDesc(r)) + '"><span style="display:inline-block;width:15px;height:0;border-top:2px solid ' + relColor(r) + '"></span> ' + relLabel(r) + "</span>"; }).join("") + "</div>" +
       '<div class="legend ag-legend-st"><span class="agl-k">상태</span>' +
       '<span><span class="agls agls-run"></span>실행 중(맥동)</span>' +
-      '<span><span class="agls agls-dead"></span>차단·소진(점선·흐림)</span>' +
+      '<span><span class="agls agls-dead"></span>차단·막다름(점선·흐림)</span>' +
       '<span><span class="agls agls-done"></span>완료</span></div></div>';
     var chips = (rounds && rounds.length) ? roundChipsHtml(rounds, selKey || "", "data-agrk") : "";
     var ctx = aggEp ? aggEp + "회차 종합 · 누적 그래프" : (rec ? (rec.episode || 1) + "회차 R" + rec.round : "예시");
