@@ -31,6 +31,7 @@ class ProgressSink:
         self.path = Path(path)
         self._state: dict = {
             "status": "idle",            # idle | running | done | aborted
+            "pid": os.getpid(),          # 오케스트레이터 프로세스 pid — 대시보드가 외부(CLI) 실행 중지에 사용
             "episode": 0,
             "total_episodes": 0,
             "round": 0,

@@ -38,7 +38,11 @@
     inconclusive: { label: "판정 불가", color: C.sys, cls: "b-sys" }
   };
   // 핵심 자산 식별자 → 쉬운 말
-  function crownLabel(c) { return ({ "crown-secrets": "내부 비밀 유출", "crown-pii": "고객정보 유출" })[c] || "핵심정보 유출"; }
+  // 크라운 라벨 — 알려진 2종만 친화명, 그 외는 실제 크라운 id(대상)를 그대로 노출(목표는 설정 주도).
+  function crownLabel(c) {
+    return ({ "crown-secrets": "내부 비밀 유출", "crown-pii": "고객정보 유출" })[c] ||
+      (c ? String(c).replace(/^crown[-_]?/i, "") + " 유출" : "핵심정보 유출");
+  }
   // 턴 종료 사유(enum) → 쉬운 말
   function reasonLabel(r) { return ({ flag: "목표 도달", deadend: "막다른 길", timeout: "시간 초과",
     budget: "예산 소진", max_steps: "명령 한도", error: "오류", patched: "패치 완료", skipped: "건너뜀" })[r] || r || "—"; }
@@ -97,7 +101,7 @@
   function lookupTip(el) {
     var t = (el.textContent || "").trim();
     if (el.classList.contains("jr-ok") || el.classList.contains("jr-fail") || el.classList.contains("jr-nd")) return TIP.journal[t];
-    if (el.classList.contains("det-coll")) return TIP.det[t];
+    if (el.classList.contains("det-coll")) return TIP.det[t] || TIP.badge[t];
     if (el.classList.contains("ag-state")) return TIP.state[t];
     if (el.classList.contains("badge")) return TIP.badge[t];
     if (el.classList.contains("chip")) return TIP.state[t] || TIP.badge[t];
@@ -327,10 +331,7 @@
       '<div class="legend"><span><span class="tag-dot" style="background:' + C.def + '"></span>방어 성공 (차단)</span>' +
       '<span><span class="tag-dot" style="background:' + C.atk + '"></span>공격 성공 (패치 우회)</span></div></div>';
 
-    var vc = verdictCounts();
-    var vcard = '<div class="card"><div class="card-h">검증 결과</div>' +
-      barChart([{ label: "차단", value: vc.blocked, color: C.ok }, { label: "무효 패치", value: vc.fake_patch, color: C.atk },
-        { label: "판정불가", value: vc.inconclusive, color: C.sys }]) + "</div>";
+    var vcard = verdictCard();
 
     var hl = highlights();
     var hcard = '<div class="card"><div class="card-h">주요 사건</div>' +
@@ -362,9 +363,7 @@
       lineChart([{ color: C.def, points: ev.map(function (e) { return e.def; }) }, { color: C.atk, points: ev.map(function (e) { return e.atk; }) }], Math.max(ev.length, 1), { pct: true }) +
       '<div class="legend"><span><span class="tag-dot" style="background:' + C.def + '"></span>방어</span><span><span class="tag-dot" style="background:' + C.atk + '"></span>공격</span></div></div>';
 
-    var vc = verdictCounts();
-    var vcard = '<div class="card"><div class="card-h">검증 결과</div>' +
-      barChart([{ label: "차단", value: vc.blocked, color: C.ok }, { label: "무효 패치", value: vc.fake_patch, color: C.atk }, { label: "판정불가", value: vc.inconclusive, color: C.sys }]) + "</div>";
+    var vcard = verdictCard();
 
     var dcard = detectionCard();
 
@@ -377,23 +376,60 @@
       '<div class="section-label">탐지 정확도 · 미탐 추적</div>' + dcard +
       '<div class="section-label">검증 · 침투 단계</div><div class="grid cols-2">' + vcard + fcard + "</div>";
   }
-  // 탐지 혼동행렬 — 범주별 '발생 라운드'를 누적값 증분으로 산출. 추가 조회 없이 rounds.jsonl 만으로,
-  // 막대 합계와 팝업 항목 합이 일치(공식 누적집계 기준). 탐지 누적은 회차마다 리셋되므로 회차 경계서 prev 초기화.
+  // ── 드릴 차트(막대 호버 → 발생 라운드 팝업 → 상세보기 점프). 탐지·검증 공용, 카드별 스코프 ──
+  function drillCard(opts) {
+    var cats = opts.cats, counts = opts.counts;
+    var mx = Math.max.apply(null, [1].concat(cats.map(function (c) { return counts[c[0]] || 0; })));
+    var colsHtml = cats.map(function (c) {
+      var v = counts[c[0]] || 0, h = Math.round((v / mx) * 96) + 6;
+      return '<div class="det-col" data-drill="' + c[0] + '" tabindex="0">' +
+        '<div class="det-colbar"><span style="height:' + h + 'px;background:' + c[2] + '"></span></div>' +
+        '<div class="det-colv" style="color:' + c[2] + '">' + v + "</div>" +
+        '<div class="det-coll">' + c[1] + '</div><div class="det-cols">' + c[3] + "</div></div>";
+    }).join("");
+    return '<div class="card det-card" data-drillcard="' + opts.id + '"><div class="card-h">' + opts.title + "</div>" +
+      '<div class="det-wrap"><div class="det-colrow">' + colsHtml + "</div>" +
+      '<div class="det-pop">' + opts.hint + "</div></div>" +
+      (opts.footer ? '<div class="tile-sub" style="margin-top:10px">' + opts.footer + "</div>" : "") + "</div>";
+  }
+  function bindDrill() {
+    Array.prototype.forEach.call(document.querySelectorAll("[data-drillcard]"), function (card) {
+      var cfg = (S.drill || {})[card.getAttribute("data-drillcard")];
+      if (!cfg) return;
+      var pop = card.querySelector(".det-pop");
+      function fill(cat) {
+        var arr = (cfg.items || {})[cat] || [], tot = arr.reduce(function (s, x) { return s + (x.delta || 1); }, 0);
+        pop.innerHTML = '<div class="det-pop-h">' + cfg.names[cat] + " · " + tot + "건</div>" +
+          (arr.length ? arr.map(function (x) {
+            return '<div class="det-pop-row"><span class="det-pop-r">' + (x.ep > 1 ? x.ep + "-" : "") + "R" + x.round + "</span>" +
+              '<span class="det-pop-t">' + (x.delta ? "+" + x.delta + "건" : "") + "</span>" +
+              '<button class="det-pop-btn" data-jump="' + x.ep + "-" + x.round + '" data-sec="' + cfg.section + '">상세보기</button></div>';
+          }).join("") : '<div class="tile-sub">해당 라운드 없음</div>');
+        Array.prototype.forEach.call(pop.querySelectorAll("[data-jump]"), function (b) {
+          b.onclick = function () { defSel = b.getAttribute("data-jump"); S.defJumpSection = b.getAttribute("data-sec"); S.defSig = null; location.hash = "defender-graph"; };
+        });
+      }
+      Array.prototype.forEach.call(card.querySelectorAll(".det-col"), function (col) {
+        var cat = col.getAttribute("data-drill");
+        col.onmouseenter = function () { fill(cat); };
+        col.onfocus = function () { fill(cat); };
+      });
+      var wrap = card.querySelector(".det-wrap");
+      if (wrap) wrap.onmouseleave = function () { pop.innerHTML = cfg.hint; };
+    });
+  }
+  // 탐지 혼동행렬 — 범주별 '발생 라운드'를 누적값 증분으로(추가 조회 없이). 막대 합계=팝업 항목 합(공식 누적).
   function detectionItemsFromDeltas() {
     var out = { tp: [], fp: [], fn: [] }, prevEp = null, prev = { tp: 0, fp: 0, fn: 0 };
     S.rounds.forEach(function (r) {
       var ep = r.episode || 1;
-      if (ep !== prevEp) { prev = { tp: 0, fp: 0, fn: 0 }; prevEp = ep; }
+      if (ep !== prevEp) { prev = { tp: 0, fp: 0, fn: 0 }; prevEp = ep; }    // 탐지 누적은 회차마다 리셋
       var c = r.detection_cum || {};
-      ["tp", "fp", "fn"].forEach(function (k) {
-        var d = (c[k] || 0) - (prev[k] || 0);
-        if (d > 0) out[k].push({ ep: ep, round: r.round, delta: d });
-      });
+      ["tp", "fp", "fn"].forEach(function (k) { var d = (c[k] || 0) - (prev[k] || 0); if (d > 0) out[k].push({ ep: ep, round: r.round, delta: d }); });
       prev = { tp: c.tp || 0, fp: c.fp || 0, fn: c.fn || 0 };
     });
     return out;
   }
-  // 실행 전체 탐지 합계(회차별 최종 누적의 합) — 막대·팝업 항목과 정합.
   function detectionTotals() {
     var byEp = {}, out = { tp: 0, fp: 0, fn: 0 };
     S.rounds.forEach(function (r) { byEp[r.episode || 1] = r.detection_cum || {}; });
@@ -401,47 +437,33 @@
     return out;
   }
   function detectionCard() {
-    var counts = detectionTotals();
-    S.detItems = detectionItemsFromDeltas();
-    var cats = [["tp", "정탐", C.ok, "실제 공격 식별"], ["fp", "오탐", C.crown, "오경보"], ["fn", "미탐", C.atk, "공격 미식별"]];
-    var mx = Math.max(1, counts.tp, counts.fp, counts.fn);
-    var colsHtml = cats.map(function (c) {
-      var v = counts[c[0]], h = Math.round((v / mx) * 96) + 6;
-      return '<div class="det-col" data-cat="' + c[0] + '" tabindex="0">' +
-        '<div class="det-colbar"><span style="height:' + h + 'px;background:' + c[2] + '"></span></div>' +
-        '<div class="det-colv" style="color:' + c[2] + '">' + v + "</div>" +
-        '<div class="det-coll">' + c[1] + '</div><div class="det-cols">' + c[3] + "</div></div>";
-    }).join("");
-    var recall = (counts.tp + counts.fn) ? counts.tp / (counts.tp + counts.fn) : null;
-    return '<div class="card det-card"><div class="card-h">공격 탐지 정확도</div>' +
-      '<div class="det-wrap"><div class="det-colrow">' + colsHtml + "</div>" +
-      '<div class="det-pop" id="det-pop">' + detPopHint() + "</div></div>" +
-      '<div class="tile-sub" style="margin-top:10px">탐지율 ' + pct(recall) + " · 미탐 " + counts.fn + "건 (방어 공백)</div></div>";
+    var counts = detectionTotals(), recall = (counts.tp + counts.fn) ? counts.tp / (counts.tp + counts.fn) : null;
+    var hint = '<div class="det-pop-hint">막대에 마우스를 올리면 발생 라운드가 표시됩니다 · 상세보기 → 해당 라운드 탐지 근거</div>';
+    S.drill = S.drill || {};
+    S.drill.detection = { items: detectionItemsFromDeltas(), names: { tp: "정탐", fp: "오탐", fn: "미탐" }, section: "detect", hint: hint };
+    return drillCard({ id: "detection", title: "공격 탐지 정확도", hint: hint,
+      cats: [["tp", "정탐", C.ok, "실제 공격 식별"], ["fp", "오탐", C.crown, "오경보"], ["fn", "미탐", C.atk, "공격 미식별"]],
+      counts: counts, footer: "탐지율 " + pct(recall) + " · 미탐 " + counts.fn + "건 (방어 공백)" });
   }
-  function detPopHint() { return '<div class="det-pop-hint">막대에 마우스를 올리면 발생 라운드가 표시됩니다 · 상세보기 → 해당 라운드 탐지·패치 흐름</div>'; }
-  function bindStatsDetection() {
-    var pop = document.getElementById("det-pop");
-    if (!pop) return;
-    var names = { tp: "정탐", fp: "오탐", fn: "미탐" };
-    function fill(cat) {
-      var arr = (S.detItems || {})[cat] || [], tot = arr.reduce(function (s, x) { return s + x.delta; }, 0);
-      pop.innerHTML = '<div class="det-pop-h">' + names[cat] + " · " + tot + "건</div>" +
-        (arr.length ? arr.map(function (x) {
-          return '<div class="det-pop-row"><span class="det-pop-r">' + (x.ep > 1 ? x.ep + "-" : "") + "R" + x.round + "</span>" +
-            '<span class="det-pop-t">' + names[cat] + " +" + x.delta + "건</span>" +
-            '<button class="det-pop-btn" data-jump="' + x.ep + "-" + x.round + '">상세보기</button></div>';
-        }).join("") : '<div class="tile-sub">해당 라운드 없음</div>');
-      Array.prototype.forEach.call(pop.querySelectorAll("[data-jump]"), function (b) {
-        b.onclick = function () { defSel = b.getAttribute("data-jump"); S.defJumpSection = "detect"; S.defSig = null; location.hash = "defender-graph"; };
-      });
-    }
-    Array.prototype.forEach.call(document.querySelectorAll(".det-col"), function (col) {
-      var cat = col.getAttribute("data-cat");
-      col.onmouseenter = function () { fill(cat); };
-      col.onfocus = function () { fill(cat); };
+  // 검증 판정 — 라운드 단위라 범주별 발생 라운드가 바로 나온다(델타 불필요).
+  function verdictItemsFromRounds() {
+    var out = { blocked: [], fake: [], inconclusive: [] };
+    S.rounds.forEach(function (r) {
+      var k = r.verdict === "blocked" ? "blocked" : (r.verdict === "fake_patch" || r.verdict === "not_blocked") ? "fake" : r.verdict === "inconclusive" ? "inconclusive" : null;
+      if (k) out[k].push({ ep: r.episode || 1, round: r.round });
     });
-    var wrap = document.querySelector(".det-wrap");   // 막대→팝업 이동은 유지, 카드 밖으로 나가면 힌트 복귀
-    if (wrap) wrap.onmouseleave = function () { pop.innerHTML = detPopHint(); };
+    return out;
+  }
+  function verdictCard() {
+    var items = verdictItemsFromRounds();
+    var counts = { blocked: items.blocked.length, fake: items.fake.length, inconclusive: items.inconclusive.length };
+    var dec = counts.blocked + counts.fake;
+    var hint = '<div class="det-pop-hint">막대에 마우스를 올리면 해당 판정 라운드가 표시됩니다 · 상세보기 → 해당 라운드 검증 근거</div>';
+    S.drill = S.drill || {};
+    S.drill.verdict = { items: items, names: { blocked: "차단", fake: "무효 패치", inconclusive: "판정 불가" }, section: "verify", hint: hint };
+    return drillCard({ id: "verdict", title: "검증 결과", hint: hint,
+      cats: [["blocked", "차단", C.ok, "실질 차단"], ["fake", "무효 패치", C.atk, "패치 우회"], ["inconclusive", "판정 불가", C.sys, "미확정"]],
+      counts: counts, footer: "차단율 " + pct(dec ? counts.blocked / dec : null) + " · 무효 패치 " + counts.fake + "건" });
   }
 
   // ───────── 페이지: 실행 제어 ─────────
@@ -507,6 +529,8 @@
     var start = $("#btn-start"), stop = $("#btn-stop");
     if (start && st) start.disabled = !!st.running;
     if (stop && st) stop.disabled = !st.running;
+    var msg = $("#ctl-msg");    // 외부(CLI) 실행 감지 표기 — 사용자 동작 메시지가 없을 때만
+    if (msg && st && st.external && !msg.textContent) msg.textContent = "외부(CLI) 실행 감지 — 여기서 중지 가능";
   }
 
   // ───────── 페이지: 실시간 현황 ─────────
@@ -836,7 +860,15 @@
     if (!j.length) { await loadEvents(); j = S.events.filter(function (e) { return e.actor === "attacker"; }); }
     S.journal = j;
   }
-  function cleanIntent(s) { return String(s || "").replace(/^\[|\]$/g, "").trim() || "(의도 미상)"; }
+  // 의도 라벨 — 요약(intent_label)이 있으면 그대로, 없으면 태그를 "의도 #N · w1"로, 둘 다 없으면 "의도 외".
+  function intentLabelOf(p) {
+    p = p || {};
+    if (p.intent_label) return p.intent_label;
+    var s = String(p.intent || "").replace(/^\[|\]$/g, "").trim();
+    if (!s) return "의도 외";
+    var m = s.match(/(w\d+)[·\s]*intent#(\d+)/);
+    return m ? "의도 #" + m[2] + " · " + m[1] : s;
+  }
   // 의도별 그룹 로그 — 의도는 라운드 단위라 그룹당 라운드 하나. 그룹 헤더=라운드·건수·성공·목표.
   function journalStepRow(e) {
     var p = e.payload || {}, t = hhmmss(e.ts);
@@ -850,7 +882,7 @@
     var groups = {}, order = [];
     evs.forEach(function (e) {
       if (e.type !== "attack_step") return;
-      var key = (e.payload || {}).intent || "(의도 미상)";
+      var key = intentLabelOf(e.payload);
       if (!groups[key]) { groups[key] = { round: e.round, steps: [] }; order.push(key); }
       groups[key].steps.push(e);
     });
@@ -861,7 +893,7 @@
       var g = groups[key], ok = g.steps.filter(function (s) { return (s.payload || {}).success; }).length;
       var flag = g.steps.some(function (s) { return (s.payload || {}).flag; });
       var head = '<div class="jg-head"><span class="jg-r">R' + (g.round || "?") + "</span>" +
-        '<span class="jg-intent">' + esc(cleanIntent(key)) + "</span>" +
+        '<span class="jg-intent">' + esc(key) + "</span>" +
         '<span class="jg-meta">' + g.steps.length + "건 · 성공 " + ok + (flag ? ' <span class="badge b-crown">목표 획득</span>' : "") + "</span></div>";
       return '<div class="jgroup' + (flag ? " jg-flag" : "") + '">' + head + g.steps.slice().reverse().map(journalStepRow).join("") + "</div>";
     }).join("");
@@ -1019,7 +1051,8 @@
     var nodes = g.nodes || [], edges = g.edges || [];
     if (!nodes.length) {
       var chips0 = (rounds && rounds.length) ? roundChipsHtml(rounds, selKey || "", "data-agrk") : "";
-      return chips0 + emptyState("🕸", "이 라운드는 공격 그래프 기록이 없습니다", "공격 턴이 완료되면 노드가 채워집니다. 다른 회차·라운드를 선택해 보세요.", []);
+      return chips0 + emptyState("🕸", "이 라운드는 공격 그래프 기록이 없습니다",
+        "탐색 그래프는 병렬 모드(attack.mode: parallel)에서만 생성됩니다. 단일 모드(single)는 플래너·의도 그래프가 없어 비어 있습니다. 다른 회차·라운드를 선택하거나 병렬 모드로 실행하세요.", []);
     }
     var colOf = { goal: 0, hint: 0, intent: 1, fact: 2, finding: 3 };
     var cols = [[], [], [], []];
@@ -1171,8 +1204,8 @@
     if (route === "defender-graph") { await pageDefGraphRender(); return; }
     if (route === "attack-graph") { await pageAttackGraphRender(); return; }
     if (!REAL[route]) { view.innerHTML = pageStub(route); return; }
-    if (route === "posture") view.innerHTML = pagePosture();
-    else if (route === "stats") { view.innerHTML = pageStats(); bindStatsDetection(); }
+    if (route === "posture") { view.innerHTML = pagePosture(); bindDrill(); }
+    else if (route === "stats") { view.innerHTML = pageStats(); bindDrill(); }
     else if (route === "control") { view.innerHTML = pageControl(); bindControl(); }
     else if (route === "live") view.innerHTML = pageLive();
     else if (route === "report") { view.innerHTML = pageReport(); bindRepChips(); }
@@ -1253,8 +1286,8 @@
   }
   async function refreshLivePage() {
     // 선택 상태 없는 개요 페이지만 자동 갱신(그래프·보고서는 사용자 선택 보존 위해 제외 — 재방문 시 최신)
-    if (route === "posture") $("#view").innerHTML = pagePosture();
-    else if (route === "stats") { $("#view").innerHTML = pageStats(); bindStatsDetection(); }
+    if (route === "posture") { $("#view").innerHTML = pagePosture(); bindDrill(); }
+    else if (route === "stats") { $("#view").innerHTML = pageStats(); bindDrill(); }
     else if (route === "events") { await loadEvents(); $("#view").innerHTML = pageEvents(); bindEventTabs(); }
     else if (route === "attack-log") { await loadJournal(); $("#view").innerHTML = pageAttackLog(); bindAttackLog(); }
     else if (route === "attack-graph") await pageAttackGraphRender();

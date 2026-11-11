@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -65,6 +66,13 @@ def _read_json(path: Path) -> dict:
 def _running() -> bool:
     p = _run["proc"]
     return bool(p and p.poll() is None)
+
+
+def _external_running(prog: dict) -> bool:
+    """CLI 등 외부 실행 감지 — progress.json 최신성으로(턴제한*2+120, 최소 300초 창)."""
+    updated = prog.get("updated_at") or 0
+    window = max(300, int(prog.get("time_limit_sec") or 180) * 2 + 120)
+    return bool(prog.get("status") == "running" and updated and (time.time() - updated) < window)
 
 
 # 지난 실행 내역(회차 로그·라운드 상세·공격 그래프 스냅샷)을 runs_archive/<ts>/ 로 이관.
@@ -146,13 +154,7 @@ def attack_graph(episode: int, rnd: int) -> JSONResponse:
 @app.get("/api/status")
 def live_status() -> JSONResponse:
     prog = _read_json(_LOGS / "progress.json") or {"status": "idle"}
-    running = _running()                             # 대시보드가 띄운 프로세스
-    if not running:                                  # CLI 등 외부 실행 감지 — progress.json 최신성으로
-        updated = prog.get("updated_at") or 0
-        # 한 턴이 최대 time_limit 동안 갱신 없이 돌 수 있어 넉넉히(턴제한*2+120, 최소 300초)
-        window = max(300, int(prog.get("time_limit_sec") or 180) * 2 + 120)
-        if prog.get("status") == "running" and updated and (time.time() - updated) < window:
-            running = True
+    running = _running() or _external_running(prog)  # 대시보드 띄운 프로세스 + CLI 외부 실행
     started = _run["started"]
     if not running and prog.get("status") == "running":      # 오래 멈춘 running = 크래시/종료 보정
         prog["status"] = "stopped"
@@ -208,20 +210,33 @@ def run_start(payload: dict = Body(default={})) -> JSONResponse:
 @app.post("/api/run/stop")
 def run_stop() -> JSONResponse:
     p = _run["proc"]
-    if p and p.poll() is None:
+    if p and p.poll() is None:               # 대시보드가 띄운 프로세스
         p.terminate()
         try:
             p.wait(timeout=5)
         except subprocess.TimeoutExpired:
             p.kill()
         return JSONResponse({"ok": True, "stopped": True})
+    # 외부(CLI) 실행 — progress.json 의 pid 로 종료 시도(최신성 가드로 묵은 pid 오인 방지)
+    prog = _read_json(_LOGS / "progress.json")
+    if _external_running(prog):
+        pid = prog.get("pid")
+        if isinstance(pid, int) and pid > 0:
+            try:
+                os.kill(pid, signal.SIGTERM)
+                return JSONResponse({"ok": True, "stopped": True, "external": True})
+            except (ProcessLookupError, PermissionError) as e:
+                return JSONResponse({"ok": False, "stopped": False, "error": f"외부 실행 종료 실패: {e}"})
     return JSONResponse({"ok": True, "stopped": False})
 
 
 @app.get("/api/run/status")
 def run_status() -> JSONResponse:
     p = _run["proc"]
-    running = _running()
+    managed = _running()
+    prog = _read_json(_LOGS / "progress.json")
+    external = (not managed) and _external_running(prog)   # CLI 외부 실행
+    running = managed or external
     tail: list = []
     try:
         tail = _RUN_LOG.read_text(encoding="utf-8").splitlines()[-40:]
@@ -229,9 +244,9 @@ def run_status() -> JSONResponse:
         pass
     started = _run["started"]
     return JSONResponse({
-        "running": running, "params": _run["params"], "started": started,
+        "running": running, "external": external, "params": _run["params"], "started": started,
         "elapsed": (time.time() - started) if started else 0,
-        "returncode": (p.poll() if (p and not running) else None), "log": tail,
+        "returncode": (p.poll() if (p and not managed) else None), "log": tail,
     })
 
 

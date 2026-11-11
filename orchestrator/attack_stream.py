@@ -75,7 +75,8 @@ class AttackJournalStreamer:
                 "payload": {
                     "tool": e.get("tool", ""), "args": e.get("args") or [],
                     "success": bool(e.get("ok")), "blocked": bool(e.get("blocked")),
-                    "intent": e.get("intent", ""), "seq": e.get("seq"),
+                    "intent": e.get("intent", ""), "intent_label": e.get("intent_label", ""),
+                    "seq": e.get("seq"),
                 },
             }, ensure_ascii=False))
         try:

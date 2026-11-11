@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import collections
 import json
+import re
 import threading
 import time
 from pathlib import Path
@@ -70,6 +71,7 @@ class AttackHarness:
         self._jlock = threading.Lock()
         self._jseq = 0
         self._cur_round = 0
+        self._intent_labels: dict = {}      # intent id → 요약(저널 그룹 라벨)
         self.log = self._journaling_log     # 병렬 경로 가시성(주입 가능 → 테스트에서 캡처)
         self.session_id = session_id
         self.max_steps = max_steps
@@ -110,11 +112,18 @@ class AttackHarness:
             d = json.loads(msg[i + len(_JOURNAL_MARK):])
         except (ValueError, TypeError):
             return
+        if d.get("_meta") == "intent":                 # 의도 id→요약 등록(스텝 아님)
+            with self._jlock:
+                self._intent_labels[d.get("id")] = d.get("label", "")
+            return
+        m = re.search(r"intent#(\d+)", intent)          # 태그에서 의도 id 추출 → 요약 해석
+        label = self._intent_labels.get(int(m.group(1)), "") if m else ""
         with self._jlock:
             self._jseq += 1
             self._journal.append({
                 "seq": self._jseq, "ts": time.time(), "round": self._cur_round,
-                "intent": intent, "tool": d.get("tool", ""), "args": d.get("args") or [],
+                "intent": intent, "intent_label": label,
+                "tool": d.get("tool", ""), "args": d.get("args") or [],
                 "ok": bool(d.get("ok")), "blocked": bool(d.get("blocked")),
             })
 
@@ -124,6 +133,7 @@ class AttackHarness:
             self._journal.clear()
             self._jseq = 0
             self._cur_round = round
+            self._intent_labels = {}
 
     def journal_since(self, since: int = 0) -> tuple:
         """seq > since 인 저널 항목과 현재 head seq. (/journal 엔드포인트용)."""
@@ -206,7 +216,8 @@ class AttackHarness:
                 self.llm, executor, history, system_prompt=self.system_prompt,
                 goal=start.goal,
                 time_limit_sec=float(start.time_limit_sec), max_steps=self.max_steps,
-                max_tokens=start.max_tokens)      # None이면 ReActLoop→client config 기본값으로 폴백
+                max_tokens=start.max_tokens,      # None이면 ReActLoop→client config 기본값으로 폴백
+                log=self.log)                     # 스텝을 실시간 저널로(단일 모드도 스트리밍 — 의도 없음)
             foothold = ({"attack_endpoint": start.foothold.attack_endpoint}
                         if start.foothold is not None else None)
             result = loop.run(foothold=foothold)

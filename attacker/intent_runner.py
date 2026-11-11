@@ -14,6 +14,7 @@ LLM 주입 계약 → fake로 전 로직 테스트. 실제는 OllamaClient(탈�
 """
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional
@@ -25,7 +26,7 @@ from common.replay_schema import make_step_id
 from .asset_extract import extract_assets
 from .graph import ExplorationGraph, IntentState, Node
 from .history import AttackHistory
-from .react_loop import ReActLoop
+from .react_loop import ReActLoop, _JOURNAL_MARK
 from .worker_pool import IntentOutcome
 
 
@@ -167,6 +168,10 @@ class IntentRunner:
         history = AttackHistory()
         wid = getattr(wctx, "wid", "?")          # 어느 워커가 이 의도를 돌리는지(로그 가시화)
         tag = f"[{wid}·intent#{intent.id}]"
+        # 실시간 저널에 의도 id→요약 매핑 등록(스텝이 사람이 읽는 의도명으로 묶이게)
+        self.log(_JOURNAL_MARK + json.dumps(
+            {"_meta": "intent", "id": intent.id,
+             "label": str(intent.payload.get("summary", "")).strip()}, ensure_ascii=False))
         # 의도 예산을 '남은 라운드 시간'으로 클램프 — 마감 직전 집은 의도가 자기 예산(120초)을
         # 꽉 써서 공격 턴이 라운드 예산을 넘기는 걸 막는다(오케스트레이터 read-timeout ABORT 방지).
         rd, clk = getattr(wctx, "round_deadline", None), getattr(wctx, "clock", None)

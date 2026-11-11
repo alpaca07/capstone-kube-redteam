@@ -385,7 +385,7 @@ button { font-family: inherit; }
 .det-pop-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--surface-3); font-size: 12.5px; }
 .det-pop-row:last-child { border-bottom: none; }
 .det-pop-r { font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--text-2); min-width: 42px; }
-.det-pop-t { flex: 1; min-width: 0; color: var(--text); }
+.det-pop-t { flex: 1; min-width: 0; color: var(--text-3); font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
 .det-pop-btn { font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; color: var(--teal-600);
   background: var(--teal-soft); border: none; border-radius: 6px; padding: 3px 10px; cursor: pointer; white-space: nowrap; }
 .det-pop-btn:hover { background: var(--teal); color: #fff; }
