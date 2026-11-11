@@ -334,12 +334,21 @@ button { font-family: inherit; }
 .ag-svg { display: block; min-width: 760px; width: 100%; height: auto; }
 .ag-svg text { font-family: var(--font-sans); }
 .ag-svg .agk { font-family: var(--font-mono); }
-.ag-node { cursor: pointer; }
+.ag-node { cursor: pointer; transform-box: fill-box; transform-origin: center; }
 .ag-node:hover rect { stroke-width: 2.6; }
 .ag-panel { margin-top: 2px; }
 .ag-ph { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; margin: 2px 0 9px; }
-.ag-sum { font-size: 14px; font-weight: 600; margin-bottom: 11px; line-height: 1.5; }
+.ag-sum { font-size: 14.5px; font-weight: 700; margin-bottom: 4px; line-height: 1.45; letter-spacing: -.01em; }
+.ag-desc { font-size: 12.5px; color: var(--text); line-height: 1.65; margin: 8px 0 2px; }
+.ag-ev-sm { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-top: 9px; line-height: 1.5; word-break: break-word; }
 .ag-body .rep-line:first-child { border-top: none; }
+/* 동적 애니메이션 — 노드 등장(pop)·엣지 연결(draw)·활성 의도 맥동(glow) */
+.ag-node.ag-new { animation: agpop .5s cubic-bezier(.2,.8,.2,1) backwards; }
+.ag-edge.ag-new { stroke-dasharray: 680; animation: agdraw .7s ease-out backwards; }
+.ag-node.ag-run { animation: agglow 1.7s ease-in-out infinite; }
+@keyframes agpop { from { opacity: 0; transform: scale(.72) translateY(9px); } to { opacity: 1; transform: scale(1); } }
+@keyframes agdraw { from { stroke-dashoffset: 680; } to { stroke-dashoffset: 0; } }
+@keyframes agglow { 0%, 100% { filter: drop-shadow(0 0 0 rgba(209,59,64,0)); } 50% { filter: drop-shadow(0 0 6px rgba(209,59,64,.6)); } }
 
 /* 상세 모달(판단 근거) */
 .modal-ov { position: fixed; inset: 0; background: rgba(15,27,45,.5); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 24px; }

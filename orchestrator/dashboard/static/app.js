@@ -507,6 +507,10 @@
     else { var d = await jget("/api/round/" + (rec.episode || 1) + "/" + rec.round); detail = (d && (d.defense || d.verification)) ? d : demoDetail(rec); }
     if (route !== "defender-graph") return;
     S.defDetail = detail; S.defRec = rec;
+    var dd = detail.defense || {}, dv = detail.verification || {};
+    var sig = rounds.length + "|" + (rec.episode || 1) + "-" + rec.round + "|" + (dd.detected || []).length + "|" + (dd.patch_set || []).length + "|" + (dv.verdict || "");
+    if (sig === S.defSig && document.querySelector(".flow")) return;   // 변화 없으면 재렌더 생략(폴링 깜빡임 방지)
+    S.defSig = sig;
     view.innerHTML = pageDefGraph(detail, rec, rounds, idx);
     bindDefChips();
   }
@@ -633,29 +637,38 @@
   }
 
   // ───────── 페이지: 공격 추적 그래프 ─────────
-  function kindLabel(k) { return ({ goal: "목표", intent: "의도", fact: "사실", finding: "발견", hint: "단서" })[k] || k; }
+  function kindLabel(k) { return ({ goal: "Goal", intent: "Intent", fact: "Fact", finding: "Finding", hint: "Hint" })[k] || k; }
   function kindColor(k) {
     return ({ goal: { bg: "#fdf1dc", line: "#b8740a" }, intent: { bg: "#fdecec", line: "#d13b40" },
       fact: { bg: "#e8f0fe", line: "#2f6fe0" }, finding: { bg: "#fbdcde", line: "#b4303a" },
       hint: { bg: "#eef1f5", line: "#5b6676" } })[k] || { bg: "#eef1f5", line: "#5b6676" };
   }
   function relColor(r) { return ({ spawns: "#e5484d", yields: "#3b82f6", proves: "#b4303a", derived_from: "#94a3b8" })[r] || "#94a3b8"; }
-  function relLabel(r) { return ({ spawns: "의도 생성", yields: "사실 도출", proves: "침해 입증", derived_from: "근거 파생" })[r] || r; }
-  function stateLabel(s) { return ({ open: "열림", running: "실행중", done: "완료", blocked: "막힘", exhausted: "시간소진", stopped: "중단" })[s] || s; }
+  function relLabel(r) { return ({ spawns: "spawns", yields: "yields", proves: "proves", derived_from: "derived" })[r] || r; }
+  function stateLabel(s) { return ({ open: "Open", running: "Running", done: "Done", blocked: "Blocked", exhausted: "Exhausted", stopped: "Stopped" })[s] || s; }
   function mitreUrl(t) { return "https://attack.mitre.org/techniques/" + String(t).replace(".", "/") + "/"; }
   function truncate(s, n) { s = String(s == null ? "" : s); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
 
   function demoAttackGraph() {
     return { demo: true, nodes: [
-      { id: 1, kind: "goal", summary: "internal DB의 핵심 비밀 획득", technique: "" },
-      { id: 2, kind: "intent", state: "done", owner: "w1", summary: "admin 서비스어카운트 권한 악용", technique: "T1078", target: "internal/admin-sa", why: "과다 권한 보유 추정" },
-      { id: 3, kind: "intent", state: "done", owner: "w2", summary: "backend API 원격 취약점 탐색", technique: "T1210", target: "backend/catalog-api", why: "노출 포트 다수" },
-      { id: 4, kind: "intent", state: "blocked", owner: "w1", summary: "internal-wiki 런북 수집", technique: "T1213", target: "internal/internal-wiki", why: "문서에 크리덴셜 가능성" },
-      { id: 5, kind: "fact", summary: "admin-sa가 전 네임스페이스 secrets get 가능", evidence: "kubectl auth can-i get secrets -A → yes", confidence: 0.9 },
-      { id: 6, kind: "fact", summary: "catalog-api 알려진 RCE 취약 버전", evidence: "버전 배너 노출", confidence: 0.6 },
-      { id: 7, kind: "fact", summary: "wiki 런북에 DB 접속정보 평문", evidence: "/runbook 페이지", confidence: 0.75 },
-      { id: 8, kind: "finding", summary: "admin-sa로 DB 시크릿 유출", severity: "critical", technique: "T1078", occurrences: 2 },
-      { id: 9, kind: "finding", summary: "유출 크리덴셜로 DB 직접 접근", severity: "high", technique: "T1213", occurrences: 1 }
+      { id: 1, kind: "goal", summary: "내부 DB의 핵심 비밀 확보",
+        desc: "이번 회차 공격의 최종 목표입니다. 내부망 깊숙한 데이터베이스에 보관된 핵심 자산(고객 개인정보·내부 크리덴셜)을 실제로 빼내는 것이 성공 조건이고, 아래의 모든 의도·사실은 이 목표에서 뻗어 나옵니다." },
+      { id: 2, kind: "intent", state: "done", owner: "w1", technique: "T1078", target: "internal/admin-sa", summary: "관리용 계정 권한 악용",
+        why: "권한이 과하게 열려 있을 것으로 추정", desc: "관리 작업용으로 만들어진 서비스 계정이 필요 이상으로 넓은 권한을 가졌을 거라 보고, 이 계정을 발판 삼아 비밀 저장소에 접근하려는 방향입니다." },
+      { id: 3, kind: "intent", state: "running", owner: "w2", technique: "T1210", target: "backend/catalog-api", summary: "백엔드 API 원격 취약점 탐색",
+        why: "외부에 노출된 포트가 많음", desc: "외부에서 닿는 백엔드 서비스들의 알려진 취약점을 훑어, 원격에서 코드 실행이 가능한 구멍이 있는지 지금 확인하는 중입니다." },
+      { id: 4, kind: "intent", state: "blocked", owner: "w1", technique: "T1213", target: "internal/internal-wiki", summary: "내부 위키 문서 수집",
+        why: "운영 문서에 접속정보가 섞여 있을 가능성", desc: "내부 위키의 운영 문서에 비밀번호·접속정보가 평문으로 적힌 경우가 많아 뒤졌지만, 이번 라운드엔 접근 경로가 막혀 중단됐습니다." },
+      { id: 5, kind: "fact", confidence: 0.9, evidence: "권한 점검 결과 전 영역 비밀 읽기 허용", summary: "관리 계정이 모든 영역의 비밀을 읽을 수 있음",
+        desc: "관리용 서비스 계정 하나로 클러스터 전 영역의 비밀 저장소를 읽을 수 있음을 확인했습니다. 사실상 마스터키에 가까운 과도한 권한입니다." },
+      { id: 6, kind: "fact", confidence: 0.6, evidence: "응답에 구버전 식별자 노출", summary: "주문 API가 오래된 취약 버전",
+        desc: "주문 처리 API가 알려진 원격 취약점이 있는 구버전으로 떠 있는 걸 확인했습니다. 다만 실제 악용까지는 조건이 더 필요한 상태입니다." },
+      { id: 7, kind: "fact", confidence: 0.75, evidence: "운영 런북 페이지에 접속 문자열 기재", summary: "위키 문서에 DB 접속정보가 평문 노출",
+        desc: "내부 위키의 한 운영 문서에 데이터베이스 접속 주소와 계정·비밀번호가 그대로 적혀 있었습니다. 방어가 이 문서를 치우기 전까진 재사용 가능한 통로입니다." },
+      { id: 8, kind: "finding", severity: "critical", technique: "T1078", occurrences: 2, summary: "관리 계정으로 DB 비밀 탈취",
+        desc: "과도한 권한의 관리 계정을 발판으로 데이터베이스 접속 비밀(사용자명·비밀번호)을 읽어냈습니다. 이 자격증명이면 고객 개인정보가 담긴 테이블을 직접 조회할 수 있어, 사실상 핵심 자산이 뚫린 상태입니다. 두 라운드 연속 재현돼 일시적 우연이 아님이 확인됐습니다." },
+      { id: 9, kind: "finding", severity: "high", technique: "T1213", occurrences: 1, summary: "유출 접속정보로 DB 직접 연결",
+        desc: "위키에서 주운 접속정보로 애플리케이션을 건너뛰고 데이터베이스에 바로 붙었습니다. 주문·결제 이력을 조회할 수 있는 수준까지 들어갔습니다." }
     ], edges: [
       { src: 1, rel: "spawns", dst: 2 }, { src: 1, rel: "spawns", dst: 3 }, { src: 1, rel: "spawns", dst: 4 },
       { src: 2, rel: "yields", dst: 5 }, { src: 3, rel: "yields", dst: 6 }, { src: 4, rel: "yields", dst: 7 },
@@ -685,7 +698,15 @@
       var f = nodes.filter(function (n) { return n.kind === "finding"; });
       agSel = f.length ? f[0].id : (nodes[0] ? nodes[0].id : null);
     }
+    // 변화 서명 — 같으면 재렌더 생략(폴링 중 깜빡임·재애니메이션 방지)
+    var sig = nodes.map(function (n) { return n.id + ":" + (n.state || ""); }).join(",") + "|" +
+      (g.edges || []).map(function (e) { return e.src + ">" + e.dst; }).join(",") + "|" + agSel + "|" + agTab + "|" + (rec ? rec.episode + "-" + rec.round : "");
+    if (sig === S.agSig && document.querySelector(".ag-svg")) return;
+    var seen = S.agSeen || {};
+    nodes.forEach(function (n) { n._new = !seen[n.id]; });   // 새로 생긴 노드만 등장 애니메이션
     view.innerHTML = pageAttackGraph(g, rounds, idx, rec);
+    nodes.forEach(function (n) { seen[n.id] = 1; });
+    S.agSeen = seen; S.agSig = sig;
     bindAttackGraph();
   }
   function bindAttackGraph() {
@@ -696,7 +717,7 @@
       b.onclick = function () { agTab = b.getAttribute("data-agtab"); pageAttackGraphRender(); };
     });
     Array.prototype.forEach.call(document.querySelectorAll("[data-agrk]"), function (b) {
-      b.onclick = function () { agRkey = b.getAttribute("data-agrk"); agSel = null; pageAttackGraphRender(); };
+      b.onclick = function () { agRkey = b.getAttribute("data-agrk"); agSel = null; S.agSeen = {}; S.agSig = null; pageAttackGraphRender(); };
     });
   }
   function agLine(k, v) { return '<div class="rep-line"><span class="rep-k">' + esc(k) + "</span><span>" + esc(v) + "</span></div>"; }
@@ -710,16 +731,17 @@
       (n.technique ? '<span class="badge b-atk">' + esc(n.technique) + "</span>" : "") +
       (n.state ? '<span class="chip">' + esc(stateLabel(n.state)) + "</span>" : "") +
       (n.severity ? '<span class="chip">심각도 ' + esc(n.severity) + "</span>" : "") + "</div>" +
-      '<div class="ag-sum">' + esc(n.summary || "—") + "</div>";
+      '<div class="ag-sum">' + esc(n.summary || "—") + "</div>" +
+      (n.desc ? '<div class="ag-desc">' + esc(n.desc) + "</div>" : "");
     var body;
     if (agTab === "overview") {
       body = (n.target ? agLine("대상", n.target) : "") +
-        (n.why ? agLine("의도 근거", n.why) : "") +
-        (n.evidence ? agLine("관측 근거", n.evidence) : "") +
-        (n.detail ? agLine("상세", n.detail) : "") +
+        (n.why ? agLine("판단 근거", n.why) : "") +
         (n.confidence != null ? agLine("확신도", Math.round(n.confidence * 100) + "%") : "") +
-        (n.occurrences ? agLine("보고 횟수", n.occurrences + "회") : "") +
-        (n.owner ? agLine("담당 워커", n.owner) : "") || '<div class="tile-sub">추가 정보 없음</div>';
+        (n.occurrences ? agLine("재현 횟수", n.occurrences + "회") : "") +
+        (n.owner ? agLine("담당 워커", n.owner) : "") +
+        (n.evidence ? '<div class="ag-ev-sm">관측: ' + esc(n.evidence) + "</div>" : "");
+      if (!body) body = '<div class="tile-sub">추가 정보 없음</div>';
     } else {
       body = (n.technique ? agLine("MITRE 기법", n.technique) +
           '<div class="rep-line"><span class="rep-k">참고 문서</span><span><a href="' + mitreUrl(n.technique) + '" target="_blank" rel="noopener">MITRE ATT&CK에서 보기 ↗</a></span></div>'
@@ -742,23 +764,28 @@
       var colH = col.length * (NH + VGAP), y0 = (H - colH) / 2 + 16;
       col.forEach(function (n, ri) { pos[n.id] = { x: colX[ci], y: y0 + ri * (NH + VGAP) }; });
     });
-    var heads = ["목표", "의도 (플래너)", "사실 (워커)", "발견"].map(function (t, ci) {
+    var heads = ["Goal", "Intent · planner", "Fact · worker", "Finding"].map(function (t, ci) {
       return '<text class="agk" x="' + (colX[ci] + 2) + '" y="15" font-size="11" font-weight="700" fill="#8a97ab">' + t + "</text>";
     }).join("");
+    var newSet = {}; nodes.forEach(function (n) { if (n._new) newSet[n.id] = 1; });
     var edgeSvg = edges.map(function (e) {
       var a = pos[e.src], b = pos[e.dst]; if (!a || !b) return "";
       var x1 = a.x + NW, y1 = a.y + NH / 2, x2 = b.x, y2 = b.y + NH / 2, mx = (x1 + x2) / 2;
-      var hot = (agSel === e.src || agSel === e.dst);
-      return '<path d="M' + x1 + " " + y1 + " C" + mx + " " + y1 + " " + mx + " " + y2 + " " + x2 + " " + y2 + '" fill="none" stroke="' + relColor(e.rel) + '" stroke-width="' + (hot ? 2.2 : 1.3) + '" opacity="' + (hot ? 0.95 : 0.38) + '"/>';
+      var hot = (agSel === e.src || agSel === e.dst), isNew = newSet[e.dst] || newSet[e.src];
+      return '<path class="ag-edge' + (isNew ? " ag-new" : "") + '" d="M' + x1 + " " + y1 + " C" + mx + " " + y1 + " " + mx + " " + y2 + " " + x2 + " " + y2 +
+        '" fill="none" stroke="' + relColor(e.rel) + '" stroke-width="' + (hot ? 2.2 : 1.3) + '" opacity="' + (hot ? 0.95 : 0.38) + '"' + (isNew ? ' style="animation-delay:280ms"' : "") + "/>";
     }).join("");
+    var nIdx = 0;
     var nodeSvg = nodes.map(function (n) {
       var p = pos[n.id]; if (!p) return "";
       var col = kindColor(n.kind), sel = (agSel === n.id);
-      var faded = n.kind === "intent" && (n.state === "blocked" || n.state === "exhausted" || n.state === "stopped");
+      var dead = n.kind === "intent" && (n.state === "blocked" || n.state === "exhausted" || n.state === "stopped");
+      var cls = "ag-node" + (n._new ? " ag-new" : "") + (n.state === "running" ? " ag-run" : "") + (dead ? " ag-dead" : "");
+      var delay = n._new ? (nIdx++ * 55) : 0;
       var l1 = kindLabel(n.kind) + (n.technique ? " · " + esc(n.technique) : "");
       var l2 = esc(truncate(n.summary || kindLabel(n.kind), 15));
-      return '<g class="ag-node" data-nid="' + n.id + '" opacity="' + (faded ? 0.5 : 1) + '">' +
-        '<rect x="' + p.x + '" y="' + p.y + '" width="' + NW + '" height="' + NH + '" rx="10" fill="' + col.bg + '" stroke="' + col.line + '" stroke-width="' + (sel ? 2.6 : 1.2) + '"/>' +
+      return '<g class="' + cls + '" data-nid="' + n.id + '"' + (delay ? ' style="animation-delay:' + delay + 'ms"' : "") + ' opacity="' + (dead ? 0.5 : 1) + '">' +
+        '<rect x="' + p.x + '" y="' + p.y + '" width="' + NW + '" height="' + NH + '" rx="10" fill="' + col.bg + '" stroke="' + col.line + '" stroke-width="' + (sel ? 2.6 : 1.2) + '"' + (dead ? ' stroke-dasharray="4 3"' : "") + "/>" +
         '<text class="agk" x="' + (p.x + 13) + '" y="' + (p.y + 21) + '" font-size="9.5" font-weight="700" fill="' + col.line + '">' + l1 + "</text>" +
         '<text x="' + (p.x + 13) + '" y="' + (p.y + 39) + '" font-size="11.5" fill="#0f1b2d">' + l2 + "</text></g>";
     }).join("");
@@ -772,7 +799,7 @@
     }
     var ctx = rec ? (rec.episode || 1) + "회차 R" + rec.round : "예시";
     return (S.demo ? demoBanner() : "") + chips +
-      '<div class="section-label">' + ctx + " · 공격 추론 그래프 (목표 → 의도 → 사실 → 발견)</div>" + svg + legend + agPanel(nodes);
+      '<div class="section-label">' + ctx + " · 공격 추론 그래프 (Goal → Intent → Fact → Finding)</div>" + svg + legend + agPanel(nodes);
   }
 
   // ───────── 페이지: 회차 보고서 ─────────
@@ -923,12 +950,15 @@
     if (route === "posture") $("#view").innerHTML = pagePosture();
     else if (route === "stats") $("#view").innerHTML = pageStats();
     else if (route === "events") { await loadEvents(); $("#view").innerHTML = pageEvents(); bindEventTabs(); }
+    else if (route === "attack-graph") await pageAttackGraphRender();
+    else if (route === "defender-graph") { if (!document.querySelector(".modal-ov")) await pageDefGraphRender(); }
   }
 
   // ───────── 라우팅·부팅 ─────────
   function onHash() {
     var r = (location.hash || "").replace(/^#/, "") || DEFAULT_ROUTE;
     if (!TITLES[r]) r = DEFAULT_ROUTE;
+    if (r === "attack-graph") { S.agSeen = {}; S.agSig = null; }   // 진입 시 등장 애니메이션 재생
     route = r; closeSidebar(); render();
   }
   function closeSidebar() { $("#sidebar").classList.remove("open"); $("#nav-toggle").setAttribute("aria-expanded", "false"); }
