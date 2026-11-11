@@ -97,6 +97,10 @@ _SCHEMA = [
     # 제약에서 자동 면제(_create 경로). 제약이 뒷받침 인덱스를 만드므로 기존 범위 인덱스는 버린다.
     "DROP INDEX finding_dedup IF EXISTS",
     "CREATE CONSTRAINT finding_dedup_uniq IF NOT EXISTS FOR (n:Finding) REQUIRE (n.episode, n.dedup_key) IS UNIQUE",
+    # Counter(name)는 _NEXT 의 MERGE 키(여기선 explore_node) — 제약이 없으면 병렬 워커가 같은
+    # 카운터를 동시 증가시켜 중복 노드 + 같은 id 재발급(노드 id 충돌)이 난다. :Counter 는 자산
+    # 그래프와 공유(라벨 하나)라 두 스키마에 같은 제약을 IF NOT EXISTS 로 둔다.
+    "CREATE CONSTRAINT counter_name_uniq IF NOT EXISTS FOR (n:Counter) REQUIRE n.name IS UNIQUE",
 ]
 
 
@@ -122,8 +126,9 @@ class Neo4jGraph(ExplorationGraph):
                 except Exception as e:                       # noqa: BLE001
                     if q.startswith("CREATE CONSTRAINT"):     # 보통 기존 중복 노드 때문
                         raise RuntimeError(
-                            "Finding (episode,dedup_key) 유니크 제약 생성 실패 — 보통 기존 중복 노드 때문입니다. "
-                            "VM-A 에서 먼저 비우세요: MATCH (n:Finding) DETACH DELETE n "
+                            "유니크 제약 생성 실패 — 보통 기존 중복 노드 때문입니다. VM-A 에서 먼저 비우세요: "
+                            "MATCH (n:Asset) DETACH DELETE n; MATCH (n:Finding) DETACH DELETE n; "
+                            "MATCH (n:Counter) DETACH DELETE n "
                             "(KG 는 다른 라벨이라 영향 없음). 그 뒤 다시 실행. "
                             f"원인: {e}") from e
                     raise

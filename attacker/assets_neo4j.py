@@ -53,6 +53,10 @@ _SCHEMA = [
     "DROP INDEX asset_name IF EXISTS",
     "CREATE CONSTRAINT asset_name_uniq IF NOT EXISTS FOR (n:Asset) REQUIRE (n.episode, n.name) IS UNIQUE",
     "CREATE INDEX asset_cpe IF NOT EXISTS FOR (n:Asset) ON (n.episode, n.cpe)",
+    # Counter(name)는 _NEXT 의 MERGE 키 — 제약이 없으면 병렬 워커가 같은 카운터를 동시에 증가시켜
+    # 중복 노드 + 같은 id 재발급(자산 id 충돌)이 난다. 단일 속성이라 전 버전/에디션 호환. :Counter 는
+    # 탐색 그래프와 공유(라벨 하나)라 두 스키마에 같은 제약을 IF NOT EXISTS 로 둔다(먼저 도는 쪽이 생성).
+    "CREATE CONSTRAINT counter_name_uniq IF NOT EXISTS FOR (n:Counter) REQUIRE n.name IS UNIQUE",
 ]
 
 
@@ -74,8 +78,9 @@ class Neo4jAssetGraph(AssetGraph):
                 except Exception as e:                       # noqa: BLE001
                     if q.startswith("CREATE CONSTRAINT"):     # 보통 기존 중복 노드 때문
                         raise RuntimeError(
-                            "Asset (episode,name) 유니크 제약 생성 실패 — 보통 기존 중복 노드 때문입니다. "
-                            "VM-A 에서 먼저 비우세요: MATCH (n:Asset) DETACH DELETE n "
+                            "유니크 제약 생성 실패 — 보통 기존 중복 노드 때문입니다. VM-A 에서 먼저 비우세요: "
+                            "MATCH (n:Asset) DETACH DELETE n; MATCH (n:Finding) DETACH DELETE n; "
+                            "MATCH (n:Counter) DETACH DELETE n "
                             "(KG 는 :Product/:CVE 등 다른 라벨이라 영향 없음). 그 뒤 다시 실행. "
                             f"원인: {e}") from e
                     raise

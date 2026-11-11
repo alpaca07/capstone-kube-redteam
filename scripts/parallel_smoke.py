@@ -118,6 +118,9 @@ def main() -> int:
     ap.add_argument("--max-waves", type=int, default=3)
     ap.add_argument("--time-limit", type=float, default=180.0, help="라운드 전체 예산(초)")
     ap.add_argument("--timeout", type=float, default=300.0, help="단일 LLM 호출 타임아웃(초)")
+    ap.add_argument("--foothold", default="10.0.0.5:8080",
+                    help="발판 진입점 host:port. exec 모드는 실제 도달 가능한 web 으로 "
+                         "(예: web.default.svc.cluster.local:80). echo 모드는 기본값으로 둬도 됨")
     # ── 실행기 선택 ──
     ap.add_argument("--runner", choices=["echo", "exec", "local"], default="echo",
                     help="echo(기본,가짜·플러밍만) / exec(실 발판 파드 kubectl exec=진짜 공격) / "
@@ -149,6 +152,7 @@ def main() -> int:
     print(f"# 플래너 모델: {pln_model}")
     print(f"# 워커 {args.workers} · 의도예산 {args.budget}s · max_waves {args.max_waves} · "
           f"라운드예산 {args.time_limit}s")
+    print(f"# 발판      : {args.foothold}")
 
     # ── 실행기 선택 ──
     if args.runner == "exec":
@@ -183,7 +187,7 @@ def main() -> int:
         goal="reach the crown jewel: read customer PII rows in the 'customers' table "
              "of the postgres database in namespace 'database'",
         time_limit_sec=int(args.time_limit),
-        foothold=Foothold(attack_endpoint="10.0.0.5:8080"))
+        foothold=Foothold(attack_endpoint=args.foothold))
 
     # ── 그래프 백엔드 (탐색 + 자산, 짝) ──
     if args.graph == "neo4j":
