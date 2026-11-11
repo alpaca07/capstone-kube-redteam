@@ -205,6 +205,8 @@ class InMemoryGraph(ExplorationGraph):
                     "summary": p.get("summary", ""), "target": p.get("target", ""),
                     "why": p.get("why", ""), "technique": p.get("technique", ""),
                     "evidence": p.get("evidence", ""), "detail": p.get("detail", ""),
+                    "desc": p.get("desc", ""),            # 사람이 읽는 상세 설명(대시보드 노드 큐레이션)
+                    "loot": p.get("loot"),                # 실제 탈취/확보한 값(표시 전용) — 워커가 채우면 그대로 노출
                     "severity": p.get("severity", ""), "confidence": p.get("confidence"),
                     "occurrences": p.get("occurrences"), "anchors": list(n.anchors),
                 })

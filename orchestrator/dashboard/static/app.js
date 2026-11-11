@@ -659,15 +659,15 @@
         why: "외부에 노출된 포트가 많음", desc: "외부에서 닿는 백엔드 서비스들의 알려진 취약점을 훑어, 원격에서 코드 실행이 가능한 구멍이 있는지 지금 확인하는 중입니다." },
       { id: 4, kind: "intent", state: "blocked", owner: "w1", technique: "T1213", target: "internal/internal-wiki", summary: "내부 위키 문서 수집",
         why: "운영 문서에 접속정보가 섞여 있을 가능성", desc: "내부 위키의 운영 문서에 비밀번호·접속정보가 평문으로 적힌 경우가 많아 뒤졌지만, 이번 라운드엔 접근 경로가 막혀 중단됐습니다." },
-      { id: 5, kind: "fact", confidence: 0.9, evidence: "권한 점검 결과 전 영역 비밀 읽기 허용", summary: "관리 계정이 모든 영역의 비밀을 읽을 수 있음",
+      { id: 5, kind: "fact", confidence: 0.9, evidence: "권한 점검 결과 전 영역 비밀 읽기 허용", loot: { readable_secrets: ["db-postgres-admin", "jwt-signing-key", "smtp-credentials", "redis-auth"] }, summary: "관리 계정이 모든 영역의 비밀을 읽을 수 있음",
         desc: "관리용 서비스 계정 하나로 클러스터 전 영역의 비밀 저장소를 읽을 수 있음을 확인했습니다. 사실상 마스터키에 가까운 과도한 권한입니다." },
       { id: 6, kind: "fact", confidence: 0.6, evidence: "응답에 구버전 식별자 노출", summary: "주문 API가 오래된 취약 버전",
         desc: "주문 처리 API가 알려진 원격 취약점이 있는 구버전으로 떠 있는 걸 확인했습니다. 다만 실제 악용까지는 조건이 더 필요한 상태입니다." },
-      { id: 7, kind: "fact", confidence: 0.75, evidence: "운영 런북 페이지에 접속 문자열 기재", summary: "위키 문서에 DB 접속정보가 평문 노출",
+      { id: 7, kind: "fact", confidence: 0.75, evidence: "운영 런북 페이지에 접속 문자열 기재", loot: "postgresql://app_admin:P@ssw0rd!2024@database.svc:5432/appdb", summary: "위키 문서에 DB 접속정보가 평문 노출",
         desc: "내부 위키의 한 운영 문서에 데이터베이스 접속 주소와 계정·비밀번호가 그대로 적혀 있었습니다. 방어가 이 문서를 치우기 전까진 재사용 가능한 통로입니다." },
-      { id: 8, kind: "finding", severity: "critical", technique: "T1078", occurrences: 2, summary: "관리 계정으로 DB 비밀 탈취",
+      { id: 8, kind: "finding", severity: "critical", technique: "T1078", occurrences: 2, loot: { secret: "db-postgres-admin", username: "app_admin", password: "P@ssw0rd!2024", host: "database.svc:5432", db: "appdb" }, summary: "관리 계정으로 DB 비밀 탈취",
         desc: "과도한 권한의 관리 계정을 발판으로 데이터베이스 접속 비밀(사용자명·비밀번호)을 읽어냈습니다. 이 자격증명이면 고객 개인정보가 담긴 테이블을 직접 조회할 수 있어, 사실상 핵심 자산이 뚫린 상태입니다. 두 라운드 연속 재현돼 일시적 우연이 아님이 확인됐습니다." },
-      { id: 9, kind: "finding", severity: "high", technique: "T1213", occurrences: 1, summary: "유출 접속정보로 DB 직접 연결",
+      { id: 9, kind: "finding", severity: "high", technique: "T1213", occurrences: 1, loot: { table: "customers", total_rows: 18420, sample_row: { id: 24, email: "jmkim@corp.example", phone: "010-33xx-xx71", card_last4: "4417" } }, summary: "유출 접속정보로 DB 직접 연결",
         desc: "위키에서 주운 접속정보로 애플리케이션을 건너뛰고 데이터베이스에 바로 붙었습니다. 주문·결제 이력을 조회할 수 있는 수준까지 들어갔습니다." }
     ], edges: [
       { src: 1, rel: "spawns", dst: 2 }, { src: 1, rel: "spawns", dst: 3 }, { src: 1, rel: "spawns", dst: 4 },
@@ -690,7 +690,7 @@
       if (idx < 0) idx = rounds.length - 1;
       rec = rounds[idx];
       var d = await jget("/api/attack_graph/" + (rec.episode || 1) + "/" + rec.round);
-      g = (d && d.graph && (d.graph.nodes || []).length) ? d.graph : demoAttackGraph();
+      g = (d && d.graph && (d.graph.nodes || []).length) ? d.graph : { nodes: [], edges: [] };
     }
     if (route !== "attack-graph") return;
     var nodes = g.nodes || [];
@@ -732,7 +732,8 @@
       (n.state ? '<span class="chip">' + esc(stateLabel(n.state)) + "</span>" : "") +
       (n.severity ? '<span class="chip">심각도 ' + esc(n.severity) + "</span>" : "") + "</div>" +
       '<div class="ag-sum">' + esc(n.summary || "—") + "</div>" +
-      (n.desc ? '<div class="ag-desc">' + esc(n.desc) + "</div>" : "");
+      (n.desc ? '<div class="ag-desc">' + esc(n.desc) + "</div>" : "") +
+      (n.loot != null && n.loot !== "" ? '<div class="ag-loot"><div class="ag-loot-h">확보한 데이터</div><pre class="ag-loot-v">' + esc(typeof n.loot === "object" ? JSON.stringify(n.loot, null, 2) : String(n.loot)) + "</pre></div>" : "");
     var body;
     if (agTab === "overview") {
       body = (n.target ? agLine("대상", n.target) : "") +
@@ -753,6 +754,10 @@
   }
   function pageAttackGraph(g, rounds, idx, rec) {
     var nodes = g.nodes || [], edges = g.edges || [];
+    if (!nodes.length) {
+      var chips0 = (rounds && rounds.length) ? roundChipsHtml(rounds, rec ? (rec.episode || 1) + "-" + rec.round : "", "data-agrk") : "";
+      return chips0 + emptyState("🕸", "이 라운드는 공격 그래프 기록이 없습니다", "공격 턴이 완료되면 노드가 채워집니다. 다른 회차·라운드를 선택해 보세요.", []);
+    }
     var colOf = { goal: 0, hint: 0, intent: 1, fact: 2, finding: 3 };
     var cols = [[], [], [], []];
     nodes.forEach(function (n) { var c = colOf[n.kind]; if (c == null) c = 1; cols[c].push(n); });
@@ -952,6 +957,8 @@
     else if (route === "events") { await loadEvents(); $("#view").innerHTML = pageEvents(); bindEventTabs(); }
     else if (route === "attack-graph") await pageAttackGraphRender();
     else if (route === "defender-graph") { if (!document.querySelector(".modal-ov")) await pageDefGraphRender(); }
+    else if (route === "defender-arch") { var topo = await loadTopology(); if (route === "defender-arch") $("#view").innerHTML = pageArch(topo); }
+    else if (route === "report") { $("#view").innerHTML = pageReport(); bindRepChips(); }
   }
 
   // ───────── 라우팅·부팅 ─────────

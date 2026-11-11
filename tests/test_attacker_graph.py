@@ -178,7 +178,8 @@ def test_snapshot_flattens_nodes_and_edges():
     it = g.add_intent({"summary": "probe", "technique": "T1078", "target": "ns/sa"},
                       spawned_by=goal)
     fid = g.add_fact({"summary": "sa over-privileged", "evidence": "can-i yes"}, intent_id=it)
-    g.add_finding({"summary": "secret exfil", "severity": "critical"}, proved_by=[fid])
+    g.add_finding({"summary": "secret exfil", "severity": "critical", "desc": "DB 비밀 탈취",
+                   "loot": {"user": "app_admin", "password": "p@ss"}}, proved_by=[fid])
     snap = g.snapshot()
     kinds = {n["kind"] for n in snap["nodes"]}
     assert kinds == {"goal", "intent", "fact", "finding"}
@@ -186,6 +187,9 @@ def test_snapshot_flattens_nodes_and_edges():
     assert "spawns" in rels and "yields" in rels and "proves" in rels
     intent = next(n for n in snap["nodes"] if n["kind"] == "intent")
     assert intent["technique"] == "T1078" and intent["target"] == "ns/sa"
+    # 상세설명·탈취데이터 통과(대시보드 노드 큐레이션용)
+    finding = next(n for n in snap["nodes"] if n["kind"] == "finding")
+    assert finding["desc"] == "DB 비밀 탈취" and finding["loot"]["password"] == "p@ss"
     import json
     assert isinstance(json.dumps(snap), str)          # 교차망 전송 직렬화 가능
 

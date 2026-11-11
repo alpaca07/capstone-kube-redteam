@@ -110,9 +110,15 @@ def attack_graph(episode: int, rnd: int) -> JSONResponse:
 @app.get("/api/status")
 def live_status() -> JSONResponse:
     prog = _read_json(_LOGS / "progress.json") or {"status": "idle"}
-    running = _running()
+    running = _running()                             # 대시보드가 띄운 프로세스
+    if not running:                                  # CLI 등 외부 실행 감지 — progress.json 최신성으로
+        updated = prog.get("updated_at") or 0
+        # 한 턴이 최대 time_limit 동안 갱신 없이 돌 수 있어 넉넉히(턴제한*2+120, 최소 300초)
+        window = max(300, int(prog.get("time_limit_sec") or 180) * 2 + 120)
+        if prog.get("status") == "running" and updated and (time.time() - updated) < window:
+            running = True
     started = _run["started"]
-    if not running and prog.get("status") == "running":      # 크래시 보정
+    if not running and prog.get("status") == "running":      # 오래 멈춘 running = 크래시/종료 보정
         prog["status"] = "stopped"
         prog["active"] = None
         prog["turn_started"] = None
