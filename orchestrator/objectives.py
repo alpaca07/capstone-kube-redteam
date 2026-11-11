@@ -21,7 +21,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from common.app_signals import CROWN_CUSTOMERS_PII, CROWN_INTERNAL_SECRETS
+from common.app_signals import (
+    CROWN_CONTAINER_DEPLOY, CROWN_CUSTOMERS_PII,
+    CROWN_INTERNAL_SECRETS, CROWN_RESOURCE_HIJACK,
+)
 
 # 관측 타입: 관측축(channel) → 항목(field) → 관측된 값 집합.
 # 예: {"crown": {"asset": {"internal_secrets"}}}
@@ -118,6 +121,17 @@ def default_objectives() -> ObjectiveRegistry:
             objective_id="crown-pii", mitre="T1213", goal="db_exfil",
             description="고객 PII(이름·이메일·전화·주소·주민번호) 반출",
             conditions=(Condition("crown", "asset", "eq", CROWN_CUSTOMERS_PII),),
+        ),
+        # ── K8s 사후 크라운 2종(런타임·API 통로, 감사/Falco 이벤트로 판정) ──
+        ObjectiveSpec(
+            objective_id="crown-resource-hijack", mitre="T1496", goal="resource_hijack",
+            description="클러스터 연산자원 탈취 — 마이너 워크로드 실행(Falco crypto_mining)",
+            conditions=(Condition("crown", "asset", "eq", CROWN_RESOURCE_HIJACK),),
+        ),
+        ObjectiveSpec(
+            objective_id="crown-container-deploy", mitre="T1610", goal="deploy_container",
+            description="악성 컨테이너 배포 — 공격자 SA 의 파드 배포(감사 pods create)",
+            conditions=(Condition("crown", "asset", "eq", CROWN_CONTAINER_DEPLOY),),
         ),
     ])
 

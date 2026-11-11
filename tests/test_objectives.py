@@ -13,7 +13,10 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from common.app_signals import CROWN_CUSTOMERS_PII, CROWN_INTERNAL_SECRETS
+from common.app_signals import (
+    CROWN_CONTAINER_DEPLOY, CROWN_CUSTOMERS_PII,
+    CROWN_INTERNAL_SECRETS, CROWN_RESOURCE_HIJACK,
+)
 from orchestrator.objectives import (
     Condition, ObjectiveRegistry, ObjectiveSpec, default_objectives,
     DEFAULT_ASSET_GOAL, objectives_for, resolve_objectives, resolve_goal)
@@ -52,6 +55,17 @@ def test_both_paths_reached():
     obs = _obs(CROWN_INTERNAL_SECRETS, CROWN_CUSTOMERS_PII)
     assert reg.reached_objectives(obs) == {"crown-secrets", "crown-pii"}
     assert reg.reached_goals(obs) == {"db_exfil"}
+
+
+def test_postex_crowns_reached():
+    # K8s 사후 크라운 2종 — 각자 goal 분리(db_exfil 과 안 섞임)
+    reg = default_objectives()
+    assert reg.is_reached("crown-resource-hijack", _obs(CROWN_RESOURCE_HIJACK))
+    assert reg.reached_goals(_obs(CROWN_RESOURCE_HIJACK)) == {"resource_hijack"}
+    assert reg.is_reached("crown-container-deploy", _obs(CROWN_CONTAINER_DEPLOY))
+    assert reg.reached_goals(_obs(CROWN_CONTAINER_DEPLOY)) == {"deploy_container"}
+    assert "db_exfil" not in reg.reached_goals(
+        _obs(CROWN_RESOURCE_HIJACK, CROWN_CONTAINER_DEPLOY))
 
 
 def test_and_all_conditions_required():
