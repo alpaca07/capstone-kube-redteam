@@ -29,7 +29,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
 
-from . import graph_writer, load_products, schema, sources
+from . import authoring, graph_writer, ingest, load_products, schema, sources
 
 # 공식 소스 URL (개발모드에서 직접 받기)
 URLS = {
@@ -298,6 +298,34 @@ def connect(args):
     return driver.session()
 
 
+def _build_author(args) -> authoring.Author:
+    """ingest 2단 저작용 LLM 저작기(DGX 모델). 주소·모델은 인자나 환경변수로."""
+    url = args.llm_url or os.environ.get("OLLAMA_BASE_URL")
+    model = args.llm_model or os.environ.get("OLLAMA_MODEL")
+    if not url or not model:
+        raise SystemExit(
+            "ingest 2단 저작에 DGX 모델이 필요하다. 아래 중 하나로 줘라.\n"
+            "  --llm-url http://<DGX>:11434/v1  --llm-model <model>\n"
+            "  또는 환경변수 OLLAMA_BASE_URL / OLLAMA_MODEL")
+    from common.llm_client import OllamaClient
+    return authoring.LlmAuthor(OllamaClient(url, model,
+                                            max_tokens=args.llm_max_tokens or None))
+
+
+def _run_ingest(args) -> None:
+    """주기 수집 1회(개발 모드, 인터넷 ON): 변경분 → 허용목록 필터 → 1단 적재 + 2단 저작 적재."""
+    feed = ingest.UrllibNvdFeed()
+    author = _build_author(args)
+    session = graph_writer.DryRunSession() if args.dry_run else connect(args)
+    allowlist = args.nvd_cpe_filter or load_products._DEFAULT_ALLOWLIST
+    report = ingest.run_ingest(
+        feed=feed, author=author, session=session,
+        allowlist_path=allowlist, state_path=args.state, out_dir=args.out_dir,
+        window_days=args.window_days, since_override=args.since,
+        load_cpe_nodes=args.nvd_cpe_nodes, dry_run=args.dry_run)
+    print(report.summary())
+
+
 def run(args) -> None:
     if args.bootstrap:
         session = connect(args)
@@ -305,6 +333,9 @@ def run(args) -> None:
         for st in stmts:
             session.run(st)
         print(f"[bootstrap] 제약조건·색인 {len(stmts)}개 적용 완료 (적재 전에 한 번만)")
+        return
+    if args.ingest:
+        _run_ingest(args)
         return
     source_list = [s.strip() for s in args.sources.split(",") if s.strip()]
     sources.LOAD_NVD_CPE = bool(args.nvd_cpe_nodes)   # NVD CPE 열거 적재 여부(기본 False)
@@ -351,6 +382,16 @@ def main() -> None:
     ap.add_argument("--core", default=None, help="핵심층 환경 JSON 파일/디렉토리(core 소스, 기본=knowledge/core_layer/)")
     ap.add_argument("--cve-map", default=None, help="CVE->ATT&CK 큐레이트 매핑 JSON 경로(cve_attack 소스)")
     ap.add_argument("--kev-json", default=None, help="CTID KEV->ATT&CK 매핑 JSON 경로(없으면 data-dir 에서 최신 자동탐색)")
+    # --- 신규 취약점 주기 수집(2단 반영) ---
+    ap.add_argument("--ingest", action="store_true",
+                    help="신규 CVE 주기 수집 → 1단(표준) 적재 + 2단(LLM 저작, THEORETICAL) 적재. 개발 모드(인터넷 ON)")
+    ap.add_argument("--since", default=None, help="수집 시작 시점 override(ISO, 예 2026-11-01T00:00:00.000Z). 없으면 워터마크")
+    ap.add_argument("--state", default="runs/kg-ingest-state.json", help="워터마크 상태 파일(마지막 수집 시점)")
+    ap.add_argument("--out-dir", default="runs/core_layer_auto", help="자동 저작 env JSON 보관 디렉토리(감사·재현용). 빈값이면 미보관")
+    ap.add_argument("--window-days", type=int, default=ingest.NVD_WINDOW_MAX_DAYS, help="NVD 한 질의 최대 범위(일, ≤120)")
+    ap.add_argument("--llm-url", default=None, help="저작 LLM base_url(예 http://<DGX>:11434/v1). 없으면 OLLAMA_BASE_URL")
+    ap.add_argument("--llm-model", default=None, help="저작 LLM 모델명. 없으면 OLLAMA_MODEL")
+    ap.add_argument("--llm-max-tokens", type=int, default=2048, help="저작 호출 토큰 상한")
     run(ap.parse_args())
 
 

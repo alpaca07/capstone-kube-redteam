@@ -62,7 +62,15 @@ KNOWLEDGE_SOURCES = {
     # 핵심층 ④⑤ 수기 저작 출처(Procedure·ExpectedResult·ResultCondition 등)
     "core": {"id": "KS-core-layer", "name": "핵심층 수기 저작", "source_type": "CURATED",
              "url": ""},
+    # 신규 CVE 자동 수집 파이프라인의 LLM 저작 출처(2단 THEORETICAL) — 실증 전까지 '제안'.
+    # query.py 출처 사다리의 'llm'(confidence 0.50)과 같은 키. 승격은 god-view(학습런)가.
+    "llm": {"id": "KS-llm-authored", "name": "LLM 자동 저작(THEORETICAL)", "source_type": "AUTOMATED",
+            "url": ""},
 }
+
+# 지식 신뢰 수준(검증 사다리) — 2단 자동 저작은 THEORETICAL 로 들어오고,
+# god-view 실증(학습런)이 VERIFIED 로 올린다. 노드/관계 속성 validation_level 에 쓴다.
+VALIDATION_LEVELS = ("THEORETICAL", "OBSERVED", "VERIFIED")
 
 # =============================================================================
 # 매핑 계약 — 각 소스의 무엇이 어떤 KG 노드/관계가 되는가

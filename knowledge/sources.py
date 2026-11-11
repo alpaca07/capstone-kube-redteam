@@ -392,13 +392,21 @@ def _core_evidence_nodes() -> list[Node]:
             for eid, name in EVIDENCE_TYPES.items()]
 
 
-def _build_env(env: dict, nodes: list[Node], rels: list[Rel]) -> None:
-    """환경 1개를 ④⑤ 노드/관계로 펼쳐 nodes/rels 에 덧붙인다(공유 EvidenceType·KnowledgeSource 는 호출부에서 1회)."""
+def _build_env(env: dict, nodes: list[Node], rels: list[Rel],
+               *, source: str = "core", validation_level: str | None = None) -> None:
+    """환경 1개를 ④⑤ 노드/관계로 펼쳐 nodes/rels 에 덧붙인다(공유 EvidenceType·KnowledgeSource 는 호출부에서 1회).
+
+    source: 출처 키(schema.KNOWLEDGE_SOURCES). 수기 저작=core(기본) / 자동 수집 저작=llm.
+    validation_level: 주면 Procedure·ExpectedResult 에 신뢰수준 속성으로 박는다(2단 자동=THEORETICAL,
+      god-view 실증 승격 후 VERIFIED). None(기본)이면 안 박아 기존 수기 저작 동작 그대로.
+    """
     env_id = env.get("env", "")
 
     def mint(label: str, nid: str, props: dict) -> None:
+        if validation_level and label in ("Procedure", "ExpectedResult"):
+            props = {**props, "validation_level": validation_level}
         nodes.append({"label": label, "id": nid, "props": props})
-        rels.append(_supported_by("core", label, nid))
+        rels.append(_supported_by(source, label, nid))
 
     # Procedure — bottom layer 의 Technique 에 REALIZED_BY (Technique 없으면 조용히 스킵)
     proc = env["procedure"]
@@ -452,21 +460,25 @@ def _build_env(env: dict, nodes: list[Node], rels: list[Rel]) -> None:
                          "to_label": "EvidenceType", "to_id": ch, "props": {}})
 
 
-def build_core_layer(raw) -> tuple[list[Node], list[Rel]]:
+def build_core_layer(raw, *, source: str = "core",
+                     validation_level: str | None = None) -> tuple[list[Node], list[Rel]]:
     """핵심층 환경 고수준 스키마 -> ④⑤ 노드/관계.
 
     raw: {"environments": [<env>, ...]} 또는 환경 1개({"env":..., "procedure":..., ...}).
     EvidenceType 5 상수·KnowledgeSource 는 1회만, 환경별 ④⑤ 는 _build_env 로 펼친다.
     적재순서 주의: attack(Technique) → core, 그래야 REALIZED_BY 가 붙는다.
+
+    source/validation_level: 수기 저작은 기본(core, 레벨 없음). 신규 CVE 자동 수집 파이프라인
+    (knowledge.ingest)은 source="llm", validation_level="THEORETICAL" 로 불러 '제안' 지식을 구분한다.
     """
     envs = raw.get("environments")
     if envs is None:
         envs = [raw] if raw.get("env") else []
     ev = _core_evidence_nodes()
-    nodes: list[Node] = [knowledge_source_node("core")] + ev
-    rels: list[Rel] = [_supported_by("core", "EvidenceType", n["id"]) for n in ev]
+    nodes: list[Node] = [knowledge_source_node(source)] + ev
+    rels: list[Rel] = [_supported_by(source, "EvidenceType", n["id"]) for n in ev]
     for env in envs:
-        _build_env(env, nodes, rels)
+        _build_env(env, nodes, rels, source=source, validation_level=validation_level)
     return nodes, rels
 
 
