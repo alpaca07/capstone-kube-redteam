@@ -49,6 +49,11 @@ from .snapshot import SnapshotManager
 from .truth_log import TruthEntry, TruthEvent, TruthLog
 from .verifier import VerificationEngine, VerificationResult, Verdict
 
+from common.off_kg import (
+    AttackerClaim, GodView, Hint, OffKgSink, Procedure, ReplayRef,
+    RecordId, Target, Trigger, build_off_kg_record, procstep_from_replay,
+)
+
 
 class EpisodeEndReason(str, Enum):
     CONSECUTIVE_DEFENSE = "consecutive_defense"  # N라운드 연속 방어 성공 → 안정화
@@ -76,6 +81,8 @@ class RunParams:
     force_crown: bool = False                     # (스모크 전용) 게이트 강제 — god-view 크라운 미검출이어도
     #   방어 턴→검증→패치 누적 배관을 매 라운드 돌린다. 크라운 관측 통로(DB 감사로그)가 아직 안 깔렸을 때
     #   루프 기계가 end-to-end 도는지 확인하는 용도. 진짜 공진화 아님(가짜 게이트) — 통로 live 되면 끈다.
+    run_id: str = ""                              # 실험 식별자(off-KG 저널 레코드에 기록)
+    attacker_model: str = ""                      # 공격 모델명(off-KG 저널 레코드에 기록)
 
 
 @dataclass
@@ -99,6 +106,7 @@ class TurnSequencer:
                  logs: LogSource, registry: FlagRegistry,
                  objectives: ObjectiveRegistry, truth: TruthLog,
                  params: RunParams, sink: Optional[Callable[[dict], None]] = None,
+                 off_kg_sink: Optional[OffKgSink] = None,
                  progress: Optional[Callable[[dict], None]] = None,
                  events: Optional[EventSink] = None, detail_dir: Optional[str] = None,
                  kill_switch: Optional[Callable[[], bool]] = None,
@@ -113,6 +121,7 @@ class TurnSequencer:
         self.truth = truth
         self.params = params
         self.sink = sink
+        self.off_kg_sink = off_kg_sink    # off-KG 포획 저널 sink(off_kg.jsonl) — 없으면 무시
         self.progress = progress          # 실시간 진행 sink(/api/status 소스) — 없으면 무시
         self.events = events              # 행위 이벤트 sink(events.jsonl) — 없으면 무시
         self.detail_dir = detail_dir      # 라운드 상세 출력 디렉토리(round_detail/) — 없으면 무시
@@ -302,7 +311,9 @@ class TurnSequencer:
         t1 = time.time()
 
         # 5.5 god-view 정답 기록 → 6. 채점 (생략 라운드도 기록 — 공격 활동/타임라인 보존)
-        self.truth.record(self._build_truth(episode, rnd, attack, t0=t0, t1=t1))
+        truth_entry = self._build_truth(episode, rnd, attack, t0=t0, t1=t1)
+        self.truth.record(truth_entry)
+        self._capture_off_kg(episode, rnd, attack, truth_entry, flag_found)   # off-KG 포획
         scorer.score_round(round=rnd, attack_result=attack,
                            defense_result=defense, verification=verification)
         self._log(f"[ep{episode} R{rnd}] 6. 채점 완료 (라운드 총 {time.time() - t0:.0f}s)")
@@ -370,6 +381,53 @@ class TurnSequencer:
 
         return TruthEntry(episode=episode, round=rnd,
                           events=list(events.values()), flags_reached=sorted(flags))
+
+    # ───────────── off-KG 포획(저널) ─────────────
+    def _capture_off_kg(self, episode: int, rnd: int, attack: AttackTurnResult,
+                        truth_entry: TruthEntry, crown: bool) -> None:
+        """VM A가 표시한 off-KG 침해(KG에 절차 없는 기법으로 달성)에 god-view를 붙여
+        off_kg.jsonl 저널에 남긴다. 승격(knowledge/promote.py)은 개발기 별도 단계.
+
+        outcome: 심판이 그 기법을 관측했으면 PROGRESS, 크라운까지면 CROWN, 아니면 UNCONFIRMED.
+        """
+        if self.off_kg_sink is None:
+            return
+        findings = getattr(attack, "off_kg_findings", None) or []
+        if not findings:
+            return
+        script = attack.replay_script
+        by_sid = {s.step_id: s for s in (script.steps if script else [])}
+        techs = truth_entry.techniques()
+        channels = sorted({c for e in truth_entry.events for c in e.channels})
+        stages = sorted(truth_entry.flags_reached)
+        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        ref = ReplayRef(session_id=(script.session_id if script else ""),
+                        episode=episode, round=rnd)
+        for of in findings:
+            steps = [procstep_from_replay(by_sid[sid]) for sid in of.step_ids if sid in by_sid]
+            confirmed = bool(of.technique_hint and of.technique_hint in techs)
+            gv = GodView(confirmed=confirmed or crown, crown=crown,
+                         progress_stages=stages, techniques_observed=sorted(techs),
+                         evidence_channels=channels)
+            proc_failed = (attack.end_reason == AttackEndReason.DEADEND
+                           and not confirmed and not crown)
+            rec = build_off_kg_record(
+                rec_id=RecordId(run_id=self.params.run_id, episode=episode, round=rnd,
+                                intent_id=str(of.finding_id), ts=ts,
+                                attacker_model=self.params.attacker_model),
+                trigger=Trigger(missing_info=([f"no KG procedure for {of.technique_hint}"]
+                                              if of.technique_hint else ["no technique"]),
+                                reason=of.summary),
+                target=Target(cpe=of.cpe, service_type=of.service_type,
+                              endpoint=of.endpoint, preconditions=list(of.preconditions)),
+                hint=Hint(technique_id=of.technique_hint or None),
+                procedure=Procedure(replay_ref=ref, steps=steps),
+                attacker_claim=AttackerClaim(reached_flag=crown, claimed_outcome=of.summary),
+                godview=gv, proc_failed=proc_failed)
+            try:
+                self.off_kg_sink(rec)
+            except Exception:  # noqa: BLE001 — 포획 실패가 라운드를 멈추면 안 됨
+                pass
 
     # ───────────── 호출 복구(재시도 1회 → 중단) ─────────────
     def _call(self, fn: Callable[[], object], label: str):

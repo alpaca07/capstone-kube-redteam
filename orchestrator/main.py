@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -34,6 +35,7 @@ from orchestrator.db_log_source import DbLogSource  # noqa: E402
 from orchestrator.events import EventSink, jsonl_event_sink  # noqa: E402
 from orchestrator.progress import ProgressSink  # noqa: E402
 from orchestrator.scorer import jsonl_file_sink  # noqa: E402
+from common.off_kg import jsonl_file_sink as off_kg_file_sink  # noqa: E402
 from orchestrator.sequencer import RunParams, TurnSequencer  # noqa: E402
 from orchestrator.truth_log import TruthLog  # noqa: E402
 from orchestrator.verifier import VerificationEngine  # noqa: E402
@@ -64,7 +66,8 @@ def _build_snapshots(cfg: Config):
 
 
 def build_sequencer(cfg: Config, *, sink=None, progress=None, events=None,
-                    detail_dir=None, params: Optional[RunParams] = None) -> TurnSequencer:
+                    detail_dir=None, off_kg_sink=None,
+                    params: Optional[RunParams] = None) -> TurnSequencer:
     """config + 실 어댑터로 턴 시퀀서 조립(I/O 없음 — 실제 연결은 run_experiment에서)."""
     attacker = HttpAttackerClient(cfg.network.attacker_url, token=cfg.network.shared_token)
     defender = HttpDefenderClient(cfg.network.defender_url, token=cfg.network.shared_token)
@@ -105,8 +108,8 @@ def build_sequencer(cfg: Config, *, sink=None, progress=None, events=None,
     return TurnSequencer(attacker=attacker, defender=defender, snapshots=baseline,
                          verifier=verifier, logs=logs, registry=registry,
                          objectives=objectives, truth=truth,
-                         params=params, sink=sink, progress=progress,
-                         events=events, detail_dir=detail_dir)
+                         params=params, sink=sink, off_kg_sink=off_kg_sink,
+                         progress=progress, events=events, detail_dir=detail_dir)
 
 
 def _params_from_args(cfg: Config, args: argparse.Namespace) -> RunParams:
@@ -118,6 +121,8 @@ def _params_from_args(cfg: Config, args: argparse.Namespace) -> RunParams:
         time_limit_sec=args.time_limit if args.time_limit is not None else cfg.experiment.time_limit_sec,
         max_tokens=args.max_tokens if args.max_tokens is not None else cfg.dgx.max_tokens,
         baseline_snapshot=cfg.vmware.baseline_snapshot,
+        run_id=time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()),
+        attacker_model=cfg.dgx.attacker_model,
         goal=resolve_goal(cfg.experiment.objective_mode,           # 모드별 목표 문구(cfg는 CLI로 이미 덮임)
                           cfg.experiment.objective, cfg.experiment.target_assets),
         # exec_mode면 발판은 외부 URL 이 아니라 '클러스터 내부 파드'라 endpoint 를 비운다.
@@ -166,13 +171,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     episodes_path = os.path.join(args.out_dir, "episodes.jsonl")
     progress_path = os.path.join(args.out_dir, "progress.json")
     events_path = os.path.join(args.out_dir, "events.jsonl")
+    off_kg_path = os.path.join(args.out_dir, "off_kg.jsonl")
     sink = jsonl_file_sink(rounds_path)
+    off_kg_sink = off_kg_file_sink(off_kg_path)   # off-KG 포획 저널(승격은 개발기 knowledge/promote.py)
     progress = ProgressSink(progress_path)       # 실시간 진행 상태(/api/status 소스)
     events = EventSink(jsonl_event_sink(events_path))   # 행위 이벤트 스트림(이벤트 로그·타임라인 소스)
     detail_dir = args.out_dir                    # round_detail/ · defense_topology/ 를 여기 아래 떨굼
 
     seq = build_sequencer(cfg, sink=sink, progress=progress,
-                          events=events, detail_dir=detail_dir, params=params)
+                          events=events, detail_dir=detail_dir,
+                          off_kg_sink=off_kg_sink, params=params)
 
     print(f"[*] 실험 시작: episodes={params.episodes} max_rounds={params.max_rounds} "
           f"time_limit={params.time_limit_sec}s "

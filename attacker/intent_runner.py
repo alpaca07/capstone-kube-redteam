@@ -300,6 +300,8 @@ class IntentRunner:
         if finding is not None:
             # 발견 자신의 기법(달성한 것) 우선, 없으면 의도 기법으로 폴백
             fpayload = finding.to_payload(fallback_technique=technique)
+            if source_step_ids:               # off-KG 포획: 침해 → 원본 replay 스텝 역참조
+                fpayload.setdefault("source_step_ids", list(source_step_ids))
             # 같은 기법의 중복 침해는 그래프에서 하나로 병합(채점은 기법 조인이라 중복=노이즈).
             # 기법이 없으면 dedup 안 함(섣불리 다른 침해를 합치지 않게).
             dkey = fpayload.get("technique") or None

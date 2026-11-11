@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from common.messages import AttackEndReason, AttackTurnResult, AttackTurnStart
+from common.messages import AttackEndReason, AttackTurnResult, AttackTurnStart, OffKgFinding
 
 from .exec_lane import ExecutionLane
 from .graph import ExplorationGraph
@@ -243,11 +243,13 @@ class AttackRound:
                        clock=self.clock, log=self.log).run()
             waves += 1
 
-        return self._assemble(lane, graph, start, t0, waves, planner_empty)
+        return self._assemble(lane, graph, start, t0, waves, planner_empty,
+                              asset_graph=asset_graph, kg_procedure_lookup=kg_procedure_lookup)
 
     def _assemble(self, lane: ExecutionLane, graph: ExplorationGraph,
                   start: AttackTurnStart, t0: float, waves: int,
-                  planner_empty: bool) -> AttackTurnResult:
+                  planner_empty: bool, *, asset_graph=None,
+                  kg_procedure_lookup=None) -> AttackTurnResult:
         # 종료사유: 시간 소진이면 TIMEOUT, 아니면 DEADEND(플래너 고갈).
         # 성공 판정은 공격자 자기보고가 아니라 심판이 접근기록(크라운)으로 내린다 — 플래그리스.
         if self.clock() >= t0 + float(start.time_limit_sec):
@@ -260,7 +262,45 @@ class AttackRound:
             end_reason=end, replay_script=lane.script,
             attack_summary=self._summary(graph, lane, waves),
             elapsed_sec=self.clock() - t0,
-            graph_snapshot=snap_fn() if callable(snap_fn) else None)
+            graph_snapshot=snap_fn() if callable(snap_fn) else None,
+            off_kg_findings=self._collect_off_kg(graph, asset_graph, kg_procedure_lookup))
+
+    def _collect_off_kg(self, graph: ExplorationGraph, asset_graph,
+                        kg_procedure_lookup) -> list:
+        """KG에 절차가 없는 기법으로 달성한 침해(finding) = off-KG → VM C로 실어 보낸다.
+
+        'KG에 없음' 판정은 kg_procedure_lookup(비면 없음)로 — VM C는 KG가 없어 못 한다.
+        KG 미연결(lookup None)이면 off-KG 개념이 성립 안 해 빈 리스트. 자산 앵커로 CPE를 붙인다.
+        """
+        if kg_procedure_lookup is None:
+            return []
+        out: list = []
+        for f in graph.recent_findings(limit=10_000):
+            p = f.payload
+            tech = str(p.get("technique", "")).strip()
+            if tech and (kg_procedure_lookup(tech) or "").strip():
+                continue                       # KG에 절차 있음 → 이미 아는 지식, off-KG 아님
+            cpe = service_type = None
+            endpoint = ""
+            if asset_graph is not None:
+                for aid in f.anchors:
+                    a = asset_graph.get_asset(aid)
+                    if a is None:
+                        continue
+                    if not endpoint:
+                        endpoint = getattr(a, "name", "")
+                        service_type = getattr(a, "kind", None)
+                    if getattr(a, "cpe", ""):   # 식별 자산(CPE) 우선
+                        cpe = a.cpe
+                        service_type = getattr(a, "kind", None)
+                        endpoint = getattr(a, "name", "")
+                        break
+            out.append(OffKgFinding(
+                finding_id=f.id, summary=str(p.get("summary", "")),
+                technique_hint=tech, severity=str(p.get("severity", "")),
+                step_ids=list(p.get("source_step_ids") or []),
+                cpe=cpe, service_type=service_type, endpoint=endpoint))
+        return out
 
     def _summary(self, graph: ExplorationGraph, lane: ExecutionLane, waves: int) -> str:
         """VM C 기록용 자연어 요약(방어자엔 안 감). 그래프 사실·발견 집계."""

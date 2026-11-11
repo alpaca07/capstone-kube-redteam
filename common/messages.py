@@ -103,6 +103,23 @@ class AttackTurnStart(Payload):
 
 
 # ───────────────── ② attack_turn_result (A→C) ─────────────────
+class OffKgFinding(BaseModel):
+    """off-KG 침해 하나 — 플래너가 KG에 없는 기법으로 자력 구성해 달성한 것(VM A→C).
+
+    'KG에 없음' 판정은 VM A에서만 가능(VM C는 KG·자산 그래프 미보유). VM A가 표시만 하고,
+    god-view 확정과 저널 기록은 VM C가 한다(off_kg.jsonl). 공격자 자기보고라 비신뢰.
+    """
+    finding_id: int
+    summary: str = ""
+    technique_hint: str = ""           # 달성 기법(KG에 절차 없음 = off-KG 핵심). 비신뢰
+    severity: str = ""
+    step_ids: list[str] = Field(default_factory=list)   # "{round}.{step}" — replay_script 역참조
+    cpe: Optional[str] = None          # 앵커 자산의 CPE(식별된 경우)
+    service_type: Optional[str] = None  # 앵커 자산 kind
+    endpoint: str = ""                 # 앵커 자산명
+    preconditions: list[str] = Field(default_factory=list)
+
+
 class AttackTurnResult(Payload):
     MSG_TYPE: ClassVar[MsgType] = MsgType.ATTACK_TURN_RESULT
     end_reason: AttackEndReason
@@ -110,6 +127,7 @@ class AttackTurnResult(Payload):
     attack_summary: str = ""           # 자연어 요약 — 심판(VM C) 기록용. 방어자엔 안 감.
     elapsed_sec: float = 0.0
     graph_snapshot: Optional[dict] = None   # 탐색 그래프 스냅샷(대시보드 공격 추적 그래프용). 판정 무관·표시 전용
+    off_kg_findings: list[OffKgFinding] = Field(default_factory=list)   # KG에 없는 기법으로 달성한 침해(off-KG 포획)
 
 
 # ───────────────── ③ defense_turn_start (C→B) ─────────────────
@@ -293,7 +311,7 @@ __all__ = [
     "AttackEndReason", "DefenseEndReason", "ReplayPhase", "AgentRole", "AgentState",
     "Payload",
     "Foothold", "AttackTurnStart",
-    "AttackTurnResult",
+    "AttackTurnResult", "OffKgFinding",
     "DefenseTurnStart",
     "Detection", "PatchItem", "DefenseTurnResult",
     "ReplayRequest",
