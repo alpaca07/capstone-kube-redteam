@@ -59,7 +59,8 @@ def _defense_result() -> DefenseTurnResult:
 
 
 def _make(*, post_success: bool, n_consec: int = 2, max_rounds: int = 10,
-          episodes: int = 1, kill=None, attacker_override=None, skip_revert: bool = False):
+          episodes: int = 1, kill=None, attacker_override=None, skip_revert: bool = False,
+          crown_sync_grace_sec: float = 0.0, crown_skew_pad_sec: float = 0.0, logs_override=None):
     attacker = attacker_override or FakeAttackerClient(
         replay_by_phase={PRE: _replay(PRE, True), POST: _replay(POST, post_success)},
         attack_result=_attack_result())
@@ -74,17 +75,45 @@ def _make(*, post_success: bool, n_consec: int = 2, max_rounds: int = 10,
     verifier = VerificationEngine(attacker, defender, snaps, registry,
                                   logs=verifier_logs, objectives=objectives)
     # _build_truth 공격창: 공격이 ④(internal_secrets) 획득했다고 기록(기법 T1078 도 관측)
-    logs = FakeLogSource(constant={"T1078"}, crown_constant={CROWN_INTERNAL_SECRETS})
+    logs = logs_override if logs_override is not None else FakeLogSource(
+        constant={"T1078"}, crown_constant={CROWN_INTERNAL_SECRETS})
     truth = TruthLog()
     captured: list[dict] = []
     params = RunParams(episodes=episodes, max_rounds=max_rounds, n_consecutive_defense=n_consec,
                        baseline_snapshot="clean-baseline", attack_endpoint="10.0.0.5",
-                       skip_revert=skip_revert)
+                       skip_revert=skip_revert,
+                       crown_sync_grace_sec=crown_sync_grace_sec, crown_skew_pad_sec=crown_skew_pad_sec)
     seq = TurnSequencer(attacker=attacker, defender=defender, snapshots=snaps, verifier=verifier,
                         logs=logs, registry=registry, objectives=objectives, truth=truth,
                         params=params, sink=captured.append, kill_switch=kill)
     return seq, {"attacker": attacker, "defender": defender, "snaps": snaps,
                  "truth": truth, "captured": captured}
+
+
+def test_crown_gate_applies_sync_grace_and_skew_pad():
+    # 게이트 크라운 읽기에 유예(sleep=grace)·창 since 스큐 패드(폭↑) 적용 잠금 — 동기화 경합 보정.
+    import orchestrator.sequencer as seqmod
+    windows: list[float] = []
+
+    class RecLog(FakeLogSource):
+        def crowns_in_window(self, *, since_ts, until_ts):
+            windows.append(until_ts - since_ts)
+            return super().crowns_in_window(since_ts=since_ts, until_ts=until_ts)
+
+    rec = RecLog(constant={"T1078"}, crown_constant={CROWN_INTERNAL_SECRETS})
+    seq, _ = _make(post_success=False, n_consec=99, max_rounds=1,
+                   crown_sync_grace_sec=7.0, crown_skew_pad_sec=100.0, logs_override=rec)
+
+    slept: list[float] = []
+    orig_sleep = seqmod.time.sleep
+    seqmod.time.sleep = lambda s: slept.append(s)   # 실제 대기 없이 호출만 기록
+    try:
+        seq.run_episode(1)
+    finally:
+        seqmod.time.sleep = orig_sleep
+
+    assert 7.0 in slept                 # 게이트 전 유예(grace) 적용
+    assert max(windows) >= 100.0        # 게이트 창 since 패드로 ≥100s 확장(막판 크라운 줄 포착)
 
 
 # ───────────── 종료조건 ─────────────

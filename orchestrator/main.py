@@ -103,6 +103,8 @@ def build_sequencer(cfg: Config, *, sink=None, progress=None, events=None,
             baseline_snapshot=cfg.vmware.baseline_snapshot,
             goal=resolve_goal(cfg.experiment.objective_mode,       # free=사람 문구 / asset=선택 자산 생성
                               cfg.experiment.objective, cfg.experiment.target_assets),
+            crown_sync_grace_sec=cfg.experiment.crown_sync_grace_sec,
+            crown_skew_pad_sec=cfg.experiment.crown_skew_pad_sec,
             # exec_mode면 발판은 외부 URL 이 아니라 '클러스터 내부 파드'라 endpoint 를 비운다.
             attack_endpoint=(None if cfg.attack.exec_mode else cfg.target.attack_endpoint))
     return TurnSequencer(attacker=attacker, defender=defender, snapshots=baseline,
@@ -125,6 +127,8 @@ def _params_from_args(cfg: Config, args: argparse.Namespace) -> RunParams:
         attacker_model=cfg.dgx.attacker_model,
         goal=resolve_goal(cfg.experiment.objective_mode,           # 모드별 목표 문구(cfg는 CLI로 이미 덮임)
                           cfg.experiment.objective, cfg.experiment.target_assets),
+        crown_sync_grace_sec=cfg.experiment.crown_sync_grace_sec,
+        crown_skew_pad_sec=cfg.experiment.crown_skew_pad_sec,
         # exec_mode면 발판은 외부 URL 이 아니라 '클러스터 내부 파드'라 endpoint 를 비운다.
         attack_endpoint=(None if cfg.attack.exec_mode else cfg.target.attack_endpoint),
         skip_revert=args.no_revert,

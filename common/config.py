@@ -101,6 +101,8 @@ class ExperimentConfig(BaseModel):
     objective_mode: str = "asset"                           # free | asset
     objective: str = ""                                     # free 모드 전용: 공격자에게 줄 자유 목표 문구
     target_assets: list[str] = Field(default_factory=list)  # asset 모드 전용: 크라운 objective_id 목록(비면 전체)
+    crown_sync_grace_sec: float = 5.0  # 공격 턴 직후 크라운 게이트 읽기 전 유예 — vmc-sync-dblog(kubectl logs -f) 스트리밍 지연 흡수
+    crown_skew_pad_sec: float = 3.0    # 크라운 창 since 경계 스큐 패드 — VM-B(postgres 로그)↔VM-C 클럭 오차 흡수
 
 
 class FlagsConfig(BaseModel):

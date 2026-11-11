@@ -75,6 +75,9 @@ class RunParams:
     goal: str = DEFAULT_ASSET_GOAL               # 공격자에게 줄 '무엇을'(asset 전체 선택 시 기본)
     ready_timeout_sec: float = 180.0             # revert 후 VM B 응답 대기 상한(일시정지·재개 지연 흡수)
     ready_interval_sec: float = 3.0              # ready 폴링 간격
+    crown_sync_grace_sec: float = 0.0            # 공격 턴 직후 크라운 게이트 읽기 전 유예(초) — 0=즉시(테스트 기본).
+    #   vmc-sync-dblog(kubectl logs -f) 스트리밍 지연이 막판 크라운 줄을 VM-C 파일에 밀어넣을 시간(production=config 주입).
+    crown_skew_pad_sec: float = 0.0              # 크라운 창 since 경계 스큐 패드(초) — VM-B↔VM-C 클럭 오차 흡수.
     skip_revert: bool = False                    # True면 회차 init revert 생략(라이브 클러스터 그대로).
     #   vmrun 라이브 스냅샷 revert 가 k3s exec 경로를 느리게(재시도 백오프) 만드는 인프라 이슈 회피용 —
     #   라이브 클러스터가 이미 베이스라인(취약) 상태일 때 단발 포획·디버그에 쓴다. 다중 회차 리셋은 불가.
@@ -256,7 +259,13 @@ class TurnSequencer:
         # ── 게이팅: 공격이 크라운(최종 침해)에 도달했을 때만 방어+검증(값비싼 재생)을 돌린다.
         #    공격자 보고가 아니라 god-view 접근기록(공격 창의 crowns)으로 판단 — 판정과 동일 기준.
         #    미도달이면 2·3·4~5를 전부 생략하고 다음 라운드로(히스토리는 하네스가 자동 이월).
-        attack_crowns = self.logs.crowns_in_window(since_ts=_t, until_ts=time.time())
+        #    크라운 줄은 공격 턴 막판에 떨어지는데 vmc-sync-dblog(kubectl logs -f) 스트리밍이 수 초 지연 →
+        #    읽기 전 유예를 두고(막판 줄 도착 대기) 창 since 경계에 스큐 패드를 더해, 동기화 경합·클럭 오차로
+        #    실제 반출된 크라운을 놓쳐 방어를 건너뛰는 일을 막는다(관측 통로는 정상 — 경합만 보정).
+        if self.params.crown_sync_grace_sec > 0:
+            time.sleep(self.params.crown_sync_grace_sec)
+        attack_crowns = self.logs.crowns_in_window(
+            since_ts=_t - self.params.crown_skew_pad_sec, until_ts=time.time())
         flag_found = bool(self.objectives.reached_goals({"crown": {"asset": attack_crowns}}))
 
         # (스모크 전용) force_crown: 크라운 통로가 아직 안 깔린 상태에서도 방어+검증 배관을 돌려본다.
