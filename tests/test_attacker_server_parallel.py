@@ -200,6 +200,52 @@ def test_memory_backend_default_dispatch():
     assert isinstance(g, InMemoryGraph)
 
 
+def test_turns_are_serialized():
+    """공격 턴 직렬화: 겹친 요청이 들어와도 한 번에 하나만 돈다(공유 그래프 레이스 방지)."""
+    import threading
+    import time
+    gate = threading.Event()        # 첫 턴을 플래너에서 붙잡아 둠
+    entered = threading.Event()     # 첫 턴이 턴 락 안으로 들어왔다는 신호
+    order: list = []
+
+    class _GatedPlan:
+        def __init__(self):
+            self.calls = 0
+
+        def chat_text(self, system, user, **kw):
+            self.calls += 1
+            if self.calls == 1:         # 첫 턴의 첫 플랜 호출에서 붙잡음(락 보유 중)
+                entered.set()
+                gate.wait(5.0)
+            if self.calls % 2 == 1:
+                return ('{"intents":[{"summary":"probe","target":"t",'
+                        '"technique":"T1046"}]}')
+            return '{"intents": []}'
+
+    h = AttackHarness(
+        llm=_WorkLLM(), runner=_R(), scope_policy=default_policy(),
+        system_prompt="s", session_id="vmA", step_timeout=5.0,
+        mode="parallel", planner_llm=_GatedPlan(),
+        round_cfg=RoundConfig(system_prompt="s", n_workers=1,
+                              session_id="vmA", step_timeout=5.0))
+
+    def _turn(rnd: int) -> None:
+        h.attack_turn(_start(), episode=1, round=rnd)
+        order.append(rnd)
+
+    t1 = threading.Thread(target=_turn, args=(1,))
+    t1.start()
+    assert entered.wait(5.0)                   # 턴1이 턴 락을 쥐고 플래너에서 대기
+    t2 = threading.Thread(target=_turn, args=(2,))
+    t2.start()
+    time.sleep(0.2)
+    assert order == []                         # 턴1 미완(gate) → 턴2는 락 대기, 둘 다 미완
+    gate.set()                                 # 턴1 해제
+    t1.join(5.0)
+    t2.join(5.0)
+    assert order == [1, 2]                      # 직렬화: 턴1 완료 후에야 턴2 실행
+
+
 def _run() -> int:
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

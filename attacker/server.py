@@ -69,6 +69,7 @@ class AttackHarness:
         self._base_log = log or _harness_log
         self._journal: "collections.deque" = collections.deque(maxlen=600)
         self._jlock = threading.Lock()
+        self._turn_lock = threading.Lock()   # 공격 턴 직렬화(겹친 요청이 공유 그래프를 동시에 안 건드리게)
         self._jseq = 0
         self._cur_round = 0
         self._intent_labels: dict = {}      # intent id → 요약(저널 그룹 라벨)
@@ -143,10 +144,15 @@ class AttackHarness:
 
     # ── attack_turn_start → attack_turn_result (공격 모드) ──
     def attack_turn(self, start: AttackTurnStart, *, episode: int, round: int) -> AttackTurnResult:
-        self._journal_reset(round)          # 새 턴 = 새 저널(폴러 since=0 정합)
-        if self.mode == "parallel" and self.planner_llm is not None:
-            return self._attack_turn_parallel(start, episode=episode, round=round)
-        return self._attack_turn_single(start, episode=episode, round=round)
+        # 턴 직렬화: 오케스트레이터 재시도·read-timeout 등으로 공격 턴 요청이 겹쳐 들어와도 한 번에
+        # 하나만 돈다. 겹친 요청은 앞 턴이 끝날 때까지 대기(오케스트레이터 턴 타임아웃이 흡수).
+        # 앞 턴의 워커가 탐색·자산 그래프에 다 쓴 뒤 다음 턴 플래너가 읽으므로, 겹침으로 생기던
+        # '자산 0개 → 의도 0개' 붕괴(플래너가 빈 태세를 읽음)를 막는다.
+        with self._turn_lock:
+            self._journal_reset(round)          # 새 턴 = 새 저널(폴러 since=0 정합)
+            if self.mode == "parallel" and self.planner_llm is not None:
+                return self._attack_turn_parallel(start, episode=episode, round=round)
+            return self._attack_turn_single(start, episode=episode, round=round)
 
     # ── 병렬 워커 턴(ARTEX식: 플래너+워커 N) ──
     def _new_episode_graph(self, episode: int):
