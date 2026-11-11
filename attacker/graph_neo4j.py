@@ -256,6 +256,21 @@ class Neo4jGraph(ExplorationGraph):
             "MERGE (n)-[:ANCHORED_TO]->(a)",
             id=node_id, aids=list(asset_ids))
 
+    def select_knowledge(self, node_id: int, technique_ids: list[str]) -> None:
+        tids = [str(t).strip() for t in technique_ids if str(t).strip()]
+        if not tids:
+            return
+        # payload 에 선택 기법 누적(InMemory 와 일관) + 존재하는 KG Technique 노드로 SELECTED MERGE.
+        # Technique 는 KG 라벨(episode 비스코프)이라 id 로만 매칭 — 없는 기법은 엣지 생략.
+        self._run(
+            "MATCH (n:Explore {episode:$episode, id:$id}) "
+            "SET n.selected_techniques = coalesce(n.selected_techniques, []) + "
+            "    [x IN $tids WHERE NOT x IN coalesce(n.selected_techniques, [])] "
+            "WITH n UNWIND $tids AS tid "
+            "MATCH (t:Technique {id: tid}) "
+            "MERGE (n)-[:SELECTED]->(t)",
+            id=node_id, tids=tids)
+
     # ── 읽기 ──
     def get_node(self, node_id: int) -> Optional[Node]:
         rows = self._run(_GET, id=node_id)

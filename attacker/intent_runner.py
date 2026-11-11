@@ -143,6 +143,10 @@ def _intent_goal(round_goal: str, intent: Node) -> str:
         parts.append(f"  target: {p['target']}")
     if p.get("why"):
         parts.append(f"  why: {p['why']}")
+    steps = p.get("plan")                    # 2차 플래너가 짠 공격 계획(단계 배열) — 지침으로
+    if isinstance(steps, list) and steps:
+        parts.append("  plan (suggested steps — adapt as the target responds):")
+        parts.extend(f"    {i}. {s}" for i, s in enumerate(steps, 1))
     return "\n".join(parts)
 
 

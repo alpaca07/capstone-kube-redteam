@@ -151,6 +151,18 @@ class InMemoryGraph(ExplorationGraph):
                 if aid not in n.anchors:
                     n.anchors.append(aid)
 
+    def select_knowledge(self, node_id: int, technique_ids: list[str]) -> None:
+        # memory 백엔드엔 KG 노드가 없으니 payload 에 선택 기법만 누적(프로비넌스 기록).
+        with self._lock:
+            n = self._nodes.get(node_id)
+            if n is None:
+                return
+            sel = n.payload.setdefault("selected_techniques", [])
+            for t in technique_ids:
+                t = str(t).strip()
+                if t and t not in sel:
+                    sel.append(t)
+
     # ── 읽기 ──
     def _copy(self, n: Node) -> Node:
         """호출자에게 내부 노드의 사본을 준다(바깥 변이가 저장소를 안 건드리게)."""

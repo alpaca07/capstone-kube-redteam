@@ -225,6 +225,50 @@ def test_plan_distinct_targets_no_dedup():
     assert len(res.added_ids) == 2 and res.deduped == 0
 
 
+# ── 1차 select_knowledge: 원시 KG 후보 → 선별(적용성) ──
+def test_select_knowledge_returns_selections():
+    from attacker.planner import parse_selection
+    g = InMemoryGraph()
+    sel_json = ('{"selected":[{"technique":"T1552.001","assets":["internal-wiki"],'
+                '"why":"runbook creds","applicability":"high"}]}')
+    res = Planner(_FakeLLM([sel_json]), goal="x").select_knowledge(
+        g, assets_block="- internal-wiki", kg_block="- T1552.001 (conf 0.9; via CVE-x)")
+    assert len(res.selected) == 1 and res.selected[0].technique == "T1552.001"
+    assert "T1552.001" in res.render() and "high" in res.render()
+    # 파서 단위: 기법 없는 선별은 버린다
+    assert len(parse_selection('{"selected":[{"technique":""},{"technique":"T1078"}]}')) == 1
+
+
+# ── 1차: kg_block 비면 LLM 호출 없이 빈 선별(KG 미연결/후보0 → 2차 폴백) ──
+def test_select_knowledge_empty_kg_skips_llm():
+    g = InMemoryGraph()
+    llm = _FakeLLM(["SHOULD-NOT-BE-CALLED"])
+    res = Planner(llm, goal="x").select_knowledge(g, assets_block="- a", kg_block="")
+    assert res.selected == [] and res.error == "" and len(llm.calls) == 0
+
+
+# ── 2차 plan: 의도에 plan(단계 배열) + SELECTED 프로비넌스(의도→KG 기법) ──
+def test_plan_carries_plan_steps_and_selected_provenance():
+    g = InMemoryGraph()
+    intents_json = ('{"intents":[{"summary":"grab token","target":"admin-dashboard",'
+                    '"technique":"T1552.001","plan":["fetch secret endpoint","extract token",'
+                    '"call k8s api"],"from":[]}]}')
+    res = Planner(_FakeLLM([intents_json]), goal="x").plan(
+        g, selected_block="- T1552.001 [high] on admin-dashboard: creds")
+    assert len(res.added_ids) == 1
+    node = g.get_node(res.added_ids[0])
+    assert node.payload["plan"] == ["fetch secret endpoint", "extract token", "call k8s api"]
+    # SELECTED 프로비넌스: InMemory 는 payload 에 선택 기법 기록
+    assert "T1552.001" in node.payload.get("selected_techniques", [])
+
+
+# ── 태세: 2차엔 1차 선별이 SELECTED KNOWLEDGE 섹션으로 들어간다 ──
+def test_situation_shows_selected_knowledge():
+    g = InMemoryGraph()
+    s = build_situation(g, goal="x", selected_block="- T1552.001 [high] on wiki: creds")
+    assert "SELECTED KNOWLEDGE" in s and "T1552.001" in s
+
+
 # ── plan: spawned_by 주면 SPAWNS 엣지로 계층 연결 ──
 def test_plan_spawned_by_links_edge():
     g = InMemoryGraph()

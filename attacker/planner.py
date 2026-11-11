@@ -1,12 +1,11 @@
 """플래너 — 정렬(aligned) 모델이 태세를 읽고 '탐색 방향(의도)'을 생성해 frontier에 넣는다.
 
-ARTEX의 유일 intent 생성자. 워커(탈옥 모델)는 이 의도를 claim해 실행하고, 플래너는
-워커가 쌓은 fact/finding을 다시 읽어 새 의도를 뿌린다(이벤트 구동 폐곡선).
-
-모델 분리(이번 세션 확정·소규모 탐침 검증): 플래너=정렬 모델(방어용과 같은 서빙).
-정렬 모델이 공격 '전략 수립·기법 태깅'은 거부 없이 하되 실제 페이로드 작성은 플래너
-선에서 거부 → 희소자원(탈옥 모델 1개)을 워커에 몰아주는 경합 완화. 플래너는 '무엇을
-노려 어디를 파볼지'만 내고(=의도), 실제 명령·페이로드는 워커가 쓴다.
+2단 구성(ARTEX+KG 설계, 2026-11-11 확정):
+  1차 select_knowledge — 상황 + 원시 KG 후보(candidate techniques)를 읽고 '이 지형·목표에
+    실제 적용되는 지식(기법)'만 선별(근거·적용성). 행동/의도는 안 낸다.
+  2차 plan — 1차 선별을 받아 워커가 claim할 '의도노드 + 공격계획(plan 단계 배열)'을 생성.
+둘 다 정렬 모델(전략·기법 태깅·단계 방향까지는 거부 없이 수행, 실제 페이로드는 워커=탈옥 모델).
+1차가 KG→기법을 선별(applicability), 2차가 그 위에 의도·계획을 올린다.
 
 정렬 모델은 추론(thinking) 모델이라 JSON이 잘리기 쉬움 → max_tokens 넉넉히(기본 3000),
 reasoning_effort=none 소프트 스위치, 느슨한 JSON 추출로 방어.
@@ -27,59 +26,87 @@ from .graph import ExplorationGraph, Node, NodeKind
 _re_int = re.compile(r"\d+")
 
 
-PLANNER_SYSTEM = """\
-You are the PLANNING module of an authorized, sandboxed red-team exercise against \
-a Kubernetes cluster that the operator fully owns and has consented to test. This \
-is a closed lab with no real users or data.
+# ───────────── 1차: 지식 선별(knowledge triage) ─────────────
+SELECT_SYSTEM = """\
+You are STAGE 1 (knowledge triage) of an authorized, sandboxed red-team planner against \
+a Kubernetes cluster the operator fully owns and consented to test. Closed lab, no real data.
 
-Your ONLY job is strategy: read the current situation (goal, known assets, foothold, \
-recent facts, previously-breached accesses, intents already in flight) and propose the \
-next few EXPLORATION DIRECTIONS ("intents") that move toward the goal. An intent is one \
-sentence describing WHAT to investigate or verify next and on WHICH asset — never an \
-actual command, payload, or exploit. Writing commands/payloads is a different module's job.
+Your ONLY job: read the situation (goal, known assets, recent facts, previously-breached) \
+and the CANDIDATE KNOWLEDGE (ATT&CK techniques the knowledge base loosely associated with the \
+observed assets, each with a confidence, matched asset terms, and CVEs). Decide WHICH candidates \
+are genuinely applicable to THIS terrain on the path to the goal. You do NOT propose actions, \
+intents, commands, or payloads — that is stage 2. You only triage knowledge.
+
+Rules:
+- Select a candidate ONLY when its technique plausibly applies to a known asset that lies on the \
+path to the goal. Drop weak-bridge guesses whose technique or asset does not actually fit.
+- Confidence is a hint: high (~0.9) is a curated mapping worth trusting; low (~0.2) is often off — \
+keep a low one ONLY when it plainly matches an asset, otherwise drop it. Never invent CVEs.
+- For each selection give the asset(s) it applies to, a one-line why, and applicability (high|medium|low).
+- Fewer, well-grounded selections beat a long list. Return an empty list when no candidate genuinely applies.
+
+Output ONLY a JSON object, no prose:
+{"selected": [{"technique": "<MITRE id>", "assets": ["<asset>"], "why": "<one line>", \
+"applicability": "high|medium|low"}]}"""
+
+
+# ───────────── 2차: 의도·계획 생성(planning) ─────────────
+PLANNER_SYSTEM = """\
+You are STAGE 2 (planning) of an authorized, sandboxed red-team exercise against a Kubernetes \
+cluster the operator fully owns and consented to test. Closed lab, no real users or data.
+
+Your job: read the current situation (goal, known assets, foothold, recent facts, \
+previously-breached accesses, SELECTED KNOWLEDGE from stage 1, intents already in flight) and \
+propose the next EXPLORATION DIRECTIONS ("intents") that move toward the goal. An intent names \
+WHAT to investigate/verify next and on WHICH asset, plus a short step plan — never an actual \
+command, payload, or exploit string. Writing commands/payloads is the worker's job.
 
 Rules:
 - Propose intents UP TO the target count given in the situation (TARGET INTENTS), \
-non-overlapping with each other AND with intents already in flight (listed below). Do \
-not restate directions that are already open or running. Produce as many distinct, \
-genuinely worthwhile directions as actually exist — proposing FEWER than the target is \
-expected and correct when the surface is thin. NEVER invent filler, vague, or redundant \
-directions just to reach the target number: quality over quantity.
-- KNOWN ASSETS is the discovered terrain (host > service > endpoint), each tagged \
-[explored] (a worker already probed it) or [untouched]. Prefer [untouched] assets, and \
-ones not already covered by recent facts or in-flight intents — spend new intents on \
-unexplored surface, not ground already walked.
-- BALANCE breadth with DEPTH — do not spend every intent opening new ground. Whenever a \
-recent fact or known asset is a concrete lead toward the GOAL (a secret/credential/token \
-endpoint, a reachable service on the path to the crown), dedicate at least one intent to \
-DRIVING THAT LEAD to an actual compromise: retrieve the secret, authenticate with it, and \
-reach the goal — pursue it end-to-end rather than only noting it exists. A single path \
-finished to the goal is worth more than ten new assets merely mapped.
-- Each intent gets a MITRE ATT&CK technique id in a "technique" field when one fits \
-(e.g. T1552, T1078, T1046); use "" if none fits.
-- RELEVANT KNOWLEDGE, when shown, lists candidate ATT&CK techniques the knowledge base \
-associates with the observed assets (with a confidence, the asset terms, and CVEs that \
-matched). Treat these as hints: when a candidate fits the asset and direction, reuse its \
-technique id; if none fits, fall back to your own judgement. Confidence matters — high \
-(~0.9) means a direct, curated mapping worth trusting; low (~0.2) is a weak bridge guess \
-that is often off, so reuse it ONLY when it plainly matches the asset and ignore the rest. \
-The list is advisory — never invent CVEs from it.
-- "from": list the fact id numbers (the #N shown in RECENT FACTS) that THIS intent \
-builds on — i.e. the observations that made you choose this direction. Use [] only \
-for the opening move when there are no facts yet. This links each new direction to \
-the evidence that motivated it, so the exploration forms a connected reasoning tree.
-- PREVIOUSLY BREACHED, when shown, lists accesses achieved in an EARLIER round. Between \
-rounds the defender may have patched them, so they are NOT done: when one lies on the \
-path to the goal, propose an intent to RE-VERIFY it still works this round (and to find \
-another route if it is now blocked). Prior success is never a reason to skip the goal.
-- Judge "goal reached" ONLY from THIS round's RECENT FACTS, never from PREVIOUSLY \
-BREACHED (that is last round's result and must be re-achieved). Return an empty \
-"intents" list only when this round's facts already show the goal reached.
+non-overlapping with each other AND with intents already in flight (listed below). Do not \
+restate directions already open or running. Produce as many distinct, genuinely worthwhile \
+directions as actually exist — proposing FEWER than the target is expected and correct when the \
+surface is thin. NEVER invent filler, vague, or redundant directions just to reach the number.
+- KNOWN ASSETS is the discovered terrain (host > service > endpoint), each tagged [explored] \
+(a worker already probed it) or [untouched]. Prefer [untouched] assets and ones not already \
+covered by recent facts or in-flight intents — spend new intents on unexplored surface.
+- BALANCE breadth with DEPTH — do not spend every intent opening new ground. Whenever a recent \
+fact or known asset is a concrete lead toward the GOAL (a secret/credential/token endpoint, a \
+reachable service on the path to the crown), dedicate at least one intent to DRIVING THAT LEAD \
+to an actual compromise end-to-end. A single path finished to the goal beats ten assets mapped.
+- SELECTED KNOWLEDGE (when shown) lists ATT&CK techniques stage-1 already judged applicable to \
+the observed assets (with the asset, a why, and applicability). Build intents around these and \
+reuse their technique ids; add an intent with your own technique only when the situation clearly \
+calls for one not in the list. Put a MITRE id in "technique" when one fits, else "".
+- "plan": an ORDERED list of 2-5 concrete sub-steps the worker should follow for this intent — \
+still direction-level (what to retrieve / which endpoint / what to do with it), NEVER raw \
+commands or payloads. Example: ["fetch the admin-dashboard secret endpoint", "extract the SA \
+token", "call the K8s API with it to list secrets in the database namespace"].
+- "from": list the fact id numbers (the #N in RECENT FACTS) this intent builds on. Use [] only \
+for the opening move with no facts yet. This links each direction to the evidence that motivated it.
+- PREVIOUSLY BREACHED, when shown, lists accesses achieved in an EARLIER round. The defender may \
+have patched them between rounds, so they are NOT done: when one lies on the path to the goal, \
+propose an intent to RE-VERIFY it still works this round (and find another route if now blocked).
+- Judge "goal reached" ONLY from THIS round's RECENT FACTS, never from PREVIOUSLY BREACHED. \
+Return an empty "intents" list only when this round's facts already show the goal reached.
 
 Output ONLY a JSON object, no prose:
 {"intents": [{"summary": "<one-line direction>", "target": "<asset>", \
 "why": "<why it advances the goal>", "technique": "<MITRE id or empty>", \
-"from": [<fact id numbers this builds on>]}]}"""
+"plan": ["<step 1>", "<step 2>"], "from": [<fact id numbers this builds on>]}]}"""
+
+
+@dataclass
+class KnowledgeSelection:
+    """1차가 선별한 지식 하나(그래프/2차에 넘기기 전 중간 표현)."""
+    technique: str
+    assets: Optional[list] = None
+    why: str = ""
+    applicability: str = ""
+
+    def __post_init__(self) -> None:
+        if self.assets is None:
+            self.assets = []
 
 
 @dataclass
@@ -89,7 +116,8 @@ class PlannerIntent:
     target: str = ""
     why: str = ""
     technique: str = ""
-    from_facts: list = None       # 이 의도가 파생된 출처 사실 id들(그래프 연결용)
+    plan: Optional[list] = None    # 공격 계획 — 워커가 따를 단계 배열(방향 수준, 페이로드 아님)
+    from_facts: Optional[list] = None   # 이 의도가 파생된 출처 사실 id들(그래프 연결용)
 
     def to_payload(self) -> dict:
         p = {"summary": self.summary}
@@ -99,6 +127,8 @@ class PlannerIntent:
             p["why"] = self.why
         if self.technique:
             p["technique"] = self.technique
+        if self.plan:
+            p["plan"] = list(self.plan)
         return p
 
 
@@ -121,21 +151,25 @@ def _intent_line(n: Node) -> str:
 
 
 def build_situation(graph: ExplorationGraph, *, goal: str, assets_block: str = "",
-                    kg_block: str = "", prior_findings_block: str = "",
-                    facts_limit: int = 20, target_intents: Optional[int] = None) -> str:
-    """플래너가 보는 태세: 목표 + 자산 지형 + KG 후보 + 최근 사실 + 지난 라운드 침해(재검증) + 진행 중 의도.
+                    kg_block: str = "", selected_block: str = "",
+                    prior_findings_block: str = "", facts_limit: int = 20,
+                    target_intents: Optional[int] = None) -> str:
+    """플래너가 보는 태세. 1차엔 kg_block(원시 후보), 2차엔 selected_block(1차 선별)을 넣는다.
 
     assets_block: 자산 그래프를 렌더한 '대상 지형'(라운드 엔진이 만들어 넣음).
-    kg_block: 그 자산들을 지식 그래프에 느슨 매칭한 '후보 기법'(knowledge.query.render_kg_candidates).
-    플래너 LLM 이 자산과 묶어 technique 를 고르는 참고자료(히트 없으면 빈 문자열 → 자기 지식 폴백).
-    prior_findings_block: 지난 라운드에 달성한 침해들 — '끝난 일'이 아니라 '재검증 후보'로 제시
-    (공진화: 방어자가 그 사이 패치했을 수 있으니 이번 라운드에 다시 확인해야 함).
+    kg_block: 자산↔지식그래프 느슨 매칭 '후보 기법'(1차 select_knowledge 입력).
+    selected_block: 1차가 적용성으로 걸러낸 '선별 지식'(2차 plan 입력).
+    prior_findings_block: 지난 라운드 침해 — '끝난 일'이 아니라 '재검증 후보'(공진화).
     """
     parts = [f"GOAL: {goal}"]
     if assets_block:
         parts.append("KNOWN ASSETS:\n" + assets_block)
     if kg_block:
-        parts.append("RELEVANT KNOWLEDGE (candidate techniques for the assets above):\n" + kg_block)
+        parts.append("CANDIDATE KNOWLEDGE (ATT&CK techniques the KB associates with the assets "
+                     "above — triage these):\n" + kg_block)
+    if selected_block:
+        parts.append("SELECTED KNOWLEDGE (stage-1 triage — techniques judged applicable to the "
+                     "assets):\n" + selected_block)
 
     facts = graph.recent_facts(limit=facts_limit)
     if facts:
@@ -165,7 +199,49 @@ def build_situation(graph: ExplorationGraph, *, goal: str, assets_block: str = "
     return "\n\n".join(parts)
 
 
+def render_selection(sels: list) -> str:
+    """1차 선별 → 2차 프롬프트용 블록(없으면 빈 문자열)."""
+    lines = []
+    for s in sels:
+        a = ", ".join(s.assets) if s.assets else "-"
+        conf = f" [{s.applicability}]" if s.applicability else ""
+        lines.append(f"- {s.technique}{conf} on {a}: {s.why}")
+    return "\n".join(lines)
+
+
 # ───────────── 파싱 ─────────────
+def parse_selection(text: str) -> list:
+    """1차 응답에서 selected 배열을 느슨하게 뽑는다. 깨지면 LLMJsonError."""
+    obj = extract_and_load(text)
+    if not isinstance(obj, dict):
+        raise LLMJsonError(f"객체가 아님: {type(obj).__name__}")
+    arr = obj.get("selected", [])
+    if not isinstance(arr, list):
+        raise LLMJsonError("selected가 배열이 아님")
+    out: list = []
+    for it in arr:
+        if not isinstance(it, dict):
+            continue
+        tech = str(it.get("technique", "")).strip()
+        if not tech:
+            continue                       # 기법 없는 선별은 의미 없음 → 버림
+        raw_assets = it.get("assets")
+        assets = ([str(a).strip() for a in raw_assets if str(a).strip()]
+                  if isinstance(raw_assets, list) else [])
+        out.append(KnowledgeSelection(
+            technique=tech, assets=assets,
+            why=str(it.get("why", "")).strip(),
+            applicability=str(it.get("applicability", "")).strip()))
+    return out
+
+
+def _parse_steps(x) -> list:
+    """'plan' 필드를 문자열 단계 리스트로. 배열 아니면 []. 최대 8단계."""
+    if not isinstance(x, list):
+        return []
+    return [str(s).strip() for s in x if str(s).strip()][:8]
+
+
 def parse_intents(text: str) -> list[PlannerIntent]:
     """LLM 응답에서 intents 배열을 느슨하게 뽑는다. 깨지면 LLMJsonError."""
     obj = extract_and_load(text)          # 펜스·잡설·트레일링콤마 등 흡수
@@ -186,6 +262,7 @@ def parse_intents(text: str) -> list[PlannerIntent]:
             target=str(it.get("target", "")).strip(),
             why=str(it.get("why", "")).strip(),
             technique=str(it.get("technique", "")).strip(),
+            plan=_parse_steps(it.get("plan")),
             from_facts=_parse_ids(it.get("from"))))
     return out
 
@@ -214,6 +291,15 @@ def _norm_target(t: str) -> str:
 
 
 @dataclass
+class SelectResult:
+    selected: list                 # KnowledgeSelection 리스트(1차 선별)
+    error: str = ""                # 파싱/호출 끝내 실패 시 진단(이 웨이브 선별 0개)
+
+    def render(self) -> str:
+        return render_selection(self.selected)
+
+
+@dataclass
 class PlanResult:
     added_ids: list[int]           # 이번에 frontier에 넣은 intent id들
     proposed: int                  # LLM이 제안한 수(파싱 성공분)
@@ -235,22 +321,50 @@ class Planner:
         self.retries = retries
         self.target_intents = max(1, int(target_intents))   # 웨이브당 의도 목표 수(=워커 수)
 
+    def _chat(self, system: str, user: str, timeout: Optional[float]) -> str:
+        return self.llm.chat_text(system, user, max_tokens=self.max_tokens,
+                                  timeout=timeout, extra={"reasoning_effort": "none"})
+
+    # ── 1차: 지식 선별 ──
+    def select_knowledge(self, graph: ExplorationGraph, *, assets_block: str = "",
+                         kg_block: str = "", prior_findings_block: str = "",
+                         timeout: Optional[float] = None) -> SelectResult:
+        """원시 KG 후보(kg_block)를 상황에 비춰 적용 지식만 선별. kg_block 비면 선별 생략
+        (KG 미연결/후보 0 → 2차가 자기 지식으로). 실패해도 2차는 계속(빈 선별)."""
+        if not kg_block.strip():
+            return SelectResult(selected=[], error="")
+        user = build_situation(graph, goal=self.goal, assets_block=assets_block,
+                               kg_block=kg_block, prior_findings_block=prior_findings_block)
+        last_err = ""
+        for attempt in range(self.retries + 1):
+            prompt = user if attempt == 0 else user + (
+                "\n\n(직전 응답이 올바른 JSON이 아니었다. 설명 없이 지정된 JSON 객체 하나만 출력하라.)")
+            try:
+                text = self._chat(SELECT_SYSTEM, prompt, timeout)
+            except Exception as e:  # noqa: BLE001 — 호출 실패는 선별 실패(2차가 폴백)
+                last_err = f"llm 호출 실패: {type(e).__name__}: {e}"
+                continue
+            try:
+                return SelectResult(selected=parse_selection(text or ""), error="")
+            except LLMJsonError as e:
+                last_err = f"파싱 실패: {e}"
+                continue
+        return SelectResult(selected=[], error=last_err)
+
+    # ── 2차: 의도·계획 생성 ──
     def plan(self, graph: ExplorationGraph, *, assets_block: str = "",
-             kg_block: str = "", prior_findings_block: str = "",
+             selected_block: str = "", prior_findings_block: str = "",
              spawned_by: Optional[int] = None,
              default_parent: Optional[int] = None,
              timeout: Optional[float] = None) -> PlanResult:
-        """태세를 읽어 의도를 생성하고 frontier에 추가. 추가된 id 목록을 돌려준다.
+        """1차 선별(selected_block)을 받아 의도노드+공격계획(plan)을 생성해 frontier에 추가.
 
-        각 의도는 플래너가 낸 'from'(출처 사실 id)으로 그래프에 연결된다. from이 비면
-        default_parent(보통 goal 노드)에서 파생 → 추론 트리가 하나로 이어진다. spawned_by는
-        모든 의도에 공통으로 더 붙일 출처(옵션).
-
-        assets_block: 자산 지형(대상 자산 인벤토리). prior_findings_block: 지난 라운드 침해
-        (재검증 후보) — 둘 다 라운드 엔진이 자산 그래프를 읽어 만들어 넣는다.
+        각 의도는 'from'(출처 사실 id, 없으면 default_parent)으로 그래프에 연결되고, technique
+        가 있으면 graph.select_knowledge 로 KG 기법에 SELECTED 프로비넌스를 남긴다.
         """
         user = build_situation(graph, goal=self.goal, assets_block=assets_block,
-                               kg_block=kg_block, prior_findings_block=prior_findings_block,
+                               selected_block=selected_block,
+                               prior_findings_block=prior_findings_block,
                                target_intents=self.target_intents)
         # 플래너가 헛 id를 낼 수 있으니 현존 사실·의도 id만 유효 출처로 인정
         valid = {n.id for n in graph.recent_facts(limit=10_000)}
@@ -260,10 +374,7 @@ class Planner:
             prompt = user if attempt == 0 else user + (
                 "\n\n(직전 응답이 올바른 JSON이 아니었다. 설명 없이 지정된 JSON 객체 하나만 출력하라.)")
             try:
-                text = self.llm.chat_text(
-                    PLANNER_SYSTEM, prompt,
-                    max_tokens=self.max_tokens, timeout=timeout,
-                    extra={"reasoning_effort": "none"})
+                text = self._chat(PLANNER_SYSTEM, prompt, timeout)
             except Exception as e:  # noqa: BLE001 — 호출 실패는 이 라운드 계획 실패로(엔진이 판단)
                 last_err = f"llm 호출 실패: {type(e).__name__}: {e}"
                 continue
@@ -295,13 +406,20 @@ class Planner:
                     srcs = [default_parent]          # 개막·무출처 의도는 목표에서 파생
                 if spawned_by is not None:
                     srcs.append(spawned_by)
-                added.append(graph.add_intent(pi.to_payload(), origin="planner",
-                                              spawned_by=srcs or None))
+                iid = graph.add_intent(pi.to_payload(), origin="planner",
+                                       spawned_by=srcs or None)
+                if pi.technique:                     # 프로비넌스: 의도 → KG 기법(SELECTED)
+                    try:
+                        graph.select_knowledge(iid, [pi.technique])
+                    except Exception:  # noqa: BLE001 — 프로비넌스 실패는 계획을 막지 않음
+                        pass
+                added.append(iid)
             return PlanResult(added_ids=added, proposed=len(intents), deduped=deduped)
         return PlanResult(added_ids=[], proposed=0, error=last_err)
 
 
 __all__ = [
-    "Planner", "PlanResult", "PlannerIntent", "PLANNER_SYSTEM",
-    "build_situation", "parse_intents",
+    "Planner", "PlanResult", "SelectResult", "PlannerIntent", "KnowledgeSelection",
+    "PLANNER_SYSTEM", "SELECT_SYSTEM",
+    "build_situation", "parse_intents", "parse_selection", "render_selection",
 ]

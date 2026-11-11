@@ -223,8 +223,13 @@ def test_round2_marks_touched_assets_in_situation():
 def test_kg_visibility_in_situation_log():
     from attacker.assets_fake import InMemoryAssetGraph
 
-    class _P:                                   # 빈 의도 반환(웨이브 1회로 종료)
+    class _P:                                   # 1차=선별(STAGE 1), 2차=빈 의도(웨이브 1회 종료)
         def chat_text(self, system, user, **kw):
+            if "STAGE 1" in system:
+                return ('{"selected":[{"technique":"T1552","assets":["internal-wiki"],'
+                        '"why":"runbook creds","applicability":"high"},'
+                        '{"technique":"T1078","assets":["internal-wiki"],'
+                        '"why":"valid acct","applicability":"medium"}]}')
             return '{"intents": []}'
 
     # (1) kg_lookup 미연결 → "KG미연결"
@@ -236,7 +241,7 @@ def test_kg_visibility_in_situation_log():
                 ).run(_start(), episode=1, round=1, graph=g1, asset_graph=ag1, kg_lookup=None)
     assert any("KG미연결" in m for m in logs1), logs1
 
-    # (2) kg_lookup 이 후보 2줄 반환 → "KG후보 2개"
+    # (2) 후보 2줄 → 1차가 2개 선별 → "KG후보 2개→선별 2개[T1552·T1078]"
     logs2: list = []
     g2 = InMemoryGraph(episode=1); ag2 = InMemoryAssetGraph(episode=1)
     ag2.add_asset("service", "internal-wiki")
@@ -245,20 +250,23 @@ def test_kg_visibility_in_situation_log():
     AttackRound(attacker_llm=_WorkLLM(), planner_llm=_P(), runner=_R(),
                 scope_policy=default_policy(), cfg=_cfg(), log=logs2.append
                 ).run(_start(), episode=1, round=1, graph=g2, asset_graph=ag2, kg_lookup=kg2)
-    # 개수 + 실제 쓰는 기법 ID 가 같이 찍힌다
-    assert any("KG후보 2개" in m and "T1552" in m and "T1078" in m for m in logs2), logs2
+    # 후보→선별 개수 + 1차가 고른 기법 ID 가 같이 찍힌다
+    assert any("KG후보 2개→선별 2개" in m and "T1552" in m and "T1078" in m for m in logs2), logs2
 
 
-# ── KG→플래너 도달: kg_lookup 후보가 플래너 user 프롬프트의 RELEVANT KNOWLEDGE 로 들어간다 ──
-# (기존 test_kg_visibility 는 저널 로그만 확인 — 후보 '내용'이 실제 계획 입력까지 가는지는 여기서)
+# ── KG→1차→2차 도달: 원시 후보가 1차(CANDIDATE KNOWLEDGE)에, 선별이 2차(SELECTED KNOWLEDGE)에 ──
 def test_kg_candidates_reach_planner_prompt():
     from attacker.assets_fake import InMemoryAssetGraph
     captured = {}
 
     class _CapPlan:
         def chat_text(self, system, user, **kw):
-            captured["user"] = user
-            return '{"intents": []}'          # 1웨이브로 종료
+            if "STAGE 1" in system:
+                captured["select"] = user
+                return ('{"selected":[{"technique":"T1190","assets":["gitlab.frontend.svc"],'
+                        '"why":"public RCE","applicability":"high"}]}')
+            captured["plan"] = user
+            return '{"intents": []}'          # 2차 1웨이브로 종료
 
     g = InMemoryGraph(episode=1)
     ag = InMemoryAssetGraph(episode=1)
@@ -270,10 +278,13 @@ def test_kg_candidates_reach_planner_prompt():
     AttackRound(attacker_llm=_WorkLLM(), planner_llm=_CapPlan(), runner=_R(),
                 scope_policy=default_policy(), cfg=_cfg()
                 ).run(_start(), episode=1, round=1, graph=g, asset_graph=ag, kg_lookup=kg)
-    u = captured["user"]
-    assert "RELEVANT KNOWLEDGE" in u                   # 섹션 헤더가 프롬프트에 들어감
-    assert "T1190" in u and "T1059" in u               # 후보 기법 id 가 계획 입력까지 도달
-    assert "conf 0.95" in u                            # 신뢰도까지 그대로 전달(플래너가 가중 판단)
+    # 1차(select)에 원시 KG 후보가 신뢰도까지 그대로 도달
+    us = captured["select"]
+    assert "CANDIDATE KNOWLEDGE" in us
+    assert "T1190" in us and "T1059" in us and "conf 0.95" in us
+    # 2차(plan)엔 1차 선별이 SELECTED KNOWLEDGE 로 전달
+    up = captured["plan"]
+    assert "SELECTED KNOWLEDGE" in up and "T1190" in up
 
 
 # ── _asset_situation: 없거나 비면 발판 줄로 폴백(기존 동작 호환) ──

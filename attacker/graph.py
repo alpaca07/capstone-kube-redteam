@@ -49,6 +49,7 @@ class Rel(str, Enum):
     DERIVED_FROM = "derived_from"  # fact → 그 근거가 된 fact
     YIELDS = "yields"              # intent → fact (의도가 사실을 낳음)
     PROVES = "proves"              # fact → finding (사실이 침해를 입증)
+    SELECTED = "selected"          # intent → KG 기법 노드(1차가 고른 지식 — 프로비넌스)
 
 
 # claim 종료 시 넘어갈 수 있는 상태(open은 claim의 출발이라 제외)
@@ -147,6 +148,12 @@ class ExplorationGraph(Protocol):
         """탐색 노드(의도·발견)를 자산 그래프 노드에 ANCHORED_TO로 잇는다.
         node.anchors에 asset id를 채운다 — '이 의도/침해는 이 자산을 건드렸다'.
         (지금은 name 매칭 앵커, CPE 기반 매칭은 KG 단계에서)"""
+        ...
+
+    def select_knowledge(self, node_id: int, technique_ids: list[str]) -> None:
+        """1차 플래너가 고른 KG 기법을 탐색 노드(의도)에 SELECTED로 잇는다(프로비넌스).
+        node.payload['selected_techniques']에 기법 id를 누적하고, neo4j 백엔드면 KG 의
+        Technique 노드로 SELECTED 엣지를 MERGE(존재하는 기법만). memory 백엔드는 payload 만."""
         ...
 
     # ── 읽기 ──

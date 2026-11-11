@@ -197,26 +197,31 @@ class AttackRound:
                 except Exception as e:  # noqa: BLE001 — KG 조회 실패는 계획을 막지 않음(폴백)
                     self.log(f"[round r{round}] wave {waves+1}: KG 조회 실패({type(e).__name__}) → 생략")
             prior_block = _prior_findings_block(graph, prior_finding_ids, asset_graph)
-            # 태세 요약 한 줄 — 자산 겨냥·재검증이 실제로 플래너에 들어가는지 저널에서 보이게.
-            # (KNOWN ASSETS·PREVIOUSLY BREACHED 는 플래너 프롬프트라 저널엔 안 뜨므로 수치로 노출.)
+            # 1차: 원시 KG 후보를 상황에 비춰 '적용 지식'만 선별(kg_block 비면 LLM 호출 없이 생략).
+            sel = planner.select_knowledge(
+                graph, assets_block=assets_block, kg_block=kg_block,
+                prior_findings_block=prior_block, timeout=max(5.0, deadline - self.clock()))
+            selected_block = sel.render()
+            # 태세 요약 — 자산 겨냥·재검증 + KG 후보→1차 선별이 플래너에 들어가는지 저널에 노출.
+            # (KNOWN ASSETS·SELECTED KNOWLEDGE 는 프롬프트라 저널엔 안 뜨므로 수치·기법으로 노출.)
             if asset_graph is not None:
                 all_assets = asset_graph.assets(limit=200)
                 n_untouched = sum(1 for a in all_assets if a.id not in touched)
-                # KG 가시성: 플래너가 받은 KG 후보를 저널에 노출 — 개수 + 실제 쓰는 기법 노드 몇 개.
-                # kg_block 각 줄이 "- <technique> ..." 꼴이라 두 번째 토큰이 기법 ID. 미연결
-                # (graph_backend≠neo4j)=KG미연결 / 연결됐으나 매칭 0=후보 0개.
                 kg_techs = [p[1] for p in (ln.split(maxsplit=2) for ln in kg_block.splitlines())
                             if len(p) >= 2 and p[0] == "-"]
                 if kg_lookup is None:
                     kg_note = " · KG미연결"
-                elif kg_techs:
-                    head = "·".join(kg_techs[:6])
-                    kg_note = f" · KG후보 {len(kg_techs)}개[{head}" + ("…]" if len(kg_techs) > 6 else "]")
-                else:
+                elif not kg_techs:
                     kg_note = " · KG후보 0개"
+                else:
+                    sel_techs = [s.technique for s in sel.selected]
+                    br = ("[" + "·".join(sel_techs[:6]) + ("…]" if len(sel_techs) > 6 else "]")
+                          if sel_techs else "")
+                    kg_note = f" · KG후보 {len(kg_techs)}개→선별 {len(sel_techs)}개{br}"
                 self.log(f"[round r{round}] wave {waves+1}: 태세 → 자산 {len(all_assets)}개"
                          f"(미탐색 {n_untouched}) · 지난라운드침해 {len(prior_finding_ids)}건{kg_note}")
-            plan = planner.plan(graph, assets_block=assets_block, kg_block=kg_block,
+            # 2차: 1차 선별을 받아 의도노드+공격계획 생성.
+            plan = planner.plan(graph, assets_block=assets_block, selected_block=selected_block,
                                 prior_findings_block=prior_block, default_parent=goal_id,
                                 timeout=max(5.0, deadline - self.clock()))   # 마감 넘겨 늘어지지 않게
             if not plan.added_ids:
