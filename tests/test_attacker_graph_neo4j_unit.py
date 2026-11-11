@@ -124,6 +124,52 @@ def test_module_imports_without_driver():
     assert hasattr(gn, "Neo4jGraph") and hasattr(gn, "connect")
 
 
+# ── snapshot(): 대시보드 표시용 평탄화 + 엣지 관계 소문자화(가짜 드라이버) ──
+class _Rec:
+    def __init__(self, d): self._d = d
+    def data(self): return self._d
+
+
+class _FakeSession:
+    def __init__(self, nodes, edges): self._nodes, self._edges = nodes, edges
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def run(self, query, **params):
+        if "type(r) AS rel" in query:
+            return [_Rec(e) for e in self._edges]
+        if "RETURN n{.*} AS props" in query:
+            return [_Rec({"props": n}) for n in self._nodes]
+        return []
+
+
+class _FakeDriver:
+    def __init__(self, nodes, edges): self._nodes, self._edges = nodes, edges
+    def session(self, database=None): return _FakeSession(self._nodes, self._edges)
+
+
+def test_snapshot_flattens_nodes_and_edges():
+    nodes = [
+        {"id": 1, "episode": 2, "kind": "goal", "state": "", "owner": "", "priority": 0,
+         "anchors": [], "payload_json": json.dumps({"summary": "crown"})},
+        {"id": 2, "episode": 2, "kind": "intent", "state": "running", "owner": "w1", "priority": 5,
+         "anchors": [], "payload_json": json.dumps({"summary": "probe", "technique": "T1078", "target": "ns/sa"})},
+        {"id": 3, "episode": 2, "kind": "finding", "state": "claimed", "owner": "", "priority": 0,
+         "anchors": [], "payload_json": json.dumps({"summary": "secret exfil", "severity": "critical",
+                                                     "desc": "DB 비밀 탈취", "loot": {"password": "p@ss"}})},
+    ]
+    edges = [{"src": 1, "rel": "SPAWNS", "dst": 2}, {"src": 2, "rel": "PROVES", "dst": 3}]
+    g = gn.Neo4jGraph(_FakeDriver(nodes, edges), episode=2)
+    snap = g.snapshot()
+    assert {n["kind"] for n in snap["nodes"]} == {"goal", "intent", "finding"}
+    intent = next(n for n in snap["nodes"] if n["kind"] == "intent")
+    assert intent["technique"] == "T1078" and intent["target"] == "ns/sa"
+    assert intent["state"] == "running" and intent["owner"] == "w1"
+    finding = next(n for n in snap["nodes"] if n["kind"] == "finding")
+    assert finding["desc"] == "DB 비밀 탈취" and finding["loot"]["password"] == "p@ss"
+    assert {e["rel"] for e in snap["edges"]} == {"spawns", "proves"}   # 소문자화(대시보드 키와 일치)
+    assert isinstance(json.dumps(snap), str)                            # 교차망 직렬화 가능
+
+
 def _run() -> int:
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

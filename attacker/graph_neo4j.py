@@ -87,6 +87,10 @@ _ANCHORED = ("MATCH (n:Explore {episode:$episode}) "
              "UNWIND coalesce(n.anchors, []) AS aid RETURN DISTINCT aid AS aid")
 _LINK = ("MATCH (a:Explore {episode:$episode, id:$src}), (b:Explore {episode:$episode, id:$dst}) "
          "CREATE (a)-[:" + _RELTOK + "]->(b)")
+# 표시용 스냅샷(대시보드 공격 추적 그래프) — 이 회차 탐색 노드·엣지 전체
+_SNAP_NODES = "MATCH (n:Explore {episode:$episode}) RETURN n{.*} AS props ORDER BY n.id"
+_SNAP_EDGES = ("MATCH (a:Explore {episode:$episode})-[r]->(b:Explore {episode:$episode}) "
+               "RETURN a.id AS src, type(r) AS rel, b.id AS dst")
 _RESET = "MATCH (n:Explore {episode:$episode}) DETACH DELETE n"
 
 _SCHEMA = [
@@ -294,6 +298,32 @@ class Neo4jGraph(ExplorationGraph):
 
     def anchored_asset_ids(self) -> set[int]:
         return {int(r["aid"]) for r in self._run(_ANCHORED)}
+
+    # ── 표시용 스냅샷(대시보드 공격 추적 그래프) — InMemoryGraph.snapshot()과 동일 스키마 ──
+    def snapshot(self) -> dict:
+        """이 회차 탐색 그래프 전체(노드·엣지)를 표시용 dict 로. 판정 무관·표시 전용.
+
+        payload 에서 표시 필드만 평탄화. 엣지 관계는 소문자로(대시보드 relColor/relLabel 키와 일치).
+        """
+        nodes = []
+        for row in self._run(_SNAP_NODES):
+            n = _node_from_props(row["props"])
+            p = n.payload or {}
+            nodes.append({
+                "id": n.id,
+                "kind": n.kind.value if hasattr(n.kind, "value") else str(n.kind),
+                "state": n.state, "owner": n.owner, "priority": n.priority,
+                "summary": p.get("summary", ""), "target": p.get("target", ""),
+                "why": p.get("why", ""), "technique": p.get("technique", ""),
+                "evidence": p.get("evidence", ""), "detail": p.get("detail", ""),
+                "desc": p.get("desc", ""),            # 사람이 읽는 상세 설명(노드 큐레이션)
+                "loot": p.get("loot"),                # 실제 탈취/확보한 값(표시 전용)
+                "severity": p.get("severity", ""), "confidence": p.get("confidence"),
+                "occurrences": p.get("occurrences"), "anchors": list(n.anchors),
+            })
+        edges = [{"src": int(r["src"]), "rel": str(r["rel"]).lower(), "dst": int(r["dst"])}
+                 for r in self._run(_SNAP_EDGES)]
+        return {"nodes": nodes, "edges": edges}
 
 
 def connect_driver(uri: str, user: str, password: str):
