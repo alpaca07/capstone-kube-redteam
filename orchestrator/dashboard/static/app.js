@@ -11,10 +11,10 @@
     { group: "분석", items: [
       { id: "posture", label: "보안 현황" },
       { id: "stats", label: "공격·방어 통계" } ] },
-    { group: "공격 관점", items: [
+    { group: "공격", items: [
       { id: "attack-graph", label: "공격 추적 그래프" },
       { id: "attack-log", label: "공격 저널" } ] },
-    { group: "방어 관점", items: [
+    { group: "방어", items: [
       { id: "defender-arch", label: "타깃 구성도" },
       { id: "defender-graph", label: "탐지·패치 흐름" } ] },
     { group: "기록", items: [
@@ -23,7 +23,7 @@
   ];
   var TITLES = { posture: "보안 현황", stats: "공격·방어 통계", control: "실행 제어",
     live: "실시간 현황", events: "이벤트 로그", "attack-graph": "공격 추적 그래프", "attack-log": "공격 저널",
-    "defender-arch": "타깃 구성도 (방어 시점)", "defender-graph": "탐지·패치 흐름",
+    "defender-arch": "타깃 구성도", "defender-graph": "탐지·패치 흐름",
     report: "회차 보고서" };
   var DEFAULT_ROUTE = "posture";
   var REAL = { posture: 1, stats: 1, control: 1, live: 1, events: 1, "defender-arch": 1, "defender-graph": 1, "attack-graph": 1, "attack-log": 1, report: 1 };
@@ -44,7 +44,7 @@
     budget: "예산 소진", max_steps: "명령 한도", error: "오류", patched: "패치 완료", skipped: "건너뜀" })[r] || r || "—"; }
 
   // ───────── 상태 ─────────
-  var S = { rounds: [], episodes: [], runs: [], events: [], journal: [], status: {}, demo: false, runCount: 0 };
+  var S = { rounds: [], episodes: [], runs: [], events: [], journal: [], status: {}, demo: false, runCount: 0, detItems: null };
   var route = DEFAULT_ROUTE, evTab = "all", defSel = null, repEp = null, agRkey = null, agSel = null, agTab = "overview", _wasRunning = false;
 
   // ───────── 유틸 ─────────
@@ -76,20 +76,20 @@
       });
     }
     var ep1 = [
-      ["fake_patch", ["crown-secrets"], [1, 2, 3], [1, 0, 2], ["T1552.001", "T1078"]],
-      ["fake_patch", ["crown-secrets"], [1, 2, 3], [2, 1, 1], ["T1078"]],
-      ["blocked", [], [1, 2], [2, 1, 1], ["T1210"]],
-      ["fake_patch", ["crown-secrets", "crown-pii"], [1, 2, 3], [3, 1, 1], ["T1210", "T1213"]],
-      ["blocked", [], [1, 2, 3], [3, 1, 0], ["T1213"]],
-      ["blocked", [], [1, 2], [3, 1, 0], []],
-      ["inconclusive", [], [1], [3, 1, 0], []],
-      ["blocked", [], [1, 2], [3, 1, 0], ["T1078"]]
+      ["fake_patch", ["crown-secrets"], [1, 2, 3], [1, 0, 1], ["T1552.001", "T1078"]],
+      ["fake_patch", ["crown-secrets"], [1, 2, 3], [2, 0, 1], ["T1078"]],
+      ["blocked", [], [1, 2], [2, 1, 2], ["T1210"]],
+      ["fake_patch", ["crown-secrets", "crown-pii"], [1, 2, 3], [3, 1, 2], ["T1210", "T1213"]],
+      ["blocked", [], [1, 2, 3], [3, 1, 3], ["T1213"]],
+      ["blocked", [], [1, 2], [4, 1, 3], []],
+      ["inconclusive", [], [1], [4, 1, 3], []],
+      ["blocked", [], [1, 2], [5, 1, 3], ["T1078"]]
     ];
     var ep2 = [
-      ["fake_patch", ["crown-secrets"], [1, 2, 3], [4, 1, 1], ["T1078"]],
-      ["blocked", [], [1, 2], [5, 1, 0], ["T1210"]],
-      ["blocked", [], [1, 2, 3], [6, 1, 0], ["T1078", "T1213"]],
-      ["blocked", [], [1, 2], [6, 1, 0], []]
+      ["fake_patch", ["crown-secrets"], [1, 2, 3], [1, 0, 1], ["T1078"]],
+      ["blocked", [], [1, 2], [2, 0, 1], ["T1210"]],
+      ["blocked", [], [1, 2, 3], [3, 1, 1], ["T1078", "T1213"]],
+      ["blocked", [], [1, 2], [3, 1, 2], []]
     ];
     return mk(1, ep1).concat(mk(2, ep2));
   }
@@ -256,8 +256,8 @@
       { k: "핵심정보 유출", v: a.crownRounds + "회", sub: "전체 " + a.nrounds + "라운드 중 " + pct(a.crownRate), cls: a.crownRounds ? "accent-atk" : "accent-ok", dot: a.crownRounds ? C.atk : C.ok },
       { k: "공격 차단율", v: pct(a.blockRate), sub: "검증상 차단된 비율 (검증 " + a.decided + "건)", cls: "accent-ok", dot: C.ok },
       { k: "무효 패치율", v: pct(a.fakeRate), sub: "패치 적용에도 미차단 " + a.fake + "건", cls: a.fake ? "accent-atk" : "accent-ok", dot: C.atk },
-      { k: "서비스 정상", v: pct(a.avail), sub: "패치 후에도 서비스 살아있는 비율", cls: "accent-def", dot: C.def },
-      { k: "공격 탐지율", v: pct(a.recall), sub: "놓친 공격 " + a.det.fn + "건", cls: "accent-teal", dot: C.teal },
+      { k: "서비스 정상", v: pct(a.avail), sub: "패치 후 서비스 정상 비율", cls: "accent-def", dot: C.def },
+      { k: "공격 탐지율", v: pct(a.recall), sub: "미탐 " + a.det.fn + "건", cls: "accent-teal", dot: C.teal },
       { k: "최대 침투 단계", v: a.depth ? a.depth + "단계" : "—", sub: "공격자 최대 도달 단계 (최대 4)", cls: "accent-crown", dot: C.crown }
     ];
     var tileHtml = tiles.map(function (t) {
@@ -310,16 +310,82 @@
     var vcard = '<div class="card"><div class="card-h">검증 결과</div>' +
       barChart([{ label: "차단", value: vc.blocked, color: C.ok }, { label: "무효 패치", value: vc.fake_patch, color: C.atk }, { label: "판정불가", value: vc.inconclusive, color: C.sys }]) + "</div>";
 
-    var dcard = '<div class="card"><div class="card-h">공격 탐지 정확도</div>' +
-      barChart([{ label: "정탐", value: a.det.tp, color: C.ok, sub: "맞게 탐지" }, { label: "오탐", value: a.det.fp, color: C.crown, sub: "잘못 탐지" }, { label: "미탐", value: a.det.fn, color: C.atk, sub: "놓침" }]) +
-      '<div class="tile-sub" style="margin-top:8px">탐지율 ' + pct(a.recall) + ' · 놓친 공격 ' + a.det.fn + "건 (방어 사각)</div></div>";
+    var dcard = detectionCard();
 
     var depth = S.rounds.map(function (r) { return (r.stages_reached || []).length ? Math.max.apply(null, r.stages_reached) : 0; });
     var fcard = '<div class="card"><div class="card-h">침투 단계 추이</div>' +
       lineChart([{ color: C.crown, points: depth }], Math.max(depth.length, 1), { ymax: 4 }) + "</div>";
 
     return (S.demo ? demoBanner() : "") +
-      evoCard + '<div class="section-label">검증 · 탐지 · 침투 단계</div><div class="grid cols-3">' + vcard + dcard + fcard + "</div>";
+      evoCard +
+      '<div class="section-label">탐지 정확도 · 미탐 추적</div>' + dcard +
+      '<div class="section-label">검증 · 침투 단계</div><div class="grid cols-2">' + vcard + fcard + "</div>";
+  }
+  // 탐지 혼동행렬 — 범주별 '발생 라운드'를 누적값 증분으로 산출. 추가 조회 없이 rounds.jsonl 만으로,
+  // 막대 합계와 팝업 항목 합이 일치(공식 누적집계 기준). 탐지 누적은 회차마다 리셋되므로 회차 경계서 prev 초기화.
+  function detectionItemsFromDeltas() {
+    var out = { tp: [], fp: [], fn: [] }, prevEp = null, prev = { tp: 0, fp: 0, fn: 0 };
+    S.rounds.forEach(function (r) {
+      var ep = r.episode || 1;
+      if (ep !== prevEp) { prev = { tp: 0, fp: 0, fn: 0 }; prevEp = ep; }
+      var c = r.detection_cum || {};
+      ["tp", "fp", "fn"].forEach(function (k) {
+        var d = (c[k] || 0) - (prev[k] || 0);
+        if (d > 0) out[k].push({ ep: ep, round: r.round, delta: d });
+      });
+      prev = { tp: c.tp || 0, fp: c.fp || 0, fn: c.fn || 0 };
+    });
+    return out;
+  }
+  // 실행 전체 탐지 합계(회차별 최종 누적의 합) — 막대·팝업 항목과 정합.
+  function detectionTotals() {
+    var byEp = {}, out = { tp: 0, fp: 0, fn: 0 };
+    S.rounds.forEach(function (r) { byEp[r.episode || 1] = r.detection_cum || {}; });
+    Object.keys(byEp).forEach(function (e) { var c = byEp[e]; out.tp += c.tp || 0; out.fp += c.fp || 0; out.fn += c.fn || 0; });
+    return out;
+  }
+  function detectionCard() {
+    var counts = detectionTotals();
+    S.detItems = detectionItemsFromDeltas();
+    var cats = [["tp", "정탐", C.ok, "실제 공격 식별"], ["fp", "오탐", C.crown, "오경보"], ["fn", "미탐", C.atk, "공격 미식별"]];
+    var mx = Math.max(1, counts.tp, counts.fp, counts.fn);
+    var colsHtml = cats.map(function (c) {
+      var v = counts[c[0]], h = Math.round((v / mx) * 96) + 6;
+      return '<div class="det-col" data-cat="' + c[0] + '" tabindex="0">' +
+        '<div class="det-colbar"><span style="height:' + h + 'px;background:' + c[2] + '"></span></div>' +
+        '<div class="det-colv" style="color:' + c[2] + '">' + v + "</div>" +
+        '<div class="det-coll">' + c[1] + '</div><div class="det-cols">' + c[3] + "</div></div>";
+    }).join("");
+    var recall = (counts.tp + counts.fn) ? counts.tp / (counts.tp + counts.fn) : null;
+    return '<div class="card det-card"><div class="card-h">공격 탐지 정확도</div>' +
+      '<div class="det-wrap"><div class="det-colrow">' + colsHtml + "</div>" +
+      '<div class="det-pop" id="det-pop">' + detPopHint() + "</div></div>" +
+      '<div class="tile-sub" style="margin-top:10px">탐지율 ' + pct(recall) + " · 미탐 " + counts.fn + "건 (방어 공백)</div></div>";
+  }
+  function detPopHint() { return '<div class="det-pop-hint">막대에 마우스를 올리면 발생 라운드가 표시됩니다 · 상세보기 → 해당 라운드 탐지·패치 흐름</div>'; }
+  function bindStatsDetection() {
+    var pop = document.getElementById("det-pop");
+    if (!pop) return;
+    var names = { tp: "정탐", fp: "오탐", fn: "미탐" };
+    function fill(cat) {
+      var arr = (S.detItems || {})[cat] || [], tot = arr.reduce(function (s, x) { return s + x.delta; }, 0);
+      pop.innerHTML = '<div class="det-pop-h">' + names[cat] + " · " + tot + "건</div>" +
+        (arr.length ? arr.map(function (x) {
+          return '<div class="det-pop-row"><span class="det-pop-r">' + (x.ep > 1 ? x.ep + "-" : "") + "R" + x.round + "</span>" +
+            '<span class="det-pop-t">' + names[cat] + " +" + x.delta + "건</span>" +
+            '<button class="det-pop-btn" data-jump="' + x.ep + "-" + x.round + '">상세보기</button></div>';
+        }).join("") : '<div class="tile-sub">해당 라운드 없음</div>');
+      Array.prototype.forEach.call(pop.querySelectorAll("[data-jump]"), function (b) {
+        b.onclick = function () { defSel = b.getAttribute("data-jump"); S.defJumpSection = "detect"; S.defSig = null; location.hash = "defender-graph"; };
+      });
+    }
+    Array.prototype.forEach.call(document.querySelectorAll(".det-col"), function (col) {
+      var cat = col.getAttribute("data-cat");
+      col.onmouseenter = function () { fill(cat); };
+      col.onfocus = function () { fill(cat); };
+    });
+    var wrap = document.querySelector(".det-wrap");   // 막대→팝업 이동은 유지, 카드 밖으로 나가면 힌트 복귀
+    if (wrap) wrap.onmouseleave = function () { pop.innerHTML = detPopHint(); };
   }
 
   // ───────── 페이지: 실행 제어 ─────────
@@ -392,7 +458,7 @@
   function pageLive() {
     var st = S.status || {}, running = !!st.running;
     if (!running && !S.demo && (!st.status || st.status === "idle"))
-      return emptyState("⏸", "지금 도는 실행이 없습니다", "실행 제어에서 시작하면 진행 단계·남은 시간·공격 진행이 여기 실시간으로 뜹니다.", []);
+      return emptyState("⏸", "진행 중인 실행이 없습니다", "실행 제어에서 시작하면 진행 단계·잔여 시간·공격 진행이 실시간으로 표시됩니다.", []);
 
     var useDemo = S.demo && !running;   // 실제 실행 중이면 데모 아닌 실시간 상태 사용
     var demo = useDemo ? { phase: 2, episode: 1, round: 4, active: "defender", turn_started: Date.now() / 1000 - 48, time_limit_sec: 180, last_verdict: "fake_patch", flags_reached: ["1", "2", "3"], crowns_reached: ["crown-secrets"] } : st;
@@ -514,18 +580,17 @@
     S.defSig = sig;
     view.innerHTML = pageDefGraph(detail, rec, rounds, idx);
     bindDefChips();
+    if (S.defJumpSection) { var js = S.defJumpSection; S.defJumpSection = null; defOpenModal(js); }   // 통계에서 점프 시 해당 섹션 상세 자동 오픈
   }
   function bindDefChips() {
     Array.prototype.forEach.call(document.querySelectorAll("[data-rkey]"), function (b) {
       b.onclick = function () { defSel = b.getAttribute("data-rkey"); pageDefGraphRender(); };
     });
     var more = document.querySelector("[data-defmore]");
-    if (more) more.onclick = function () {
-      if (document.querySelector(".modal-ov")) return;
-      var wrap = document.createElement("div");
-      wrap.innerHTML = defModalHtml(S.defDetail, S.defRec);
-      if (wrap.firstElementChild) { document.body.appendChild(wrap.firstElementChild); bindDefModal(); }
-    };
+    if (more) more.onclick = function () { defOpenModal("all"); };
+    Array.prototype.forEach.call(document.querySelectorAll("[data-defsec]"), function (b) {
+      b.onclick = function () { defOpenModal(b.getAttribute("data-defsec")); };
+    });
   }
   function defEsc(e) { if (e.key === "Escape") closeDefModal(); }
   function closeDefModal() { var m = document.querySelector(".modal-ov"); if (m) m.remove(); document.removeEventListener("keydown", defEsc); }
@@ -536,8 +601,8 @@
     Array.prototype.forEach.call(ov.querySelectorAll(".modal-x"), function (b) { b.onclick = closeDefModal; });
     document.addEventListener("keydown", defEsc);
   }
-  function defModalHtml(detail, rec) {
-    detail = detail || {};
+  function defModalHtml(detail, rec, section) {
+    detail = detail || {}; section = section || "all";
     var d = detail.defense || {}, v = detail.verification || {}, a = detail.attack || {};
     var det = d.detected || [], ps = d.patch_set || [], atts = d.patch_attempts || [];
     var vv = v.verdict ? VERDICT[v.verdict] : null, still = v.flags_still_reachable || [], post = v.post || {};
@@ -550,7 +615,7 @@
       var conf = x.confidence != null ? Math.round(x.confidence * 100) + "%" : "—";
       return '<div class="md-item"><div class="fi-head">' + (x.technique ? '<span class="badge b-def">' + esc(x.technique) + "</span>" : '<span class="chip">기법 미상</span>') + '<span class="fi-conf">확신도 ' + conf + "</span></div>" +
         '<div class="md-ev mono">' + esc(x.evidence || "—") + "</div></div>";
-    }).join("") : '<div class="tile-sub">탐지 없음 (놓침)</div>';
+    }).join("") : '<div class="tile-sub">미탐 — 공격 미식별</div>';
 
     var psBody = (ps.length ? ps.map(function (p) {
       return '<div class="md-item"><div class="fi-head"><span class="badge b-def">' + esc(patchKindLabel(p.kind)) + '</span><span class="fi-tgt mono">' + esc(p.target || "") + "</span></div>" +
@@ -570,9 +635,22 @@
       (still.length ? '<div class="rep-line"><span class="rep-k">재유출 가능</span><span style="color:var(--atk)">' + still.map(stillLabel).join(", ") + "</span></div>" : "") +
       ((post.flags_reached || []).length ? '<div class="rep-line"><span class="rep-k">재생 재도달</span><span class="mono">' + post.flags_reached.map(stillLabel).join(", ") + "</span></div>" : "");
 
+    var title = ({ all: "상세 · 판단 근거", detect: "탐지 상세", patch: "패치 상세", verify: "검증 상세" })[section] || "상세";
+    var secs;
+    if (section === "detect") secs = sec("탐지 (" + det.length + "건)", detBody);
+    else if (section === "patch") secs = sec("패치", psBody);
+    else if (section === "verify") secs = sec("검증 결과", vBody);
+    else secs = sec("① 공격 요약", atkBody) + sec("② 탐지 (" + det.length + "건)", detBody) + sec("③ 패치", psBody) + sec("④ 검증 결과", vBody);
     return '<div class="modal-ov" role="dialog" aria-modal="true"><div class="modal">' +
-      '<div class="modal-h"><span>' + (rec ? (rec.episode || 1) + "회차 R" + rec.round : "") + ' 상세 · 판단 근거</span><button class="modal-x" aria-label="닫기">✕</button></div>' +
-      '<div class="modal-body">' + sec("① 공격 요약", atkBody) + sec("② 탐지 (" + det.length + "건)", detBody) + sec("③ 패치", psBody) + sec("④ 검증 결과", vBody) + "</div></div></div>";
+      '<div class="modal-h"><span>' + (rec ? (rec.episode || 1) + "회차 R" + rec.round : "") + " · " + title + '</span><button class="modal-x" aria-label="닫기">✕</button></div>' +
+      '<div class="modal-body">' + secs + "</div></div></div>";
+  }
+  // 섹션별/전체 상세 모달 열기(중복 방지)
+  function defOpenModal(section) {
+    if (document.querySelector(".modal-ov")) return;
+    var wrap = document.createElement("div");
+    wrap.innerHTML = defModalHtml(S.defDetail, S.defRec, section);
+    if (wrap.firstElementChild) { document.body.appendChild(wrap.firstElementChild); bindDefModal(); }
   }
   function pageDefGraph(detail, rec, rounds, idx) {
     var d = detail.defense || {}, v = detail.verification || {};
@@ -585,14 +663,14 @@
       var conf = x.confidence != null ? Math.round(x.confidence * 100) : null;
       return '<div class="flow-item"><div class="fi-head">' + (x.technique ? '<span class="badge b-def">' + esc(x.technique) + "</span>" : '<span class="chip">기법 미상</span>') + (conf != null ? '<span class="fi-conf">확신도 ' + conf + "%</span>" : "") + "</div>" +
         '<div class="fi-ev mono">' + esc(x.evidence || "—") + "</div>" + (conf != null ? '<div class="conf-bar"><span style="width:' + conf + '%"></span></div>' : "") + "</div>";
-    }).join("") : '<div class="flow-empty">이 라운드엔 탐지 못 함 (놓침)</div>';
+    }).join("") : '<div class="flow-empty">미탐 — 이 라운드 공격 미식별</div>';
 
     var psHtml = ps.length ? ps.map(function (p) {
       return '<div class="flow-item"><div class="fi-head"><span class="badge b-def">' + esc(patchKindLabel(p.kind)) + '</span><span class="fi-tgt mono">' + esc(p.target || "") + "</span></div>" +
         '<div class="fi-ev">' + esc(p.summary || "—") + "</div></div>";
     }).join("") : '<div class="flow-empty">적용한 패치 없음</div>';
     var psFoot = detail.defense ? '<div class="flow-foot">' + (d.patch_applied ? '<span class="badge b-ok">패치 적용</span>' : '<span class="badge b-sys">패치 미적용</span>') +
-      (d.healthcheck_passed ? '<span class="badge b-ok">서비스 정상</span>' : '<span class="badge b-atk">서비스 죽음</span>') + "</div>" : "";
+      (d.healthcheck_passed ? '<span class="badge b-ok">서비스 정상</span>' : '<span class="badge b-atk">서비스 중단</span>') + "</div>" : "";
 
     var still = v.flags_still_reachable || [];
     var vHtml = detail.verification ? '<div class="flow-item"><div class="fi-head">' + (vv ? '<span class="badge ' + vv.cls + '">' + vv.label + "</span>" : '<span class="chip">—</span>') + "</div>" +
@@ -605,11 +683,11 @@
       chips +
       '<div class="section-label">' + (rec.episode || 1) + "회차 R" + rec.round + " · 탐지 → 패치 → 검증</div>" +
       '<div class="grid cols-3 flow">' +
-      '<div class="card flow-card c-def"><div class="card-h">① 탐지 <span class="flow-n">' + det.length + '건</span></div>' + detHtml + "</div>" +
-      '<div class="card flow-card c-teal"><div class="card-h">② 패치 <span class="flow-n">' + ps.length + '건</span></div>' + psHtml + psFoot + "</div>" +
-      '<div class="card flow-card c-' + punchCls + '"><div class="card-h">③ 검증</div>' + vHtml + "</div>" +
+      '<div class="card flow-card c-def"><div class="card-h">① 탐지 <span class="flow-n">' + det.length + '건</span><button class="flow-more" data-defsec="detect">상세</button></div>' + detHtml + "</div>" +
+      '<div class="card flow-card c-teal"><div class="card-h">② 패치 <span class="flow-n">' + ps.length + '건</span><button class="flow-more" data-defsec="patch">상세</button></div>' + psHtml + psFoot + "</div>" +
+      '<div class="card flow-card c-' + punchCls + '"><div class="card-h">③ 검증<button class="flow-more" data-defsec="verify">상세</button></div>' + vHtml + "</div>" +
       "</div>" +
-      '<div style="margin-top:14px"><button class="btn btn-ghost" data-defmore>자세히 보기 · 판단 근거</button></div>';
+      '<div style="margin-top:14px"><button class="btn btn-ghost" data-defmore>전체 상세 · 판단 근거</button></div>';
   }
 
   // ───────── 페이지: 이벤트 로그 ─────────
@@ -631,7 +709,7 @@
     else if (e.type === "attack_turn") body = "공격 차례 종료 · " + esc(reasonLabel(p.end_reason)) + " · 획득 " + num(p.flags) + " · 명령 " + num(p.steps) + "개";
     else if (e.type === "detection") body = '추정 <b>' + esc(p.technique) + '</b> <span class="mono">' + esc((p.evidence || "")).slice(0, 70) + "</span>";
     else if (e.type === "patch") body = '<span class="mono">' + esc((p.detail || (p.kind + " → " + p.target))).slice(0, 90) + "</span>" + (p.applied ? ' <span class="badge b-ok">적용</span>' : ' <span class="badge b-sys">건너뜀</span>');
-    else if (e.type === "defense_turn") body = "방어 차례 · 패치 " + (p.patch_applied ? "함" : "안 함") + " · 탐지 " + num(p.detected) + "건 · 서비스 " + (p.healthcheck_passed ? "정상" : "죽음");
+    else if (e.type === "defense_turn") body = "방어 차례 · 패치 " + (p.patch_applied ? "적용" : "미적용") + " · 탐지 " + num(p.detected) + "건 · 서비스 " + (p.healthcheck_passed ? "정상" : "중단");
     else if (e.type === "verdict") { var v = VERDICT[p.verdict]; body = (v ? '<span class="badge ' + v.cls + '">' + v.label + "</span>" : esc(p.verdict)) + ' <span class="mono">' + esc((p.detail || "")).slice(0, 60) + "</span>"; }
     else body = '<span class="mono">' + esc(JSON.stringify(p)).slice(0, 90) + "</span>";
     return '<div class="ev-row"><span class="ev-ts">' + hhmmss(e.ts) + '</span><span class="ev-type ' + m[0] + '">' + m[1] + '</span><span class="ev-body">R' + (e.round || "?") + " · " + body + "</span></div>";
@@ -704,7 +782,7 @@
       { id: 5, kind: "fact", confidence: 0.9, evidence: "권한 점검 결과 전 영역 비밀 읽기 허용", loot: { readable_secrets: ["db-postgres-admin", "jwt-signing-key", "smtp-credentials", "redis-auth"] }, summary: "관리 계정이 모든 영역의 비밀을 읽을 수 있음",
         desc: "관리용 서비스 계정 하나로 클러스터 전 영역의 비밀 저장소를 읽을 수 있음을 확인했습니다. 사실상 마스터키에 가까운 과도한 권한입니다." },
       { id: 6, kind: "fact", confidence: 0.6, evidence: "응답에 구버전 식별자 노출", summary: "주문 API가 오래된 취약 버전",
-        desc: "주문 처리 API가 알려진 원격 취약점이 있는 구버전으로 떠 있는 걸 확인했습니다. 다만 실제 악용까지는 조건이 더 필요한 상태입니다." },
+        desc: "주문 처리 API가 알려진 원격 취약점이 있는 구버전으로 운영 중임을 확인했습니다. 다만 실제 악용까지는 조건이 더 필요한 상태입니다." },
       { id: 7, kind: "fact", confidence: 0.75, evidence: "운영 런북 페이지에 접속 문자열 기재", loot: "postgresql://app_admin:P@ssw0rd!2024@database.svc:5432/appdb", summary: "위키 문서에 DB 접속정보가 평문 노출",
         desc: "내부 위키의 한 운영 문서에 데이터베이스 접속 주소와 계정·비밀번호가 그대로 적혀 있었습니다. 방어가 이 문서를 치우기 전까진 재사용 가능한 통로입니다." },
       { id: 8, kind: "finding", severity: "critical", technique: "T1078", occurrences: 2, loot: { secret: "db-postgres-admin", username: "app_admin", password: "P@ssw0rd!2024", host: "database.svc:5432", db: "appdb" }, summary: "관리 계정으로 DB 비밀 탈취",
@@ -892,7 +970,7 @@
       ["핵심정보 유출", crowns.length + "종", crowns.length ? crowns.map(crownLabel).join(", ") : "없음", crowns.length ? "accent-atk" : "accent-ok", crowns.length ? C.atk : C.ok],
       ["차단", blocked + "회", "무효 패치 " + fake + "회", "accent-ok", C.ok],
       ["서비스 정상", pct(e.availability), "패치 후 가용성", "accent-def", C.def],
-      ["공격 탐지율", pct(recall), "놓침 " + det.fn + "건", "accent-teal", C.teal],
+      ["공격 탐지율", pct(recall), "미탐 " + det.fn + "건", "accent-teal", C.teal],
       ["최고 침투", (e.max_flag_depth || 0) + "단계", "최대 4", "accent-crown", C.crown]
     ].map(function (t) {
       return '<div class="tile ' + t[3] + '"><div class="tile-k"><span class="tag-dot" style="background:' + t[4] + '"></span>' + t[0] + '</div><div class="tile-v">' + t[1] + "</div>" + (t[2] ? '<div class="tile-sub">' + t[2] + "</div>" : "") + "</div>";
@@ -913,13 +991,13 @@
         reportLine("달성 목표", (e.goals_reached || []).length ? e.goals_reached.join(", ") : "없음") + "</div>" +
       '<div class="card flow-card c-def"><div class="card-h">방어자가 파악한 것</div>' +
         reportLine("탐지한 기법", repList.length ? repList.join(", ") : "없음") +
-        reportLine("탐지 정확도", "정탐 " + det.tp + " · 오탐 " + det.fp + " · 놓침 " + det.fn) +
+        reportLine("탐지 정확도", "정탐 " + det.tp + " · 오탐 " + det.fp + " · 미탐 " + det.fn) +
         reportLine("평균 탐지 소요", mttd.mean_rounds != null ? mttd.mean_rounds + "라운드" : "—") + "</div></div>";
 
     var vbars = barChart([{ label: "차단", value: vc.blocked || 0, color: C.ok }, { label: "무효 패치", value: fake, color: C.atk }, { label: "판정불가", value: vc.inconclusive || 0, color: C.sys }]);
     var rows = rs.map(function (r) {
       var vv = VERDICT[r.verdict], depth = (r.stages_reached || []).length ? Math.max.apply(null, r.stages_reached) : 0;
-      return "<tr><td class='mono'>R" + r.round + "</td><td>" + (vv ? '<span class="badge ' + vv.cls + '">' + vv.label + "</span>" : esc(r.verdict)) + "</td><td class='mono'>" + ((r.reported_techniques || []).join(", ") || "—") + "</td><td class='mono'>" + depth + "단계</td><td>" + (r.healthcheck_passed ? '<span class="badge b-ok">정상</span>' : '<span class="badge b-atk">죽음</span>') + "</td></tr>";
+      return "<tr><td class='mono'>R" + r.round + "</td><td>" + (vv ? '<span class="badge ' + vv.cls + '">' + vv.label + "</span>" : esc(r.verdict)) + "</td><td class='mono'>" + ((r.reported_techniques || []).join(", ") || "—") + "</td><td class='mono'>" + depth + "단계</td><td>" + (r.healthcheck_passed ? '<span class="badge b-ok">정상</span>' : '<span class="badge b-atk">중단</span>') + "</td></tr>";
     }).join("");
     var detail = '<details class="rep-details"><summary>전문가용 상세 보기</summary>' +
       '<div class="section-label">판정 분포</div><div class="card">' + vbars + "</div>" +
@@ -941,7 +1019,7 @@
     return '<div class="empty"><div class="e-mark">' + mark + '</div><h3>' + esc(title) + "</h3><p>" + esc(desc) + "</p>" +
       (feeds && feeds.length ? '<div class="e-feeds">' + feeds.map(function (f) { return '<span class="chip"><span class="tag-dot" style="background:' + f[1] + '"></span>' + esc(f[0]) + "</span>"; }).join("") + "</div>" : "") + "</div>";
   }
-  function demoBanner() { return '<div class="demo-banner"><b>예시 데이터</b> · 아직 실행 로그가 없어 샘플을 보여줍니다. 실행하면 실제 값으로 바뀝니다.</div>'; }
+  function demoBanner() { return '<div class="demo-banner"><b>예시 데이터</b> · 실행 로그가 없어 예시 값을 표시합니다. 실행 시 실제 값으로 대체됩니다.</div>'; }
 
   // ───────── 렌더 ─────────
   async function render() {
@@ -954,7 +1032,7 @@
     if (route === "attack-graph") { await pageAttackGraphRender(); return; }
     if (!REAL[route]) { view.innerHTML = pageStub(route); return; }
     if (route === "posture") view.innerHTML = pagePosture();
-    else if (route === "stats") view.innerHTML = pageStats();
+    else if (route === "stats") { view.innerHTML = pageStats(); bindStatsDetection(); }
     else if (route === "control") { view.innerHTML = pageControl(); bindControl(); }
     else if (route === "live") view.innerHTML = pageLive();
     else if (route === "report") { view.innerHTML = pageReport(); bindRepChips(); }
@@ -998,7 +1076,7 @@
     var running = !!(st && st.running);
     if (running && !_wasRunning) {   // 새 실험 시작 감지 — 지난 실험의 선택·캐시 비워 '현재 실행만' 표시
       agRkey = null; agSel = null; S.agSeen = {}; S.agSig = null;
-      defSel = null; S.defSig = null; repEp = null;
+      defSel = null; S.defSig = null; repEp = null; S.detItems = null;
     }
     // 실행 중(또는 방금 종료)이면 로그 데이터도 재적재하고 현재 보는 개요 페이지를 갱신 — 실시간 반영
     if (running || _wasRunning) {
@@ -1036,7 +1114,7 @@
   async function refreshLivePage() {
     // 선택 상태 없는 개요 페이지만 자동 갱신(그래프·보고서는 사용자 선택 보존 위해 제외 — 재방문 시 최신)
     if (route === "posture") $("#view").innerHTML = pagePosture();
-    else if (route === "stats") $("#view").innerHTML = pageStats();
+    else if (route === "stats") { $("#view").innerHTML = pageStats(); bindStatsDetection(); }
     else if (route === "events") { await loadEvents(); $("#view").innerHTML = pageEvents(); bindEventTabs(); }
     else if (route === "attack-log") { await loadJournal(); $("#view").innerHTML = pageAttackLog(); }
     else if (route === "attack-graph") await pageAttackGraphRender();
