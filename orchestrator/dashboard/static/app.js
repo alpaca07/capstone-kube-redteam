@@ -1021,6 +1021,25 @@
     });
   }
   function agLine(k, v) { return '<div class="rep-line"><span class="rep-k">' + esc(k) + "</span><span>" + esc(v) + "</span></div>"; }
+  // 개요 큐레이션 — 워커가 채운 서술(desc)이 있으면 그대로, 없으면 노드 필드로 우리말 요약 생성
+  function agCuration(n) {
+    if (n.desc) return n.desc;
+    var parts = [];
+    if (n.kind === "finding") {
+      parts.push((n.technique ? n.technique + " 기법으로 " : "") + (n.target ? n.target + " 대상에서 " : "") +
+        (n.severity ? n.severity + " 등급 " : "") + "침해를 확인했습니다.");
+      if (n.occurrences > 1) parts.push("이 발견은 " + n.occurrences + "회 재현돼 일시적 우연이 아님이 확인됐습니다.");
+      if (n.loot != null && n.loot !== "") parts.push("아래 '확보한 데이터'에 실제 탈취 값이 담겨 있습니다.");
+    } else if (n.kind === "fact") {
+      parts.push((n.target ? n.target + " 관련 " : "") + "사실을 확인했습니다.");
+      if (n.evidence) parts.push("관측 근거 — " + n.evidence);
+    } else if (n.kind === "intent") {
+      parts.push((n.target ? n.target + "을(를) 겨냥한 " : "") + "탐색 의도입니다." + (n.why ? " 판단 근거: " + n.why : ""));
+    } else if (n.kind === "goal") {
+      parts.push("이번 회차 공격의 최종 목표입니다. 아래의 모든 의도·사실·발견이 이 목표에서 뻗어 나옵니다.");
+    }
+    return parts.join(" ");
+  }
   function agPanel(nodes) {
     var n = nodes.filter(function (x) { return x.id === agSel; })[0];
     if (!n) return "";
@@ -1032,7 +1051,7 @@
       (n.state ? '<span class="chip ag-state" style="color:' + stateColor(n.state) + ';border-color:' + stateColor(n.state) + '33">' + esc(stateKo(n.state)) + "</span>" : "") +
       (n.severity ? '<span class="chip">심각도 ' + esc(n.severity) + "</span>" : "") + "</div>" +
       '<div class="ag-sum">' + esc(n.summary || "—") + "</div>" +
-      (n.desc ? '<div class="ag-desc">' + esc(n.desc) + "</div>" : "") +
+      (function () { var c = agCuration(n); return c ? '<div class="ag-desc">' + esc(c) + "</div>" : ""; })() +
       (n.loot != null && n.loot !== "" ? '<div class="ag-loot"><div class="ag-loot-h">확보한 데이터</div><pre class="ag-loot-v">' + esc(typeof n.loot === "object" ? JSON.stringify(n.loot, null, 2) : String(n.loot)) + "</pre></div>" : "");
     var body;
     if (agTab === "overview") {
@@ -1047,7 +1066,6 @@
       body = (n.technique ? agLine("MITRE 기법", n.technique) +
           '<div class="rep-line"><span class="rep-k">참고 문서</span><span><a href="' + mitreUrl(n.technique) + '" target="_blank" rel="noopener">MITRE ATT&CK에서 보기 ↗</a></span></div>'
         : '<div class="tile-sub">연결된 MITRE 기법 없음</div>') +
-        (n.anchors && n.anchors.length ? agLine("앵커 자산", n.anchors.join(", ")) : "") +
         '<div class="tile-sub" style="margin-top:10px">제품·CVE 심층 조회(지식그래프)는 다음 단계 브리지에서 연결됩니다.</div>';
     }
     return '<div class="section-label">노드 상세</div><div class="card ag-panel" style="border-top:3px solid ' + col.line + '">' + tabs + head + '<div class="ag-body">' + body + "</div></div>";
@@ -1075,15 +1093,17 @@
     var newSet = {}; nodes.forEach(function (n) { if (n._new) newSet[n.id] = 1; });
     var edgeSvg = edges.map(function (e) {
       var a = pos[e.src], b = pos[e.dst]; if (!a || !b) return "";
-      var fwd = b.x > a.x;                 // 앞으로(열 증가) vs 뒤로(파생 — fact가 새 intent 낳는 등)
-      var x1 = fwd ? a.x + NW : a.x, y1 = a.y + NH / 2;
-      var x2 = fwd ? b.x : b.x + NW, y2 = b.y + NH / 2;
       var hot = (agSel === e.src || agSel === e.dst), isNew = newSet[e.dst] || newSet[e.src];
-      var d;
-      if (fwd) { var mx = (x1 + x2) / 2; d = "M" + x1 + " " + y1 + " C" + mx + " " + y1 + " " + mx + " " + y2 + " " + x2 + " " + y2; }
-      else {                              // 뒤로 가는 엣지는 위로 둥글게 — 노드 뒤를 가로지르지 않게. 위쪽 8px 밑으로 클램프(화면 밖 이탈 방지)
-        var my = Math.max(8, Math.min(y1, y2) - Math.max(26, Math.abs(y2 - y1) * 0.55));
-        d = "M" + x1 + " " + y1 + " C" + (x1 + 30) + " " + my + " " + (x2 - 30) + " " + my + " " + x2 + " " + y2;
+      var y1 = a.y + NH / 2, y2 = b.y + NH / 2, d;
+      if (Math.abs(b.x - a.x) < 1) {        // 같은 열(파생 등) — 왼쪽으로 살짝 빼 세로로 잇는다(겹침·끊김 방지)
+        var lx = Math.max(2, a.x - 20);
+        d = "M" + a.x + " " + y1 + " C" + lx + " " + y1 + " " + lx + " " + y2 + " " + b.x + " " + y2;
+      } else if (b.x > a.x) {               // 앞으로(열 증가)
+        var x1 = a.x + NW, x2 = b.x, mx = (x1 + x2) / 2;
+        d = "M" + x1 + " " + y1 + " C" + mx + " " + y1 + " " + mx + " " + y2 + " " + x2 + " " + y2;
+      } else {                              // 뒤로(파생) — 위로 둥글게, 위쪽 8px 밑으로 클램프(화면 밖 이탈 방지)
+        var bx1 = a.x, bx2 = b.x + NW, my = Math.max(8, Math.min(y1, y2) - Math.max(26, Math.abs(y2 - y1) * 0.55));
+        d = "M" + bx1 + " " + y1 + " C" + (bx1 + 30) + " " + my + " " + (bx2 - 30) + " " + my + " " + bx2 + " " + y2;
       }
       return '<path class="ag-edge' + (isNew ? " ag-new" : "") + (hot ? " ag-hot" : "") + '" d="' + d +
         '" fill="none" stroke="' + relColor(e.rel) + '" stroke-width="' + (hot ? 2.2 : 1.3) + '" opacity="' + (hot ? 0.95 : 0.32) + '"' + (isNew ? ' style="animation-delay:280ms"' : "") + "/>";
@@ -1307,14 +1327,16 @@
     if (r === "attack-graph") { S.agSeen = {}; S.agSig = null; }   // 진입 시 등장 애니메이션 재생
     route = r; closeSidebar(); render();
   }
-  function closeSidebar() { $("#sidebar").classList.remove("open"); $("#nav-toggle").setAttribute("aria-expanded", "false"); }
+  function closeSidebar() { $("#sidebar").classList.remove("open"); var bd = $("#sidebar-backdrop"); if (bd) bd.classList.remove("on"); $("#nav-toggle").setAttribute("aria-expanded", "false"); }
 
   async function boot() {
     buildNav();
     $("#nav-toggle").onclick = function () {
       var sb = $("#sidebar"), open = sb.classList.toggle("open");
+      var bd = $("#sidebar-backdrop"); if (bd) bd.classList.toggle("on", open);
       this.setAttribute("aria-expanded", open ? "true" : "false");
     };
+    var _bd = $("#sidebar-backdrop"); if (_bd) _bd.onclick = closeSidebar;
     window.addEventListener("hashchange", onHash);
     // 속성 블록 호버 설명 — 위임 방식(렌더마다 바인딩 불필요)
     document.addEventListener("mouseover", function (e) {

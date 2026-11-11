@@ -75,6 +75,17 @@ def _external_running(prog: dict) -> bool:
     return bool(prog.get("status") == "running" and updated and (time.time() - updated) < window)
 
 
+def _pkill_orchestrator() -> bool:
+    """pid 없을 때 폴백 — 모듈명으로 orchestrator.main 종료(대시보드와 같은 사용자). 대시보드는
+    orchestrator.dashboard 라 매칭 안 됨. 1건이라도 종료하면 True."""
+    try:
+        r = subprocess.run(["pkill", "-TERM", "-f", "-m orchestrator.main"],
+                           capture_output=True, timeout=5)
+        return r.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 # 지난 실행 내역(회차 로그·라운드 상세·공격 그래프 스냅샷)을 runs_archive/<ts>/ 로 이관.
 # 라이브 디렉토리를 비워 "지금 실행 중인 실험"만 남긴다. runs.jsonl·progress.json 은 보존.
 _ARCHIVE_JSONL = ("rounds.jsonl", "episodes.jsonl", "events.jsonl", "attack_journal.jsonl")
@@ -225,8 +236,13 @@ def run_stop() -> JSONResponse:
             try:
                 os.kill(pid, signal.SIGTERM)
                 return JSONResponse({"ok": True, "stopped": True, "external": True})
-            except (ProcessLookupError, PermissionError) as e:
-                return JSONResponse({"ok": False, "stopped": False, "error": f"외부 실행 종료 실패: {e}"})
+            except ProcessLookupError:
+                pass                                  # 이미 죽음 → pkill 폴백으로
+            except PermissionError as e:
+                return JSONResponse({"ok": False, "stopped": False, "error": f"외부 실행 종료 권한 없음: {e}"})
+        killed = _pkill_orchestrator()                # pid 없음(구버전 런) 또는 위 실패 — 모듈명 폴백
+        return JSONResponse({"ok": killed, "stopped": killed, "external": True,
+                             "error": None if killed else "orchestrator.main 프로세스를 찾지 못했습니다(권한·이름 확인)"})
     return JSONResponse({"ok": True, "stopped": False})
 
 
