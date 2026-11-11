@@ -1,0 +1,35 @@
+{
+  "_note": "핵심층 환경 — 권한상승 제어 악용(T1548). 저널 2회·1차 KG 후보 풀에도 존재. 조건 문법은 postgres.json(canonical). 심은 설정취약점이라 cve 없음(cwe 만). 컨테이너에 부여된 과다 capability(CAP_SYS_ADMIN 등)·setuid·sudo 설정 악용. 진행도만(Falco→T1548), 상승 자체는 비크라운.",
+
+  "env": "cap-abuse",
+  "technique": "T1548",
+  "cwe": "CWE-250",
+
+  "procedure": {
+    "id": "PROC-capabuse-sudo-setuid",
+    "name": "과다 capability·setuid 악용 권한상승",
+    "description": "컨테이너에 부여된 과다 Linux capability(CAP_SYS_ADMIN 등)나 setuid 바이너리·sudo 설정을 악용해 컨테이너 내 권한을 상승한다.",
+    "status": "AUTHORED"
+  },
+
+  "preconditions": [
+    {
+      "id": "PRE-capabuse-excess-cap",
+      "name": "과다 capability 또는 setuid·sudo 경로 존재",
+      "description": "컨테이너 보안컨텍스트에 불필요한 capability 가 있거나 setuid 바이너리·느슨한 sudo 설정이 존재.",
+      "config": {"key": "excess_capabilities_present", "expected_value": "true", "operator": "eq"}
+    }
+  ],
+
+  "expected_results": [
+    {
+      "id": "ER-capabuse-progress-elev",
+      "name": "권한상승 제어 악용 흔적 (진행도)",
+      "kind": "progress",
+      "outcome": {"id": "AO-privilege-escalation", "name": "권한 상승"},
+      "conditions": [
+        {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1548"}
+      ]
+    }
+  ]
+}

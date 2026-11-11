@@ -1,0 +1,35 @@
+{
+  "_note": "핵심층 환경 — 네트워크 서비스 탐색(T1046). 저널 8회·1차 KG 후보 풀엔 없어 자기지식 태깅되던 기법 → 2차 보강. 조건 문법은 postgres.json(canonical). 심은 구성노출이라 cve 없음(cwe 만). frontend 발판에서 DNS(SRV)·ClusterIP 대역 포트스캔으로 내부 서비스 열거. 탐색이라 크라운 없음, 진행도만(Falco→T1046).",
+
+  "env": "svc-discovery",
+  "technique": "T1046",
+  "cwe": "CWE-200",
+
+  "procedure": {
+    "id": "PROC-svcdisco-cluster-enum",
+    "name": "발판에서 클러스터 내부 서비스 열거",
+    "description": "frontend 발판 파드에서 클러스터 DNS(SRV 질의)와 ClusterIP 대역(10.43.0.0/16) 포트스캔으로 admin-dashboard·internal-wiki·database 등 내부 서비스를 열거한다.",
+    "status": "AUTHORED"
+  },
+
+  "preconditions": [
+    {
+      "id": "PRE-svcdisco-internal-egress",
+      "name": "발판 + 내부망 egress 가능",
+      "description": "frontend 발판 접근점이 있고 내부 서비스 대역으로 DNS·TCP egress 를 막는 제어가 없음.",
+      "config": {"key": "internal_egress_open", "expected_value": "true", "operator": "eq"}
+    }
+  ],
+
+  "expected_results": [
+    {
+      "id": "ER-svcdisco-progress-enum",
+      "name": "내부 서비스 열거 흔적 (진행도)",
+      "kind": "progress",
+      "outcome": {"id": "AO-discovery", "name": "탐색"},
+      "conditions": [
+        {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1046"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "_note": "핵심층 환경 — 대체 인증수단 사용(T1550). 저널 8회·1차 KG 후보 풀에도 존재. T1552(자격증명 수집)→T1550(재사용)→크라운 체인의 재사용 단계. 조건 문법은 postgres.json(canonical). 심은 운영취약점이라 cve 없음(cwe 만). 수집한 Bearer/서비스계정 토큰을 admin-dashboard 내부 엔드포인트·k8s API 에 재사용. 크라운=내부 비밀 read / 진행도=재사용 인증 접근(K8s 감사→T1550).",
+
+  "env": "token-reuse",
+  "technique": "T1550",
+  "cwe": "CWE-287",
+
+  "procedure": {
+    "id": "PROC-tokenreuse-bearer-apiaccess",
+    "name": "수집한 Bearer·서비스계정 토큰 재사용",
+    "description": "선행 단계에서 확보한 평문 Bearer 토큰이나 마운트된 서비스계정 토큰을 admin-dashboard 내부 엔드포인트·k8s API 서버에 재사용해 인증을 우회하고 민감 자산을 읽는다.",
+    "status": "AUTHORED"
+  },
+
+  "preconditions": [
+    {
+      "id": "PRE-tokenreuse-token-obtained",
+      "name": "유효 Bearer·서비스계정 토큰 확보",
+      "description": "T1552 등 선행 단계로 평문 토큰/자격증명을 확보했고 대상 대시보드·API 가 그 토큰을 수용함.",
+      "config": {"key": "captured_token_accepted", "expected_value": "true", "operator": "eq"}
+    }
+  ],
+
+  "expected_results": [
+    {
+      "id": "ER-tokenreuse-crown-read",
+      "name": "admin-dashboard 내부 비밀 read (크라운)",
+      "kind": "crown",
+      "outcome": {"id": "AO-data-exposure", "name": "민감 데이터 유출"},
+      "conditions": [
+        {"channel": "crown", "field": "asset", "operator": "in", "expected": ["internal_secrets", "customers_pii"]}
+      ]
+    },
+    {
+      "id": "ER-tokenreuse-progress-auth",
+      "name": "재사용 토큰 인증 접근 흔적 (진행도)",
+      "kind": "progress",
+      "outcome": {"id": "AO-auth-bypass", "name": "인증 우회"},
+      "conditions": [
+        {"channel": "audit", "field": "technique", "operator": "eq", "expected": "T1550"}
+      ]
+    }
+  ]
+}

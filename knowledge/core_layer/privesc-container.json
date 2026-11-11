@@ -1,0 +1,44 @@
+{
+  "_note": "핵심층 환경 — 권한상승 익스플로잇(T1068). 저널상 가장 빈번(14회)한데 1차 KG 후보 풀엔 없어 플래너 자기지식으로 태깅되던 기법 → 2차 절차로 보강(1차 공백을 2차가 메움). 조건 문법은 postgres.json(canonical). 심은 설정취약점이라 cve 없음(cwe 만). Kubernetes Goat 특권 컨테이너/hostPath 시나리오 기반. 크라운=노드 호스트 민감파일 read / 진행도=컨테이너→노드 상승 흔적(Falco→T1068). 유효 채널: crown/audit/falco/cluster_state.",
+
+  "env": "privesc-container",
+  "technique": "T1068",
+  "cwe": "CWE-250",
+
+  "procedure": {
+    "id": "PROC-privesc-privileged-container",
+    "name": "특권 컨테이너·hostPath 악용 노드 권한상승",
+    "description": "privileged 설정이나 hostPath 마운트를 가진 파드에서 호스트 네임스페이스·파일시스템에 접근해 노드 수준 권한으로 상승한다.",
+    "status": "AUTHORED"
+  },
+
+  "preconditions": [
+    {
+      "id": "PRE-privesc-privileged-pod",
+      "name": "특권 컨테이너 또는 hostPath 마운트 존재",
+      "description": "대상 파드가 privileged:true 이거나 호스트 경로를 마운트해 컨테이너 경계를 넘어 노드 자원에 접근 가능.",
+      "config": {"key": "privileged_container_present", "expected_value": "true", "operator": "eq"}
+    }
+  ],
+
+  "expected_results": [
+    {
+      "id": "ER-privesc-crown-hostfile",
+      "name": "노드 호스트 민감파일 read (크라운)",
+      "kind": "crown",
+      "outcome": {"id": "AO-data-exposure", "name": "민감 데이터 유출"},
+      "conditions": [
+        {"channel": "crown", "field": "asset", "operator": "in", "expected": ["internal_secrets", "customers_pii"]}
+      ]
+    },
+    {
+      "id": "ER-privesc-progress-escape",
+      "name": "컨테이너→노드 권한상승 흔적 (진행도)",
+      "kind": "progress",
+      "outcome": {"id": "AO-privilege-escalation", "name": "권한 상승"},
+      "conditions": [
+        {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1068"}
+      ]
+    }
+  ]
+}
