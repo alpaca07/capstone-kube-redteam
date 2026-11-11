@@ -29,6 +29,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Callable, Optional
 
 from common.messages import (
@@ -36,6 +37,7 @@ from common.messages import (
     DefenseTurnResult, DefenseTurnStart, Foothold,
 )
 
+from .attack_stream import AttackJournalStreamer
 from .clients import AttackerClient, DefenderClient
 from .events import EventSink, record_round_events
 from .flags import FlagRegistry
@@ -237,8 +239,11 @@ class TurnSequencer:
         self._emit(round=rnd, phase=1, active="attacker", turn_started=time.time())
         self._log(f"[ep{episode} R{rnd}] 1. 공격 턴…")
         _t = time.time()
-        attack: AttackTurnResult = self._call(
-            lambda: self.attacker.attack_turn(start, episode=episode, round=rnd), "attack_turn")
+        # 공격 턴 중 공격자 저널을 실시간 미러(attack_journal.jsonl) — 대시보드 '공격 저널' 스트리밍.
+        _out_root = str(Path(self.detail_dir).parent) if self.detail_dir else None
+        with AttackJournalStreamer(self.attacker, _out_root, episode=episode, round=rnd, log=self._log):
+            attack: AttackTurnResult = self._call(
+                lambda: self.attacker.attack_turn(start, episode=episode, round=rnd), "attack_turn")
         self._log(f"[ep{episode} R{rnd}]    → 공격 종료={attack.end_reason.value} "
                   f"대본={len(attack.replay_script.steps) if attack.replay_script else 0}스텝 "
                   f"({time.time() - _t:.0f}s)")

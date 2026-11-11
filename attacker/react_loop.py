@@ -7,9 +7,14 @@ LLM·실행은 주입(execute_action이 실행 손발) → fake로 전 루프 �
 """
 from __future__ import annotations
 
+import json
 import os
 import time
 from typing import Callable, Optional, Protocol
+
+# 저널 마커 — 스텝 실행 결과를 기존 self.log 체인에 흘려 하네스가 구조화 포집(실시간 저널).
+# 하네스 로그 래퍼가 이 마커를 보면 파싱해 저널 버퍼에 넣고 stdout 출력은 생략한다.
+_JOURNAL_MARK = "\x1e@journal "
 
 from common.llm_client import LLMTimeout
 from common.messages import AttackEndReason, AttackTurnResult
@@ -140,6 +145,10 @@ class ReActLoop:
             # 스텝당 한 줄: llm(생성+파싱, 실제 호출수) / exec(명령) / step합 / 남은예산 / 무슨 명령이었는지
             self.log(f"[공격 step {i+1}] llm={llm_sec:.1f}s(calls={n_calls}) exec={exec_sec:.1f}s "
                      f"step={llm_sec+exec_sec:.1f}s 남은={remain:.0f}s | {_action_hint(action)}{blocked}")
+            # 실시간 저널 — 스텝 구조화 기록(도구·인자·성공여부)을 로그 체인으로 하네스에 전달
+            self.log(_JOURNAL_MARK + json.dumps(
+                {"tool": action.tool, "args": [str(a) for a in action.args],
+                 "ok": bool(obs.success), "blocked": bool(obs.blocked)}, ensure_ascii=False))
             if os.environ.get("ATTACK_DEBUG_RAW"):   # 디버그: 전체 thought+명령 원본(저널로). 평소엔 off.
                 _full = (action.tool + " " + " ".join(action.args)).strip()
                 self.log(f"[raw step {i+1}] thought={action.thought!r}")

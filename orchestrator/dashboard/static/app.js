@@ -44,7 +44,7 @@
     budget: "예산 소진", max_steps: "명령 한도", error: "오류", patched: "패치 완료", skipped: "건너뜀" })[r] || r || "—"; }
 
   // ───────── 상태 ─────────
-  var S = { rounds: [], episodes: [], runs: [], events: [], status: {}, demo: false, runCount: 0 };
+  var S = { rounds: [], episodes: [], runs: [], events: [], journal: [], status: {}, demo: false, runCount: 0 };
   var route = DEFAULT_ROUTE, evTab = "all", defSel = null, repEp = null, agRkey = null, agSel = null, agTab = "overview", _wasRunning = false;
 
   // ───────── 유틸 ─────────
@@ -655,10 +655,16 @@
     return '<div class="jr' + (p.flag ? " jr-flag" : "") + '"><span class="jr-ts">' + t + '</span><span class="jr-r">' + r + '</span>' +
       '<span class="jr-cmd mono">' + (cmd ? esc(cmd) : '<span class="jr-dim">(명령 없음)</span>') + '</span><span class="jr-meta">' + badge + nd + "</span></div>";
   }
+  // 실시간 저널 우선(attack_journal.jsonl, 턴 중 스트리밍) → 없으면 이벤트 로그의 공격자 항목으로 폴백
+  async function loadJournal() {
+    var j = (await jget("/api/attack_journal")) || [];
+    if (!j.length) { await loadEvents(); j = S.events.filter(function (e) { return e.actor === "attacker"; }); }
+    S.journal = j;
+  }
   function pageAttackLog() {
-    var evs = S.events.filter(function (e) { return e.actor === "attacker"; });
+    var evs = S.journal || [];
     if (!evs.length)
-      return (S.demo ? demoBanner() : "") + emptyState("📓", "아직 공격 저널이 없습니다", "공격 턴이 돌면 실행한 명령과 결과가 라운드별로 여기 쌓입니다.", []);
+      return (S.demo ? demoBanner() : "") + emptyState("📓", "아직 공격 저널이 없습니다", "공격 턴이 시작되면 실행한 명령과 결과가 실시간으로 쌓입니다.", []);
     var nSteps = 0, nFlag = 0;
     evs.forEach(function (e) { if (e.type === "attack_step") { nSteps++; if ((e.payload || {}).flag) nFlag++; } });
     var rows = evs.slice().reverse().map(journalRow).join("");
@@ -942,7 +948,7 @@
     var view = $("#view"); $("#page-title").textContent = TITLES[route] || route;
     setActiveNav();
     if (route === "events") { await loadEvents(); view.innerHTML = pageEvents(); bindEventTabs(); return; }
-    if (route === "attack-log") { await loadEvents(); view.innerHTML = pageAttackLog(); return; }
+    if (route === "attack-log") { await loadJournal(); view.innerHTML = pageAttackLog(); return; }
     if (route === "defender-arch") { view.innerHTML = '<p class="page-intro">구성도 불러오는 중…</p>'; var topo = await loadTopology(); if (route === "defender-arch") view.innerHTML = pageArch(topo); return; }
     if (route === "defender-graph") { await pageDefGraphRender(); return; }
     if (route === "attack-graph") { await pageAttackGraphRender(); return; }
@@ -1032,7 +1038,7 @@
     if (route === "posture") $("#view").innerHTML = pagePosture();
     else if (route === "stats") $("#view").innerHTML = pageStats();
     else if (route === "events") { await loadEvents(); $("#view").innerHTML = pageEvents(); bindEventTabs(); }
-    else if (route === "attack-log") { await loadEvents(); $("#view").innerHTML = pageAttackLog(); }
+    else if (route === "attack-log") { await loadJournal(); $("#view").innerHTML = pageAttackLog(); }
     else if (route === "attack-graph") await pageAttackGraphRender();
     else if (route === "defender-graph") { if (!document.querySelector(".modal-ov")) await pageDefGraphRender(); }
     else if (route === "defender-arch") { var topo = await loadTopology(); if (route === "defender-arch") $("#view").innerHTML = pageArch(topo); }

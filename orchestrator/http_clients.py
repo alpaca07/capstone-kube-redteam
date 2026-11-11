@@ -78,6 +78,15 @@ class HttpAttackerClient(_BaseHttpClient):
         env = self._post(req, episode=episode, round=round, timeout=_REPLAY_TIMEOUT)
         return env.payload_as(ReplayResult)
 
+    def journal(self, since: int = 0) -> dict:
+        """공격 저널 증분 조회(스트리밍 폴러용). 봉투 아님 — {entries, next} 평문.
+        실패·미지원(구버전 하네스)이면 빈 결과({})로 조용히 넘어간다(저널은 보조)."""
+        try:
+            return self.transport(f"{self.base_url}/journal",
+                                  {"since": int(since)}, _SHORT_TIMEOUT) or {}
+        except Exception:    # noqa: BLE001 — 폴링 실패가 턴을 깨면 안 됨
+            return {}
+
     def status(self) -> AgentStatus:
         return self._status()
 

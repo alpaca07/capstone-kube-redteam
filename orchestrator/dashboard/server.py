@@ -69,7 +69,7 @@ def _running() -> bool:
 
 # 지난 실행 내역(회차 로그·라운드 상세·공격 그래프 스냅샷)을 runs_archive/<ts>/ 로 이관.
 # 라이브 디렉토리를 비워 "지금 실행 중인 실험"만 남긴다. runs.jsonl·progress.json 은 보존.
-_ARCHIVE_JSONL = ("rounds.jsonl", "episodes.jsonl", "events.jsonl")
+_ARCHIVE_JSONL = ("rounds.jsonl", "episodes.jsonl", "events.jsonl", "attack_journal.jsonl")
 _ARCHIVE_DIRS = ("round_detail", "defense_topology", "attack_graph")
 
 
@@ -118,6 +118,13 @@ def runs_list() -> JSONResponse:
 @app.get("/api/events")
 def events(limit: int = 800) -> JSONResponse:
     evs = _read_jsonl(_LOGS / "events.jsonl")
+    return JSONResponse(evs[-limit:] if limit and limit > 0 else evs)
+
+
+@app.get("/api/attack_journal")
+def attack_journal_feed(limit: int = 600) -> JSONResponse:
+    """실시간 공격 저널(스트리머가 턴 중 미러한 스텝). 이벤트 로그(events.jsonl)와 소스 분리."""
+    evs = _read_jsonl(_LOGS / "attack_journal.jsonl")
     return JSONResponse(evs[-limit:] if limit and limit > 0 else evs)
 
 

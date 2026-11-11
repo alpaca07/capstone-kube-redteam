@@ -14,6 +14,9 @@ replay_request로 되돌려주므로 하네스는 저장하지 않는다(statele
 """
 from __future__ import annotations
 
+import collections
+import json
+import threading
 import time
 from pathlib import Path
 from typing import Callable, Optional
@@ -26,7 +29,7 @@ from common.messages import (
 
 from .execute_action import ActionExecutor, CommandRunner
 from .history import AttackHistory
-from .react_loop import ReActLoop
+from .react_loop import ReActLoop, _JOURNAL_MARK
 from .replay_engine import ReplayEngine
 from .scope import ScopePolicy, default_policy
 
@@ -61,7 +64,13 @@ class AttackHarness:
         self.runner = runner
         self.scope = scope_policy
         self.system_prompt = system_prompt
-        self.log = log or _harness_log      # 병렬 경로 가시성(주입 가능 → 테스트에서 캡처)
+        # 실시간 저널 — 스텝 로그를 포집해 버퍼에 쌓고(/journal 로 VM C가 증분 폴링), 나머진 그대로 출력.
+        self._base_log = log or _harness_log
+        self._journal: "collections.deque" = collections.deque(maxlen=600)
+        self._jlock = threading.Lock()
+        self._jseq = 0
+        self._cur_round = 0
+        self.log = self._journaling_log     # 병렬 경로 가시성(주입 가능 → 테스트에서 캡처)
         self.session_id = session_id
         self.max_steps = max_steps
         self.step_timeout = step_timeout
@@ -89,8 +98,42 @@ class AttackHarness:
             self._kg_lookup = None
             self._proc_lookup = None
 
+    # ── 실시간 저널(스텝 스트리밍) ──
+    def _journaling_log(self, msg: str) -> None:
+        """로그 체인 종단 — 저널 마커면 포집하고 stdout엔 안 흘림, 그 외는 그대로 출력."""
+        i = msg.find(_JOURNAL_MARK)
+        if i < 0:
+            self._base_log(msg)
+            return
+        intent = msg[:i].strip()                       # 마커 앞 접두(워커/의도 태그)
+        try:
+            d = json.loads(msg[i + len(_JOURNAL_MARK):])
+        except (ValueError, TypeError):
+            return
+        with self._jlock:
+            self._jseq += 1
+            self._journal.append({
+                "seq": self._jseq, "ts": time.time(), "round": self._cur_round,
+                "intent": intent, "tool": d.get("tool", ""), "args": d.get("args") or [],
+                "ok": bool(d.get("ok")), "blocked": bool(d.get("blocked")),
+            })
+
+    def _journal_reset(self, round: int) -> None:
+        """턴 시작마다 저널 비움 — 폴러는 since=0 부터 이번 턴 증분만 받는다."""
+        with self._jlock:
+            self._journal.clear()
+            self._jseq = 0
+            self._cur_round = round
+
+    def journal_since(self, since: int = 0) -> tuple:
+        """seq > since 인 저널 항목과 현재 head seq. (/journal 엔드포인트용)."""
+        with self._jlock:
+            entries = [dict(e) for e in self._journal if e["seq"] > since]
+            return entries, self._jseq
+
     # ── attack_turn_start → attack_turn_result (공격 모드) ──
     def attack_turn(self, start: AttackTurnStart, *, episode: int, round: int) -> AttackTurnResult:
+        self._journal_reset(round)          # 새 턴 = 새 저널(폴러 since=0 정합)
         if self.mode == "parallel" and self.planner_llm is not None:
             return self._attack_turn_parallel(start, episode=episode, round=round)
         return self._attack_turn_single(start, episode=episode, round=round)
@@ -289,18 +332,30 @@ def create_harness(cfg, *, prompt: Optional[str] = None, runner=None, llm=None) 
 
 
 def create_app(harness: AttackHarness):
-    """FastAPI 앱 — VM C가 POST하는 요청타입 경로를 harness로 디스패치. (fastapi lazy import)"""
-    from fastapi import FastAPI
+    """FastAPI 앱 — VM C가 POST하는 요청타입 경로를 harness로 디스패치. (fastapi lazy import)
+
+    핸들러는 sync(def) — FastAPI가 스레드풀에서 돌려 이벤트 루프를 막지 않는다. 그래서
+    attack_turn 이 길게 도는 동안에도 /journal(실시간 저널 폴링)이 동시에 응답한다.
+    """
+    from fastapi import Body, FastAPI
     from fastapi.responses import JSONResponse
     app = FastAPI(title="VM A 공격 하네스")
 
     @app.post("/status")
-    async def _status():                       # noqa: ANN202
+    def _status():                             # noqa: ANN202
         return wrap(harness.status()).model_dump(mode="json")
 
+    @app.post("/journal")
+    def _journal(body: dict = Body(default={})):   # noqa: ANN202 — 실시간 저널 증분(since 이후)
+        try:
+            since = int((body or {}).get("since", 0) or 0)
+        except (TypeError, ValueError):
+            since = 0
+        entries, nxt = harness.journal_since(since)
+        return {"entries": entries, "next": nxt}
+
     @app.post("/{msg_type}")
-    async def _handle(msg_type: str, request: Request):   # noqa: ANN202
-        body = await request.json()
+    def _handle(msg_type: str, body: dict = Body(...)):   # noqa: ANN202
         try:
             return handle_message(harness, body)
         except Exception as e:                 # noqa: BLE001
