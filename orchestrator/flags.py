@@ -136,6 +136,23 @@ def default_registry() -> FlagRegistry:
                 query="대상 네임스페이스에 PodSecurity enforce 가 없어 privileged/hostPath 파드가 admission 되나",
                 expect="enforce=baseline 이상이면 거부 → not vulnerable"),
         ),
+        # [가] 권한상승 분기 — 핵심층 신규 절차(privesc-container/cap-abuse) 관측화. 비-digit id(①~④ 불변).
+        FlagSpec(
+            flag_id="esc-privesc", kind=FlagKind.STATE, mitre="T1068",
+            description="특권 컨테이너·hostPath 상승 행위로 노드 권한상승(Exploitation for Privilege Escalation)",
+            state_check=StateCheck(
+                check_id="esc-privesc",
+                query="대상 네임스페이스에 PodSecurity enforce 가 없어 privileged/hostPath 파드가 admission 되나",
+                expect="enforce=baseline 이상이면 거부 → not vulnerable"),
+        ),
+        FlagSpec(
+            flag_id="priv-capabuse", kind=FlagKind.STATE, mitre="T1548",
+            description="과다 capability·setuid 악용 권한상승(Abuse Elevation Control Mechanism)",
+            state_check=StateCheck(
+                check_id="priv-capabuse",
+                query="컨테이너 securityContext 에 불필요한 capability(CAP_SYS_ADMIN 등)나 setuid 바이너리가 남아있나",
+                expect="capability drop + allowPrivilegeEscalation=false 면 not vulnerable"),
+        ),
         # Discovery 분기(detect-only: 전용 차단 패치 없음 — 방어자는 '보고만' 하는 게 정답)
         FlagSpec(
             flag_id="disc-net", kind=FlagKind.STATE, mitre="T1046",

@@ -70,3 +70,32 @@ customRules:
         proc=%proc.name cmd=%proc.cmdline)
       priority: NOTICE
       tags: [network, mitre_network_service_discovery, T1046]
+    # ── [가] 권한상승 익스플로잇 (T1068) — 핵심층 privesc-container 절차 관측화 ──
+    - rule: Privilege escalation in container
+      desc: >-
+        공격자 파드가 컨테이너 경계를 넘는 상승 행위(mount·setns·unshare syscall, nsenter) 수행 =
+        T1068 권한상승 익스플로잇. 'Escape to host filesystem'(T1611, /host 파일 read)과 구분 —
+        이쪽은 상승 '행위'(네임스페이스/마운트 조작), 저쪽은 호스트 파일 '열람'. 정상 워크로드는 이
+        syscall 을 거의 쓰지 않으므로 공격 근사. ★VM-B 실제 privesc 시나리오 pod·syscall 에 맞춰 튜닝.
+      condition: >-
+        container and (evt.type in (mount, setns, unshare) or proc.name=nsenter)
+        and not k8s.ns.name in (kube-system, falco, observability)
+      output: >-
+        Privilege escalation in container (ns=%k8s.ns.name pod=%k8s.pod.name
+        proc=%proc.name evt=%evt.type)
+      priority: WARNING
+      tags: [process, mitre_privilege_escalation, T1068]
+    # ── [가] 권한상승 제어 악용 (T1548) — 핵심층 cap-abuse 절차 관측화 ──
+    - rule: Elevation control abuse
+      desc: >-
+        컨테이너 내 권한상승 제어 악용 — setuid syscall 호출이나 capability 조작 툴(capsh/setcap)
+        실행 = T1548. 정상 워크로드엔 드문 행위라 공격 근사. ★VM-B 실제 cap-abuse 시나리오의
+        setuid 바이너리·툴 집합에 맞춰 튜닝.
+      condition: >-
+        container and (evt.type=setuid
+        or (spawned_process and proc.name in (capsh, setcap)))
+      output: >-
+        Elevation control abuse (ns=%k8s.ns.name pod=%k8s.pod.name
+        proc=%proc.name cmd=%proc.cmdline)
+      priority: WARNING
+      tags: [process, mitre_abuse_elevation_control, T1548]

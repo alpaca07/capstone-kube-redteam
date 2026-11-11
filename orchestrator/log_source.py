@@ -10,6 +10,7 @@ Protocol(logs.py) 뒤에 끼우는 실제 층. 설계 핵심: '로그 줄 → �
   Falco:      컨테이너 셸 → T1059 / 발판→DB connect → T1210(③) / 발판 wget·curl → T1552.001(①)
   [Wave1] 감사: admin-sa configmaps→T1552.001 · pods create→T1610 · namespaces→T1613 ·
                selfsubject*review→T1069   Falco: 호스트 /host read→T1611 · 포트스캐너→T1046
+  [가] Falco: 특권컨테이너 상승행위(mount/nsenter)→T1068 · setuid/capability 악용→T1548 (핵심층 신규 절차 관측화)
   신규 기법은 여기 매핑만 추가하면 sequencer._build_truth 가 자동으로 truth 에 넣어 탐지 채점한다.
 """
 from __future__ import annotations
@@ -71,6 +72,10 @@ def map_falco_event(ev: dict) -> Optional[str]:
         return "T1611"   # [Wave1] 컨테이너 탈출 — /host 민감파일 read
     if rule == "Port scan from foothold":
         return "T1046"   # [Wave1] 네트워크 서비스 탐색 — 포트 스캐너 기동
+    if rule == "Privilege escalation in container":
+        return "T1068"   # [가] 권한상승 익스플로잇 — 특권 컨테이너 mount/nsenter 상승 행위(T1611 /host read 와 구분)
+    if rule == "Elevation control abuse":
+        return "T1548"   # [가] 권한상승 제어 악용 — setuid 호출·capability 조작(capsh/setcap)
     return None
 
 

@@ -194,6 +194,12 @@ def test_map_falco_wave1_escape_and_portscan():
     assert map_falco_event({"rule": "Port scan from foothold"}) == "T1046"
 
 
+def test_map_falco_privesc_and_capabuse():
+    # [가] 핵심층 신규 절차 관측화 — 규칙명은 falco-values customRules 와 1:1
+    assert map_falco_event({"rule": "Privilege escalation in container"}) == "T1068"
+    assert map_falco_event({"rule": "Elevation control abuse"}) == "T1548"
+
+
 def _reader(lines):
     return lambda: iter(lines)
 
