@@ -142,6 +142,19 @@ class AttackHarness:
             entries = [dict(e) for e in self._journal if e["seq"] > since]
             return entries, self._jseq
 
+    def graph_snapshot(self) -> dict:
+        """현재 회차 탐색 그래프 스냅샷 + 회차 번호. (/graph 엔드포인트용, 실시간 그래프).
+        턴 중 워커가 그래프를 채우는 동안에도 읽어, 대시보드가 노드 생성을 실시간으로 본다.
+        best-effort — 읽다 깨지거나 그래프가 아직 없으면 빈 그래프."""
+        g = self._graph
+        if g is None or not hasattr(g, "snapshot"):
+            return {"episode": self._graph_episode, "graph": {"nodes": [], "edges": []}}
+        try:
+            snap = g.snapshot()
+        except Exception:                 # noqa: BLE001 — 폴링 읽기 실패가 턴을 깨면 안 됨
+            return {"episode": self._graph_episode, "graph": {"nodes": [], "edges": []}}
+        return {"episode": self._graph_episode, "graph": snap}
+
     # ── attack_turn_start → attack_turn_result (공격 모드) ──
     def attack_turn(self, start: AttackTurnStart, *, episode: int, round: int) -> AttackTurnResult:
         # 턴 직렬화: 오케스트레이터 재시도·read-timeout 등으로 공격 턴 요청이 겹쳐 들어와도 한 번에
@@ -370,6 +383,10 @@ def create_app(harness: AttackHarness):
             since = 0
         entries, nxt = harness.journal_since(since)
         return {"entries": entries, "next": nxt}
+
+    @app.post("/graph")
+    def _graph():                              # noqa: ANN202 — 실시간 탐색 그래프 스냅샷
+        return harness.graph_snapshot()
 
     @app.post("/{msg_type}")
     def _handle(msg_type: str, body: dict = Body(...)):   # noqa: ANN202

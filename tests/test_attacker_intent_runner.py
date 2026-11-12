@@ -288,8 +288,8 @@ def test_intent_budget_and_settle_clamped_to_round_deadline():
     assert none.react_timeouts[0] > 60, none.react_timeouts      # 클램프 미적용
 
 
-# ── 정착 실패 폴백: 깨진 JSON이어도 의도는 안 잃고 폴백 fact 남김 ──
-def test_settlement_failure_falls_back_to_summary_fact():
+# ── 정착 실패여도 의도는 안 잃되, 소득 없으면 자리표시 사실 노드를 만들지 않음 ──
+def test_settlement_failure_leaves_no_placeholder_fact():
     g = InMemoryGraph()
     iid = g.add_intent({"summary": "x"})
     g.claim_next("w")
@@ -299,10 +299,8 @@ def test_settlement_failure_falls_back_to_summary_fact():
     from attacker.exec_lane import WorkerContext
     runner = IntentRunner(llm, IntentRunnerConfig(system_prompt="s", round_goal="g"))
     outcome = runner(g, WorkerContext(lane, "w"), intent)
-    assert outcome.state == IntentState.DONE          # 의도는 완료로
-    facts = g.recent_facts()
-    assert len(facts) == 1                             # 폴백 fact 하나는 남음
-    assert facts[0].payload["confidence"] == "inferred"
+    assert outcome.state == IntentState.DONE          # 의도는 완료로(안 잃음)
+    assert len(g.recent_facts()) == 0                  # '의도 #N 탐색 결과' 자리표시 노드 없음
 
 
 # ── ★ 풀스택: 플래너→풀→의도실행기 (LLM만 fake, 나머지 전부 실제) ──

@@ -297,6 +297,11 @@ button { font-family: inherit; }
   font-size: 11.5px; line-height: 1.5; padding: 7px 10px; border-radius: 8px; box-shadow: var(--shadow-pop); pointer-events: none; }
 .badge, .chip, .jr-ok, .jr-fail, .jr-nd, .det-coll { cursor: default; }
 
+/* 진행 중(라이브) 라운드 칩 */
+.rchip-live { border-color: var(--teal); color: var(--teal-600); font-weight: 700; }
+.ag-live-dot { background: var(--teal); animation: livepulse 1.1s ease-in-out infinite; }
+@keyframes livepulse { 0%,100% { box-shadow: 0 0 0 0 var(--teal-ring); } 50% { box-shadow: 0 0 0 4px transparent; } }
+
 /* 회차 종합 칩 */
 .rchip-agg { border-style: dashed; color: var(--teal-600); font-weight: 700; }
 .rchip-agg:hover { background: var(--teal-soft); }

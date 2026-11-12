@@ -93,7 +93,7 @@
     },
     state: {
       "실행 중": "워커가 이 의도를 지금 수행 중", "차단": "이 의도가 경로 차단으로 중단됨",
-      "막다름": "더 시도할 수단이 없어 탐색이 막힘", "완료": "이 의도를 끝까지 수행함",
+      "완료": "이 의도를 끝까지 수행함",
       "대기": "아직 착수 전(프런티어 대기)", "중단": "외부 중지로 멈춤",
       "확인됨": "관측으로 확인된 사실", "포착": "침해 신호를 포착한 발견"
     }
@@ -259,6 +259,9 @@
       byEp[e].sort(function (a, b) { return a.round - b.round; });
       var chips = byEp[e].map(function (r) {
         var key = (r.episode || 1) + "-" + r.round, on = key === selKey;
+        if (r._live)   // 진행 중 라운드 — 맥동 점으로 구분
+          return '<button class="rchip rchip-live' + (on ? " on" : "") + '" ' + attr + '="' + key + '">' +
+            '<span class="tag-dot ag-live-dot"></span>R' + r.round + " 진행</button>";
         var rv = VERDICT[r.verdict], col = rv ? rv.color : C.muted;
         return '<button class="rchip' + (on ? " on" : "") + '" ' + attr + '="' + key + '"' +
           (on ? ' style="border-color:' + col + ";color:" + col + '"' : "") +
@@ -1092,10 +1095,23 @@
     return { rec: rounds[idx] || null, aggEp: null };
   }
   async function pageAttackGraphRender() {
-    var view = $("#view"), rounds = S.rounds, g;
-    var sel = resolveRoundSel(rounds, agRkey), rec = sel.rec, aggEp = sel.aggEp;
-    var selKey = agRkey || (rec ? (rec.episode || 1) + "-" + rec.round : "");
-    if (S.demo || !rounds.length) {
+    var view = $("#view"), g, st = S.status || {};
+    var rounds = (S.rounds || []).slice();
+    // 진행 중 라운드는 아직 rounds.jsonl 에 없다 — 실행 중이면 진행 상태(progress)로 라이브 라운드를
+    // 만들어 목록에 넣고 기본 선택한다. 백엔드 스트리머가 그 라운드 그래프 파일을 턴 중 갱신하므로,
+    // 2.5초 폴링마다 새 노드가 '뿅' 하고 추가되는 게 보인다.
+    var live = null;
+    if (st.running && st.episode) {
+      var lk = st.episode + "-" + (st.round || 1);
+      if (!rounds.some(function (r) { return (r.episode || 1) + "-" + r.round === lk; })) {
+        live = { episode: st.episode, round: st.round || 1, _live: true };
+        rounds.push(live);
+      }
+    }
+    var defKey = (live && agRkey == null) ? (live.episode + "-" + live.round) : agRkey;
+    var sel = resolveRoundSel(rounds, defKey), rec = sel.rec, aggEp = sel.aggEp;
+    var selKey = defKey || (rec ? (rec.episode || 1) + "-" + rec.round : "");
+    if ((S.demo || !S.rounds.length) && !live) {
       g = demoAttackGraph();
     } else if (rec) {
       var d = await jget("/api/attack_graph/" + (rec.episode || 1) + "/" + rec.round);
@@ -1171,7 +1187,7 @@
       '<button class="tab' + (agTab === "knowledge" ? " active" : "") + '" data-agtab="knowledge">지식</button></div>';
     var head = '<div class="ag-ph"><span class="badge" style="background:' + col.bg + ";color:" + col.line + '">' + kindLabelFull(n.kind) + "</span>" +
       (n.technique ? '<span class="badge b-atk">' + esc(n.technique) + "</span>" : "") +
-      (n.state ? '<span class="chip ag-state" style="color:' + stateColor(n.state) + ';border-color:' + stateColor(n.state) + '33">' + esc(stateKo(n.state)) + "</span>" : "") +
+      (n.state && n.state !== "exhausted" ? '<span class="chip ag-state" style="color:' + stateColor(n.state) + ';border-color:' + stateColor(n.state) + '33">' + esc(stateKo(n.state)) + "</span>" : "") +
       (n.severity ? '<span class="chip">심각도 ' + esc(n.severity) + "</span>" : "") + "</div>" +
       '<div class="ag-sum">' + esc(n.summary || "—") + "</div>" +
       (function () { var c = agCuration(n); return c ? '<div class="ag-desc">' + esc(c) + "</div>" : ""; })() +
@@ -1235,13 +1251,15 @@
     var nodeSvg = nodes.map(function (n) {
       var p = pos[n.id]; if (!p) return "";
       var col = kindColor(n.kind), sel = (agSel === n.id);
-      var dead = n.kind === "intent" && (n.state === "blocked" || n.state === "exhausted" || n.state === "stopped");
+      // 막다름(exhausted=시간예산 소진)은 거의 모든 미결 의도에 붙는 흔한 상태라 태그에서 제외 —
+      // 사점(점선·흐림) 표기는 실제 중단 사유인 차단·중단만.
+      var dead = n.kind === "intent" && (n.state === "blocked" || n.state === "stopped");
       var cls = "ag-node" + (n._new ? " ag-new" : "") + (n.state === "running" ? " ag-run" : "") + (dead ? " ag-dead" : "") + (n.kind === "finding" ? " ag-find" : "");
       var delay = n._new ? (nIdx++ * 55) : 0;
       var l1 = kindLabel(n.kind) + (n.technique ? " · " + esc(n.technique) : "");
       var l2 = esc(truncate(n.summary || kindLabel(n.kind), 15));
-      // 상태 뱃지(대기·완료 외에만) — 점선/흐림이 '깨짐'이 아니라 '차단·실행 중' 표기임을 노드에서 바로 알림
-      var showSt = n.kind === "intent" && n.state && n.state !== "open" && n.state !== "done";
+      // 상태 뱃지 — 대기·완료·막다름 외 의미 있는 상태(실행 중·차단·중단·확인됨·포착)만.
+      var showSt = n.kind === "intent" && n.state && n.state !== "open" && n.state !== "done" && n.state !== "exhausted";
       var stBadge = showSt ? '<text x="' + (p.x + NW - 11) + '" y="' + (p.y + 21) + '" text-anchor="end" font-size="8.5" font-weight="700" fill="' + stateColor(n.state) + '">' + esc(stateKo(n.state)) + "</text>" : "";
       return '<g class="' + cls + '" data-nid="' + n.id + '"' + (delay ? ' style="animation-delay:' + delay + 'ms"' : "") + ' opacity="' + (dead ? 0.9 : 1) + '">' +
         '<rect x="' + p.x + '" y="' + p.y + '" width="' + NW + '" height="' + NH + '" rx="10" fill="' + col.bg + '" stroke="' + col.line + '" stroke-width="' + (sel ? 2.6 : 1.2) + '"' + (dead ? ' stroke-dasharray="5 3"' : "") + "/>" +
@@ -1254,7 +1272,7 @@
       ["spawns", "yields", "proves", "derived_from"].map(function (r) { return '<span title="' + esc(relDesc(r)) + '"><span style="display:inline-block;width:15px;height:0;border-top:2px solid ' + relColor(r) + '"></span> ' + relLabel(r) + "</span>"; }).join("") + "</div>" +
       '<div class="legend ag-legend-st"><span class="agl-k">상태</span>' +
       '<span><span class="agls agls-run"></span>실행 중(맥동)</span>' +
-      '<span><span class="agls agls-dead"></span>차단·막다름(점선·흐림)</span>' +
+      '<span><span class="agls agls-dead"></span>차단·중단(점선·흐림)</span>' +
       '<span><span class="agls agls-done"></span>완료</span></div></div>';
     var chips = (rounds && rounds.length) ? roundChipsHtml(rounds, selKey || "", "data-agrk") : "";
     var ctx = aggEp ? aggEp + "회차 종합 · 누적 그래프" : (rec ? (rec.episode || 1) + "회차 R" + rec.round : "예시");

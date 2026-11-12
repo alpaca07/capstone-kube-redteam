@@ -290,11 +290,9 @@ class IntentRunner:
                                        severity=sev, evidence=ev, technique="T1552")
                 self.log(f"{tag} 기계적 침해 신호 → finding({sev})")
 
-        if not facts:
-            # 폴백: 기계적 요약이라도 남겨 의도가 빈손으로 끝나지 않게(음성 결론 포함)
-            facts = [FactDraft(summary=f"의도 #{intent.id} 탐색 결과",
-                               detail=history.summarize(), confidence="inferred")]
-
+        # 의도가 소득 없이 끝나면(사실·침해 모두 없음) 자리표시 사실 노드를 만들지 않는다 —
+        # 그래프에 '의도 #N 탐색 결과' 같은 빈 노드가 쌓이지 않게. 음성 결론은 저널·off-KG 에
+        # 남고, 자식 사실 없는 의도 노드 자체가 '탐색했으나 소득 없음'을 나타낸다.
         fact_ids = [graph.add_fact(fd.to_payload(source_step_ids), intent_id=intent.id)
                     for fd in facts]
         if finding is not None:

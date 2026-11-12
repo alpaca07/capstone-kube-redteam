@@ -87,6 +87,14 @@ class HttpAttackerClient(_BaseHttpClient):
         except Exception:    # noqa: BLE001 — 폴링 실패가 턴을 깨면 안 됨
             return {}
 
+    def graph(self) -> dict:
+        """현재 탐색 그래프 스냅샷 조회(실시간 그래프 폴러용). 봉투 아님 — {episode, graph} 평문.
+        실패·미지원(구버전 하네스)이면 빈 결과({})로 조용히 넘어간다(그래프 미러는 보조)."""
+        try:
+            return self.transport(f"{self.base_url}/graph", {}, _SHORT_TIMEOUT) or {}
+        except Exception:    # noqa: BLE001 — 폴링 실패가 턴을 깨면 안 됨
+            return {}
+
     def status(self) -> AgentStatus:
         return self._status()
 
