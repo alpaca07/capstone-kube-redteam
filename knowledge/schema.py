@@ -66,6 +66,10 @@ KNOWLEDGE_SOURCES = {
     # query.py 출처 사다리의 'llm'(confidence 0.50)과 같은 키. 승격은 god-view(학습런)가.
     "llm": {"id": "KS-llm-authored", "name": "LLM 자동 저작(THEORETICAL)", "source_type": "AUTOMATED",
             "url": ""},
+    # 공수 루프 off-KG 포획 승급 출처 — LLM 제안(llm)과 달리 god-view 실증(OBSERVED/VERIFIED).
+    # 2단 반영의 3단(실증 승급): KG에 없던 기법으로 달성한 침해를 공수 루프가 포획해 올린다.
+    "coevolution": {"id": "KS-coevolution-loop", "name": "공수 루프 off-KG 포획(실증)",
+                    "source_type": "LEARNED", "url": ""},
 }
 
 # 지식 신뢰 수준(검증 사다리) — 2단 자동 저작은 THEORETICAL 로 들어오고,
