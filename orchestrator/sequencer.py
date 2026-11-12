@@ -248,8 +248,11 @@ class TurnSequencer:
         self._log(f"[ep{episode} R{rnd}] 1. 공격 턴…")
         _t = time.time()
         # 공격 턴 중 공격자 저널을 실시간 미러(attack_journal.jsonl) — 대시보드 '공격 저널' 스트리밍.
-        _out_root = str(Path(self.detail_dir).parent) if self.detail_dir else None
-        with AttackJournalStreamer(self.attacker, _out_root, episode=episode, round=rnd, log=self._log):
+        # detail_dir(=로그 루트, round_detail/·attack_graph/ 와 같은 곳)에 그대로 떨군다. 대시보드가
+        # 읽는 경로와 일치해야 '공격 저널'이 산다(과거 .parent 오류로 한 단계 위에 써서 미연결됐었다).
+        _out_root = str(self.detail_dir) if self.detail_dir else None
+        with AttackJournalStreamer(self.attacker, _out_root, episode=episode, round=rnd,
+                                   log=self._log, run_id=self.params.run_id):
             attack: AttackTurnResult = self._call(
                 lambda: self.attacker.attack_turn(start, episode=episode, round=rnd), "attack_turn")
         self._log(f"[ep{episode} R{rnd}]    → 공격 종료={attack.end_reason.value} "

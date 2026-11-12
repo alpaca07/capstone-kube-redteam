@@ -21,11 +21,13 @@ class AttackJournalStreamer:
     """with 블록 동안 공격자 저널을 attack_journal.jsonl 로 미러한다(데몬 스레드)."""
 
     def __init__(self, attacker, out_dir: Optional[str], *, episode: int, round: int,
-                 interval: float = 1.5, log: Optional[Callable[[str], None]] = None) -> None:
+                 interval: float = 1.5, log: Optional[Callable[[str], None]] = None,
+                 run_id: str = "") -> None:
         self.attacker = attacker
         self.path = (Path(out_dir) / "attack_journal.jsonl") if out_dir else None
         self.episode = episode
         self.round = round
+        self.run_id = run_id              # 실행 식별자 — 레코드에 박아 대시보드가 회차별 분리
         self.interval = interval
         self.log = log or (lambda m: None)
         self._stop = threading.Event()
@@ -68,6 +70,7 @@ class AttackJournalStreamer:
         for e in entries:
             lines.append(json.dumps({
                 "ts": e.get("ts") or time.time(),
+                "run_id": self.run_id,
                 "episode": self.episode,
                 "round": e.get("round") or self.round,
                 "actor": "attacker",

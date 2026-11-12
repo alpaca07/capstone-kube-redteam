@@ -12,6 +12,7 @@ build_sequencer 는 I/O 없이 조립만 하므로 테스트 가능(실제 연�
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -135,6 +136,31 @@ def _params_from_args(cfg: Config, args: argparse.Namespace) -> RunParams:
         force_crown=args.force_crown)
 
 
+def _append_run_manifest(path: str, params: RunParams, cfg: Config) -> None:
+    """실행 시작 시 회차 설정을 runs.jsonl 에 한 줄 남긴다 — 대시보드가 로그를 회차별로 나누고
+    각 회차의 초기 설정값(에피소드·라운드·제한시간·토큰·대상)을 보여주는 소스. 대시보드 /api/run 이
+    쓰는 줄과 같은 모양({id,started,params}) + 출처·대상 보강. 쓰기 실패는 실험을 멈추지 않는다."""
+    rec = {
+        "id": params.run_id,
+        "started": time.time(),
+        "source": "cli",
+        "params": {
+            "episodes": params.episodes,
+            "max_rounds": params.max_rounds,
+            "time_limit": params.time_limit_sec,
+            "max_tokens": params.max_tokens,
+        },
+        "objective_mode": getattr(cfg.experiment, "objective_mode", ""),
+        "target_assets": list(getattr(cfg.experiment, "target_assets", []) or []),
+        "target_vm": getattr(cfg.vmware, "target_vm_name", ""),
+    }
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="K8s 공수 공진화 오케스트레이터(VM C)")
     ap.add_argument("--config", default=None, help="config.yaml 경로(기본: 탐색)")
@@ -179,8 +205,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     sink = jsonl_file_sink(rounds_path)
     off_kg_sink = off_kg_file_sink(off_kg_path)   # off-KG 포획 저널(승격은 개발기 knowledge/promote.py)
     progress = ProgressSink(progress_path)       # 실시간 진행 상태(/api/status 소스)
-    events = EventSink(jsonl_event_sink(events_path))   # 행위 이벤트 스트림(이벤트 로그·타임라인 소스)
+    events = EventSink(jsonl_event_sink(events_path), run_id=params.run_id)  # 행위 이벤트(이벤트 로그·타임라인 소스)
     detail_dir = args.out_dir                    # round_detail/ · defense_topology/ 를 여기 아래 떨굼
+    _append_run_manifest(os.path.join(args.out_dir, "runs.jsonl"), params, cfg)  # 회차 설정 기록(대시보드 분리용)
 
     seq = build_sequencer(cfg, sink=sink, progress=progress,
                           events=events, detail_dir=detail_dir,

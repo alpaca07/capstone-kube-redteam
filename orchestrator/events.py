@@ -40,12 +40,13 @@ def _warn_event_fail(where: str, exc: Exception) -> None:
 class EventSink:
     """행위 이벤트를 받아 write 콜백으로 흘리는 sink(없으면 무동작)."""
 
-    def __init__(self, write: Optional[Callable[[dict], None]] = None) -> None:
+    def __init__(self, write: Optional[Callable[[dict], None]] = None, *, run_id: str = "") -> None:
         self._write = write
+        self._run_id = run_id              # 실행 식별자 — 레코드에 박아 대시보드가 회차별 분리
 
     def emit(self, type: str, *, actor: str, episode: int, round: int,
              payload: Optional[dict] = None, phase: Optional[int] = None) -> dict:
-        ev = {"ts": time.time(), "episode": episode, "round": round,
+        ev = {"ts": time.time(), "run_id": self._run_id, "episode": episode, "round": round,
               "phase": phase, "actor": actor, "type": type, "payload": payload or {}}
         if self._write is not None:
             try:

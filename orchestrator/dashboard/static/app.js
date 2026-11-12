@@ -49,7 +49,7 @@
 
   // ───────── 상태 ─────────
   var S = { rounds: [], episodes: [], runs: [], events: [], journal: [], status: {}, demo: false, runCount: 0, detItems: null };
-  var route = DEFAULT_ROUTE, evTab = "all", defSel = null, repEp = null, agRkey = null, agSel = null, agTab = "overview", agLogView = "intent", _wasRunning = false;
+  var route = DEFAULT_ROUTE, evTab = "all", defSel = null, repEp = null, agRkey = null, agSel = null, agTab = "overview", agLogView = "intent", evRun = null, jRun = null, _wasRunning = false;
 
   // ───────── 유틸 ─────────
   function $(sel, el) { return (el || document).querySelector(sel); }
@@ -813,13 +813,102 @@
   }
 
   // ───────── 페이지: 이벤트 로그 ─────────
-  async function loadEvents() { S.events = (await jget("/api/events")) || []; if (!S.events.length) S.events = demoEvents(); }
+  // ───────── 로그 회차(실행) 분리 ─────────
+  // 이벤트·저널 로그는 실행을 여러 번 돌리면 한 파일에 누적된다. 레코드에 run_id 가 박혀 있으면
+  // 그걸로, 없으면(구기록) 에피소드·라운드가 되돌아가는 지점으로 실행 경계를 잡아 회차별로 나눈다.
+  function runSegments(records) {
+    var segs = [], cur = null, prevK = -1;
+    (records || []).forEach(function (e) {
+      var k = (e.episode || 1) * 10000 + (e.round || 1);
+      var rid = e.run_id || (e.payload && e.payload.run_id) || null, fresh;
+      if (cur === null) fresh = true;
+      else if (rid && cur.runId) fresh = (rid !== cur.runId);
+      else if (rid && !cur.runId) fresh = true;        // 구기록 → 스탬프 전환 경계
+      else fresh = (k < prevK);                         // 카운터 되돌아감 = 새 실행
+      if (fresh) { cur = { runId: rid, records: [] }; segs.push(cur); }
+      cur.records.push(e); prevK = k;
+    });
+    segs.forEach(function (s, i) {
+      s.idx = i;
+      var ts = []; s.records.forEach(function (r) { if (r.ts) ts.push(r.ts); });
+      s.startTs = ts.length ? Math.min.apply(null, ts) : 0;
+      s.endTs = ts.length ? Math.max.apply(null, ts) : 0;
+      s.dur = (s.endTs && s.startTs) ? (s.endTs - s.startTs) : 0;
+      var eps = {}, rnds = {};
+      s.records.forEach(function (r) { eps[r.episode || 1] = 1; rnds[(r.episode || 1) + "-" + (r.round || 1)] = 1; });
+      s.nEp = Object.keys(eps).length; s.nRnd = Object.keys(rnds).length;
+      s.man = manifestFor(s.runId);
+    });
+    return segs;
+  }
+  function manifestFor(runId) {
+    if (!runId) return null;
+    var rs = S.runs || [];
+    for (var i = 0; i < rs.length; i++) if (rs[i].id === runId) return rs[i];
+    return null;
+  }
+  function segKey(s) { return s ? (s.runId || ("t" + s.startTs)) : ""; }
+  function pickSeg(segs, sel) {
+    if (!segs.length) return null;
+    if (sel) for (var i = 0; i < segs.length; i++) if (segKey(segs[i]) === sel) return segs[i];
+    return segs[segs.length - 1];                        // 기본 = 최신 실행
+  }
+  function durLabel(sec) {
+    sec = Math.round(sec || 0);
+    if (sec < 60) return sec + "초";
+    var m = Math.floor(sec / 60), s = sec % 60;
+    return s ? (m + "분 " + s + "초") : (m + "분");
+  }
+  function whenLabel(ts) {
+    if (!ts) return "—";
+    var d = new Date(ts * 1000), now = new Date();
+    var hm = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
+    return d.toDateString() === now.toDateString() ? hm : ((d.getMonth() + 1) + "/" + d.getDate() + " " + hm);
+  }
+  function runConfigLine(s) {
+    if (!s) return "";
+    var man = s.man, p = man && man.params;
+    if (p) {
+      var tok = (p.max_tokens == null || p.max_tokens === 0) ? "무제한" : num(p.max_tokens);
+      var tgt = (man.target_assets && man.target_assets.length) ? man.target_assets.join(", ") : "전체";
+      return "회차 " + num(p.episodes) + " · 라운드 " + num(p.max_rounds) +
+        " · 제한 " + num(p.time_limit) + "s · 토큰 " + tok + " · 대상 " + esc(tgt);
+    }
+    return "에피소드 " + s.nEp + " · 라운드 " + s.nRnd + " · 설정 미상";
+  }
+  // 회차 피커 — 최신 먼저. 실행이 하나뿐이면 숨김. attr=선택용 데이터 속성.
+  function runPickerHtml(segs, selKey, attr) {
+    if (segs.length <= 1) return "";
+    var selK = segKey(pickSeg(segs, selKey));
+    var chips = segs.map(function (s) {
+      var on = segKey(s) === selK, latest = (s.idx === segs.length - 1);
+      return '<button class="runchip' + (on ? " on" : "") + '" ' + attr + '="' + segKey(s) + '">' +
+        '<span class="runchip-n">실행 ' + (s.idx + 1) + (latest ? ' <span class="runchip-new">최신</span>' : "") + "</span>" +
+        '<span class="runchip-meta">' + whenLabel(s.startTs) + " · " + durLabel(s.dur) + "</span></button>";
+    });
+    chips.reverse();
+    return '<div class="runpick">' + chips.join("") + "</div>";
+  }
+  function runCfgHtml(seg) {
+    if (!seg) return "";
+    return '<div class="runcfg"><span class="runcfg-when">' + whenLabel(seg.startTs) + " · " + durLabel(seg.dur) +
+      '</span><span class="runcfg-set">' + runConfigLine(seg) + "</span></div>";
+  }
+
+  async function loadEvents() {
+    var r = await Promise.all([jget("/api/events"), jget("/api/runs")]);
+    S.events = r[0] || []; S.runs = r[1] || S.runs || [];
+    if (!S.events.length) S.events = demoEvents();
+  }
   function pageEvents() {
+    var segs = runSegments(S.events), seg = pickSeg(segs, evRun);
+    var recs = seg ? seg.records : S.events;
     var tabs = [["all", "전체"], ["attacker", "공격"], ["defender", "방어"], ["judge", "심판"]];
     var tabHtml = tabs.map(function (t) { return '<button class="tab ' + (evTab === t[0] ? "active" : "") + '" data-tab="' + t[0] + '">' + t[1] + "</button>"; }).join("");
-    var evs = S.events.filter(function (e) { return evTab === "all" || e.actor === evTab; }).slice().reverse();
+    var evs = recs.filter(function (e) { return evTab === "all" || e.actor === evTab; }).slice().reverse();
     var rows = evs.length ? evs.map(evRow).join("") : '<div class="tile-sub" style="padding:14px">이벤트 없음</div>';
     return (S.demo ? demoBanner() : "") +
+      runPickerHtml(segs, evRun, "data-evrun") + runCfgHtml(seg) +
       '<div class="tabs">' + tabHtml + "</div>" +
       '<div class="card" style="padding:6px 8px">' + rows + "</div>";
   }
@@ -857,7 +946,8 @@
   }
   // 실시간 저널 우선(attack_journal.jsonl, 턴 중 스트리밍) → 없으면 이벤트 로그의 공격자 항목으로 폴백
   async function loadJournal() {
-    var j = (await jget("/api/attack_journal")) || [];
+    var r = await Promise.all([jget("/api/attack_journal"), jget("/api/runs")]);
+    var j = r[0] || []; S.runs = r[1] || S.runs || [];
     S.journalLive = j.length > 0;      // 실시간 스트림 소스 여부(없으면 라운드 종료 집계로 폴백 — 의도 정보 없음)
     if (!j.length) { await loadEvents(); j = S.events.filter(function (e) { return e.actor === "attacker"; }); }
     S.journal = j;
@@ -901,9 +991,11 @@
     }).join("");
   }
   function pageAttackLog() {
-    var evs = S.journal || [];
-    if (!evs.length)
+    var all = S.journal || [];
+    if (!all.length)
       return (S.demo ? demoBanner() : "") + emptyState("📓", "아직 공격 저널이 없습니다", "공격 턴이 시작되면 실행한 명령과 결과가 실시간으로 쌓입니다.", []);
+    var segs = runSegments(all), seg = pickSeg(segs, jRun);
+    var evs = seg ? seg.records : all;
     var nSteps = 0, nFlag = 0, intents = {};
     evs.forEach(function (e) { if (e.type === "attack_step") { nSteps++; if ((e.payload || {}).flag) nFlag++; var k = (e.payload || {}).intent; if (k) intents[k] = 1; } });
     var nIntents = Object.keys(intents).length;
@@ -911,16 +1003,20 @@
       '<button class="tab' + (agLogView === "time" ? " active" : "") + '" data-logview="time">시간순</button></div>';
     var body = agLogView === "intent" ? journalGrouped(evs) : ('<div class="journal">' + evs.slice().reverse().map(journalRow).join("") + "</div>");
     return (S.demo ? demoBanner() : "") +
+      runPickerHtml(segs, jRun, "data-jrun") + runCfgHtml(seg) +
       '<div class="jhead"><span class="jhead-m"><span class="jhead-k">실행 명령</span><span class="jhead-v">' + nSteps + "건</span></span>" +
       (nIntents ? '<span class="jhead-m"><span class="jhead-k">의도</span><span class="jhead-v">' + nIntents + "개</span></span>" : "") +
       (nFlag ? '<span class="jhead-m"><span class="jhead-k">목표 획득</span><span class="jhead-v atk">' + nFlag + "건</span></span>" : "") +
       '<span class="jhead-note">실행 중 자동 갱신(라운드 종료 시 반영)</span></div>' +
-      (!S.journalLive ? '<div class="jwarn">실시간 저널 미연결 — 라운드 종료 집계만 표시되어 의도 정보가 없습니다(그래서 \'의도 외\'). 오케스트레이터(VM C)가 최신 코드로 실행 중인지 확인하세요.</div>' : "") +
+      (!S.journalLive ? '<div class="jwarn">실시간 저널 미연결 — 라운드 종료 집계만 표시되어 의도 정보가 없습니다. 오케스트레이터(VM C)가 최신 코드로 실행 중인지 확인하세요.</div>' : "") +
       tabs + body;
   }
   function bindAttackLog() {
     Array.prototype.forEach.call(document.querySelectorAll("[data-logview]"), function (b) {
       b.onclick = function () { agLogView = b.getAttribute("data-logview"); $("#view").innerHTML = pageAttackLog(); bindAttackLog(); };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-jrun]"), function (b) {
+      b.onclick = function () { jRun = b.getAttribute("data-jrun"); $("#view").innerHTML = pageAttackLog(); bindAttackLog(); };
     });
   }
 
@@ -1240,6 +1336,9 @@
     });
   }
   function bindEventTabs() {
+    Array.prototype.forEach.call(document.querySelectorAll("[data-evrun]"), function (b) {
+      b.onclick = function () { evRun = b.getAttribute("data-evrun"); $("#view").innerHTML = pageEvents(); bindEventTabs(); };
+    });
     Array.prototype.forEach.call(document.querySelectorAll(".tab"), function (b) {
       b.onclick = function () { evTab = b.getAttribute("data-tab"); $("#view").innerHTML = pageEvents(); bindEventTabs(); };
     });
@@ -1337,6 +1436,7 @@
       this.setAttribute("aria-expanded", open ? "true" : "false");
     };
     var _bd = $("#sidebar-backdrop"); if (_bd) _bd.onclick = closeSidebar;
+    var _sc = $("#sidebar-close"); if (_sc) _sc.onclick = closeSidebar;
     window.addEventListener("hashchange", onHash);
     // 속성 블록 호버 설명 — 위임 방식(렌더마다 바인딩 불필요)
     document.addEventListener("mouseover", function (e) {
