@@ -49,7 +49,7 @@
 
   // ───────── 상태 ─────────
   var S = { rounds: [], episodes: [], runs: [], events: [], journal: [], status: {}, demo: false, runCount: 0, detItems: null };
-  var route = DEFAULT_ROUTE, evTab = "all", defSel = null, repEp = null, agRkey = null, agSel = null, agTab = "overview", agLogView = "intent", evRun = null, jRun = null, _wasRunning = false;
+  var route = DEFAULT_ROUTE, evTab = "all", defSel = null, repEp = null, agRkey = null, agSel = null, agTab = "overview", agLogView = "intent", evRun = null, jRun = null, agView = null, agLogOpen = null, _wasRunning = false;
 
   // ───────── 유틸 ─────────
   function $(sel, el) { return (el || document).querySelector(sel); }
@@ -397,11 +397,14 @@
       (opts.footer ? '<div class="tile-sub" style="margin-top:10px">' + opts.footer + "</div>" : "") + "</div>";
   }
   function bindDrill() {
+    S.drillSel = S.drillSel || {};
     Array.prototype.forEach.call(document.querySelectorAll("[data-drillcard]"), function (card) {
-      var cfg = (S.drill || {})[card.getAttribute("data-drillcard")];
+      var id = card.getAttribute("data-drillcard"), cfg = (S.drill || {})[id];
       if (!cfg) return;
       var pop = card.querySelector(".det-pop");
-      function fill(cat) {
+      function fill(cat) {                      // 클릭 시 열림 — 선택 유지(재렌더에도)
+        S.drillSel[id] = cat;
+        Array.prototype.forEach.call(card.querySelectorAll(".det-col"), function (c) { c.classList.toggle("on", c.getAttribute("data-drill") === cat); });
         var arr = (cfg.items || {})[cat] || [], tot = arr.reduce(function (s, x) { return s + (x.delta || 1); }, 0);
         pop.innerHTML = '<div class="det-pop-h">' + cfg.names[cat] + " · " + tot + "건</div>" +
           (arr.length ? arr.map(function (x) {
@@ -415,11 +418,10 @@
       }
       Array.prototype.forEach.call(card.querySelectorAll(".det-col"), function (col) {
         var cat = col.getAttribute("data-drill");
-        col.onmouseenter = function () { fill(cat); };
-        col.onfocus = function () { fill(cat); };
+        col.onclick = function () { fill(cat); };
+        col.onkeydown = function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fill(cat); } };
       });
-      var wrap = card.querySelector(".det-wrap");
-      if (wrap) wrap.onmouseleave = function () { pop.innerHTML = cfg.hint; };
+      if (S.drillSel[id] != null) fill(S.drillSel[id]);   // 재렌더 후 선택 복원
     });
   }
   // 탐지 혼동행렬 — 범주별 '발생 라운드'를 누적값 증분으로(추가 조회 없이). 막대 합계=팝업 항목 합(공식 누적).
@@ -442,7 +444,7 @@
   }
   function detectionCard() {
     var counts = detectionTotals(), recall = (counts.tp + counts.fn) ? counts.tp / (counts.tp + counts.fn) : null;
-    var hint = '<div class="det-pop-hint">막대에 마우스를 올리면 발생 라운드가 표시됩니다 · 상세보기 → 해당 라운드 탐지 근거</div>';
+    var hint = '<div class="det-pop-hint">막대를 클릭하면 발생 라운드가 표시됩니다 · 상세보기 → 해당 라운드 탐지 근거</div>';
     S.drill = S.drill || {};
     S.drill.detection = { items: detectionItemsFromDeltas(), names: { tp: "정탐", fp: "오탐", fn: "미탐" }, section: "detect", hint: hint };
     return drillCard({ id: "detection", title: "공격 탐지 정확도", hint: hint,
@@ -462,7 +464,7 @@
     var items = verdictItemsFromRounds();
     var counts = { blocked: items.blocked.length, fake: items.fake.length, inconclusive: items.inconclusive.length };
     var dec = counts.blocked + counts.fake;
-    var hint = '<div class="det-pop-hint">막대에 마우스를 올리면 해당 판정 라운드가 표시됩니다 · 상세보기 → 해당 라운드 검증 근거</div>';
+    var hint = '<div class="det-pop-hint">막대를 클릭하면 해당 판정 라운드가 표시됩니다 · 상세보기 → 해당 라운드 검증 근거</div>';
     S.drill = S.drill || {};
     S.drill.verdict = { items: items, names: { blocked: "차단", fake: "무효 패치", inconclusive: "판정 불가" }, section: "verify", hint: hint };
     return drillCard({ id: "verdict", title: "검증 결과", hint: hint,
@@ -620,6 +622,22 @@
     "T1213": { ev: "internal-wiki 런북 페이지 열람", pk: "networkpolicy", pt: "internal", ps: "wiki 접근 출처 제한" }
   };
   function patchKindLabel(k) { return ({ networkpolicy: "네트워크 차단", rbac: "권한(RBAC)", secret: "비밀/크리덴셜", config: "설정", image: "이미지", resource: "리소스 제한" })[k] || k || "패치"; }
+  // 패치 조치 효과(전 → 후) — 종류별 보안 태세 변화. 실제 리소스 YAML 전/후 스냅샷은 하네스가 남기지
+  // 않으므로(패치는 manifest_ref 식별자만 전달), 종류·대상 기반의 의미적 전/후를 제시한다.
+  function patchBeforeAfter(p) {
+    var k = String(p.kind || "").toLowerCase(), s = String(p.summary || ""), tgt = p.target || "대상";
+    if (/pod.?security|psa|baseline/.test(k + " " + s)) return ["PodSecurity 승인 제어 없음 — privileged·hostPath 파드 허용", "enforce=baseline — 특권·hostPath 파드 생성 차단"];
+    if (/파드.*삭제|delete\s+pod|pod\b.*delete/.test(s)) return ["침해·탈출 파드 상주 — 공격 발판 유지", "파드 삭제 — 공격 발판 제거"];
+    var map = {
+      networkpolicy: ["인그레스 제약 없음 — 모든 네임스페이스·티어에서 접근 가능", "NetworkPolicy 적용 — 허용 티어(backend·internal)만 인그레스, 그 외 차단"],
+      rbac: ["과도권한 바인딩 유효 — " + tgt + "가 광범위 권한 보유", "바인딩 제거 — 과도권한 회수"],
+      secret: ["유출된 비밀이 그대로 유효", "비밀 회전·폐기 — 탈취 자격증명 무력화"],
+      config: ["취약 설정값 운영 중", "하드닝 설정(ConfigMap) 적용·재기동"],
+      image: ["취약 이미지 태그 구동 중", "패치 이미지로 교체"],
+      resource: ["리소스 제한 없음 — 남용 가능", "리소스 제한(limit/quota) 적용"]
+    };
+    return map[k] || ["조치 전 — " + tgt + " 취약 상태", s || "방어 조치 적용"];
+  }
   function stillLabel(f) { return ("" + f).indexOf("crown") === 0 ? crownLabel(f) : "flag " + f; }
 
   function demoDetail(rec) {
@@ -713,8 +731,13 @@
     }).join("") : '<div class="tile-sub">미탐 — 공격 미식별</div>';
 
     var psBody = (ps.length ? ps.map(function (p) {
+      var ba = patchBeforeAfter(p);
       return '<div class="md-item"><div class="fi-head"><span class="badge b-def">' + esc(patchKindLabel(p.kind)) + '</span><span class="fi-tgt mono">' + esc(p.target || "") + "</span></div>" +
-        '<div class="md-ev">' + esc(p.summary || "—") + "</div>" + (p.manifest_ref ? '<div class="fi-tgt mono">매니페스트: ' + esc(p.manifest_ref) + "</div>" : "") + "</div>";
+        '<div class="md-ev">' + esc(p.summary || "—") + "</div>" +
+        '<div class="pba"><div class="pba-c pba-before"><span class="pba-k">패치 전</span><span class="pba-v">' + esc(ba[0]) + "</span></div>" +
+        '<div class="pba-arrow">→</div>' +
+        '<div class="pba-c pba-after"><span class="pba-k">패치 후</span><span class="pba-v">' + esc(ba[1]) + "</span></div></div>" +
+        (p.manifest_ref ? '<div class="fi-tgt mono">매니페스트: ' + esc(p.manifest_ref) + "</div>" : "") + "</div>";
     }).join("") : '<div class="tile-sub">적용한 패치 없음</div>') +
       (atts.length ? '<div class="md-st2">패치 시도 로그</div>' + atts.map(function (s) { return '<div class="md-ev mono">· ' + esc(s) + "</div>"; }).join("") : "") +
       (d.patch_note ? '<div class="md-ev mono" style="color:var(--text-3)">메모: ' + esc(d.patch_note) + "</div>" : "") +
@@ -988,24 +1011,48 @@
     return '<div class="jr jr-instep' + (p.flag ? " jr-flag" : "") + '"><span class="jr-ts">' + t + "</span>" +
       '<span class="jr-cmd mono">' + (cmd ? esc(cmd) : '<span class="jr-dim">(명령 없음)</span>') + '</span><span class="jr-meta">' + badge + nd + "</span></div>";
   }
-  function journalGrouped(evs) {
-    var groups = {}, order = [];
+  // 라운드 → (의도) → 스텝 아코디언 — 길게 쭉 흐르지 않게 라운드·의도 단위로 접고 펼친다.
+  // agLogOpen: 펼친 키 집합. 새로 나타난 최신 라운드는 자동 펼침(한 번 접으면 그 상태 유지).
+  function journalAccordion(evs, byIntent) {
+    var rounds = {}, rorder = [];
     evs.forEach(function (e) {
       if (e.type !== "attack_step") return;
-      var key = intentLabelOf(e.payload);
-      if (!groups[key]) { groups[key] = { round: e.round, steps: [] }; order.push(key); }
-      groups[key].steps.push(e);
+      var r = e.round || 0;
+      if (!rounds[r]) { rounds[r] = []; rorder.push(r); }
+      rounds[r].push(e);
     });
-    if (!order.length) return '<div class="journal">' + evs.slice().reverse().map(journalRow).join("") + "</div>";
-    function lastTs(g) { return (g.steps[g.steps.length - 1] || {}).ts || 0; }
-    order.sort(function (a, b) { return lastTs(groups[b]) - lastTs(groups[a]); });   // 최근 활동 의도 먼저
-    return order.map(function (key) {
-      var g = groups[key], ok = g.steps.filter(function (s) { return (s.payload || {}).success; }).length;
-      var flag = g.steps.some(function (s) { return (s.payload || {}).flag; });
-      var head = '<div class="jg-head"><span class="jg-r">R' + (g.round || "?") + "</span>" +
-        '<span class="jg-intent">' + esc(key) + "</span>" +
-        '<span class="jg-meta">' + g.steps.length + "건 · 성공 " + ok + (flag ? ' <span class="badge b-crown">목표 획득</span>' : "") + "</span></div>";
-      return '<div class="jgroup' + (flag ? " jg-flag" : "") + '">' + head + g.steps.slice().reverse().map(journalStepRow).join("") + "</div>";
+    if (!rorder.length) return '<div class="journal">' + evs.slice().reverse().map(journalRow).join("") + "</div>";
+    rorder.sort(function (a, b) { return b - a; });                 // 최신 라운드 먼저
+    if (agLogOpen == null) agLogOpen = {};
+    var topKey = "r" + rorder[0];
+    if (agLogOpen[topKey] === undefined) agLogOpen[topKey] = true;  // 최신 라운드 기본 펼침
+    function sumMeta(steps) {
+      var ok = steps.filter(function (s) { return (s.payload || {}).success; }).length;
+      var flag = steps.some(function (s) { return (s.payload || {}).flag; });
+      return { ok: ok, flag: flag };
+    }
+    function caret(open) { return '<span class="jacc-caret' + (open ? " open" : "") + '">▸</span>'; }
+    return rorder.map(function (r) {
+      var steps = rounds[r], rkey = "r" + r, ropen = !!agLogOpen[rkey], m = sumMeta(steps);
+      var rhead = '<button class="jacc-h jacc-r' + (ropen ? " open" : "") + '" data-jtoggle="' + rkey + '">' +
+        caret(ropen) + '<span class="jacc-t">R' + r + "</span>" +
+        '<span class="jacc-meta">' + steps.length + "건 · 성공 " + m.ok + (m.flag ? ' <span class="badge b-crown">목표 획득</span>' : "") + "</span></button>";
+      var inner = "";
+      if (ropen && byIntent) {
+        var ig = {}, iorder = [];
+        steps.forEach(function (e) { var k = intentLabelOf(e.payload); if (!ig[k]) { ig[k] = []; iorder.push(k); } ig[k].push(e); });
+        inner = iorder.map(function (k) {
+          var ikey = rkey + "|" + k, iopen = !!agLogOpen[ikey], ist = ig[k], im = sumMeta(ist);
+          var ihead = '<button class="jacc-h jacc-i' + (iopen ? " open" : "") + '" data-jtoggle="' + esc(ikey) + '">' +
+            caret(iopen) + '<span class="jacc-t jacc-intent">' + esc(k) + "</span>" +
+            '<span class="jacc-meta">' + ist.length + "건 · 성공 " + im.ok + (im.flag ? ' <span class="badge b-crown">목표</span>' : "") + "</span></button>";
+          return '<div class="jacc-ig' + (im.flag ? " jg-flag" : "") + '">' + ihead +
+            (iopen ? ist.slice().reverse().map(journalStepRow).join("") : "") + "</div>";
+        }).join("");
+      } else if (ropen) {
+        inner = steps.slice().reverse().map(journalStepRow).join("");
+      }
+      return '<div class="jacc' + (m.flag ? " jg-flag" : "") + '">' + rhead + (ropen ? '<div class="jacc-body">' + inner + "</div>" : "") + "</div>";
     }).join("");
   }
   function pageAttackLog() {
@@ -1019,7 +1066,7 @@
     var nIntents = Object.keys(intents).length;
     var tabs = '<div class="tabs"><button class="tab' + (agLogView === "intent" ? " active" : "") + '" data-logview="intent">의도별</button>' +
       '<button class="tab' + (agLogView === "time" ? " active" : "") + '" data-logview="time">시간순</button></div>';
-    var body = agLogView === "intent" ? journalGrouped(evs) : ('<div class="journal">' + evs.slice().reverse().map(journalRow).join("") + "</div>");
+    var body = journalAccordion(evs, agLogView === "intent");
     return (S.demo ? demoBanner() : "") +
       runPickerHtml(segs, jRun, "data-jrun") + runCfgHtml(seg) +
       '<div class="jhead"><span class="jhead-m"><span class="jhead-k">실행 명령</span><span class="jhead-v">' + nSteps + "건</span></span>" +
@@ -1034,7 +1081,10 @@
       b.onclick = function () { agLogView = b.getAttribute("data-logview"); $("#view").innerHTML = pageAttackLog(); bindAttackLog(); };
     });
     Array.prototype.forEach.call(document.querySelectorAll("[data-jrun]"), function (b) {
-      b.onclick = function () { jRun = b.getAttribute("data-jrun"); $("#view").innerHTML = pageAttackLog(); bindAttackLog(); };
+      b.onclick = function () { jRun = b.getAttribute("data-jrun"); agLogOpen = null; $("#view").innerHTML = pageAttackLog(); bindAttackLog(); };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-jtoggle]"), function (b) {
+      b.onclick = function () { var k = b.getAttribute("data-jtoggle"); agLogOpen[k] = !agLogOpen[k]; $("#view").innerHTML = pageAttackLog(); bindAttackLog(); };
     });
   }
 
@@ -1137,15 +1187,58 @@
     bindAttackGraph();
   }
   function bindAttackGraph() {
-    Array.prototype.forEach.call(document.querySelectorAll(".ag-node"), function (el) {
-      el.addEventListener("click", function () { agSel = parseInt(el.getAttribute("data-nid"), 10); pageAttackGraphRender(); });
-    });
     Array.prototype.forEach.call(document.querySelectorAll("[data-agtab]"), function (b) {
       b.onclick = function () { agTab = b.getAttribute("data-agtab"); pageAttackGraphRender(); };
     });
     Array.prototype.forEach.call(document.querySelectorAll("[data-agrk]"), function (b) {
-      b.onclick = function () { agRkey = b.getAttribute("data-agrk"); agSel = null; S.agSeen = {}; S.agSig = null; pageAttackGraphRender(); };
+      b.onclick = function () { agRkey = b.getAttribute("data-agrk"); agSel = null; agView = null; S.agSeen = {}; S.agSig = null; pageAttackGraphRender(); };
     });
+    var svg = document.querySelector(".ag-svg");
+    if (!svg) return;
+    var GW = parseFloat(svg.getAttribute("data-gw")) || 1, GH = parseFloat(svg.getAttribute("data-gh")) || 1;
+    function view() { return agView || { x: 0, y: 0, w: GW, h: GH }; }
+    function apply(v) { agView = v; svg.setAttribute("viewBox", v.x + " " + v.y + " " + v.w + " " + v.h); }
+    function zoomAt(cx, cy, f) {                       // cx,cy = viewBox 좌표 기준 확대/축소
+      var v = view(), nw = clamp(v.w * f, GW * 0.08, GW * 4), nh = v.h * (nw / v.w);
+      apply({ x: cx - (cx - v.x) * (nw / v.w), y: cy - (cy - v.y) * (nh / v.h), w: nw, h: nh });
+    }
+    function toVB(ev) { var r = svg.getBoundingClientRect(), v = view(); return { x: v.x + (ev.clientX - r.left) / r.width * v.w, y: v.y + (ev.clientY - r.top) / r.height * v.h }; }
+    // 노드 선택 — 드래그로 많이 움직였으면 선택 아님
+    Array.prototype.forEach.call(svg.querySelectorAll(".ag-node"), function (el) {
+      el.addEventListener("click", function () { if (!svg._dragged) { agSel = parseInt(el.getAttribute("data-nid"), 10); pageAttackGraphRender(); } });
+    });
+    svg.onwheel = function (e) { e.preventDefault(); var p = toVB(e); zoomAt(p.x, p.y, e.deltaY < 0 ? 0.88 : 1.14); };
+    var drag = null;
+    svg.onpointerdown = function (e) {
+      svg._dragged = false;
+      if (e.target.closest(".ag-node")) return;        // 노드 위 시작은 선택 우선
+      drag = { x: e.clientX, y: e.clientY, v: view() }; svg.classList.add("grabbing");
+    };
+    svg.onpointermove = function (e) {
+      if (!drag) return;
+      var r = svg.getBoundingClientRect();
+      if (Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 6) svg._dragged = true;
+      apply({ x: drag.v.x - (e.clientX - drag.x) / r.width * drag.v.w, y: drag.v.y - (e.clientY - drag.y) / r.height * drag.v.h, w: drag.v.w, h: drag.v.h });
+    };
+    svg.onpointerup = svg.onpointerleave = function () { drag = null; svg.classList.remove("grabbing"); };
+    Array.prototype.forEach.call(document.querySelectorAll("[data-agzoom]"), function (b) {
+      b.onclick = function () {
+        var m = b.getAttribute("data-agzoom"), v = view(), cx = v.x + v.w / 2, cy = v.y + v.h / 2;
+        if (m === "in") zoomAt(cx, cy, 0.8); else if (m === "out") zoomAt(cx, cy, 1.25); else { agView = null; apply(view()); }
+      };
+    });
+    svg.onkeydown = function (e) {
+      var v = view(), cx = v.x + v.w / 2, cy = v.y + v.h / 2, pan = v.w * 0.12;
+      if (e.key === "+" || e.key === "=") zoomAt(cx, cy, 0.8);
+      else if (e.key === "-" || e.key === "_") zoomAt(cx, cy, 1.25);
+      else if (e.key === "ArrowLeft") apply({ x: v.x - pan, y: v.y, w: v.w, h: v.h });
+      else if (e.key === "ArrowRight") apply({ x: v.x + pan, y: v.y, w: v.w, h: v.h });
+      else if (e.key === "ArrowUp") apply({ x: v.x, y: v.y - pan, w: v.w, h: v.h });
+      else if (e.key === "ArrowDown") apply({ x: v.x, y: v.y + pan, w: v.w, h: v.h });
+      else if (e.key === "0") { agView = null; apply(view()); }
+      else return;
+      e.preventDefault();
+    };
   }
   function agLine(k, v) { return '<div class="rep-line"><span class="rep-k">' + esc(k) + "</span><span>" + esc(v) + "</span></div>"; }
   // 개요 큐레이션 — 수동 서술(desc)이 있으면 그대로, 없으면 노드 필드(summary·detail·근거 등)를
@@ -1216,36 +1309,56 @@
       return chips0 + emptyState("🕸", "이 라운드는 공격 그래프 기록이 없습니다",
         "탐색 그래프는 병렬 모드(attack.mode: parallel)에서만 생성됩니다. 단일 모드(single)는 플래너·의도 그래프가 없어 비어 있습니다. 다른 회차·라운드를 선택하거나 병렬 모드로 실행하세요.", []);
     }
-    var colOf = { goal: 0, hint: 0, intent: 1, fact: 2, finding: 3 };
-    var cols = [[], [], [], []];
-    nodes.forEach(function (n) { var c = colOf[n.kind]; if (c == null) c = 1; cols[c].push(n); });
-    var NW = 188, NH = 56, VGAP = 16, CW = 236, X0 = 16, TOP = 42, colX = [X0, X0 + CW, X0 + 2 * CW, X0 + 3 * CW];
-    var maxRows = Math.max(1, cols[0].length, cols[1].length, cols[2].length, cols[3].length);
-    var H = Math.max(TOP + maxRows * (NH + VGAP) + 16, 220), W = X0 + 3 * CW + NW + 16;
-    var pos = {};
-    cols.forEach(function (col, ci) {      // 위 정렬 고정 — 노드가 추가돼도 기존 노드 위치가 안 밀림(새로고침 느낌 제거)
-      col.forEach(function (n, ri) { pos[n.id] = { x: colX[ci], y: TOP + ri * (NH + VGAP) }; });
+    // 수직 트리 레이아웃 — 목표(위)에서 깊이가 아래로 떨어진다. BFS 최단경로로 깊이(행)를 잡고,
+    // 자식은 부모 아래에 모아 배치(종류별 가로 열이 아니라 계층 트리). 하위 의도는 사실보다 더 아래.
+    var NW = 184, NH = 56, PADX = 28, TOP = 20;
+    var byId = {}, childrenMap = {}, parentsMap = {};
+    nodes.forEach(function (n) { byId[n.id] = n; childrenMap[n.id] = []; parentsMap[n.id] = []; });
+    edges.forEach(function (e) { if (byId[e.src] && byId[e.dst]) { childrenMap[e.src].push(e.dst); parentsMap[e.dst].push(e.src); } });
+    var roots = nodes.filter(function (n) { return n.kind === "goal"; });
+    if (!roots.length) roots = nodes.filter(function (n) { return !parentsMap[n.id].length; });
+    if (!roots.length) roots = [nodes[0]];
+    var kd = { goal: 0, hint: 0, intent: 1, fact: 2, finding: 3 }, depth = {}, bfsParent = {}, q = [];
+    roots.forEach(function (r) { depth[r.id] = 0; q.push(r.id); });
+    for (var qi = 0; qi < q.length; qi++) {
+      var u = q[qi];
+      childrenMap[u].slice().sort(function (a, b) { return a - b; }).forEach(function (v) {
+        if (depth[v] == null) { depth[v] = depth[u] + 1; bfsParent[v] = u; q.push(v); }
+      });
+    }
+    nodes.forEach(function (n) { if (depth[n.id] == null) depth[n.id] = (kd[n.kind] != null ? kd[n.kind] : 1); });
+    var treeChildren = {}; nodes.forEach(function (n) { treeChildren[n.id] = []; });
+    nodes.forEach(function (n) { if (bfsParent[n.id] != null) treeChildren[bfsParent[n.id]].push(n.id); });
+    Object.keys(treeChildren).forEach(function (k) { treeChildren[k].sort(function (a, b) { return a - b; }); });
+    var slot = 0, xOf = {};
+    function layX(id) {                    // 후위 순회 — 잎은 순차 슬롯, 내부 노드는 자식 가운데
+      var ks = treeChildren[id];
+      if (!ks.length) { xOf[id] = slot++; return xOf[id]; }
+      var xs = ks.map(layX);
+      xOf[id] = (xs[0] + xs[xs.length - 1]) / 2; return xOf[id];
+    }
+    roots.slice().sort(function (a, b) { return a.id - b.id; }).forEach(function (r) { layX(r.id); });
+    nodes.forEach(function (n) { if (xOf[n.id] == null) xOf[n.id] = slot++; });   // 고립 노드
+    var COLW = NW + 30, ROWH = NH + 46, pos = {}, maxSlot = 0, maxDep = 0;
+    nodes.forEach(function (n) {
+      pos[n.id] = { x: PADX + xOf[n.id] * COLW, y: TOP + depth[n.id] * ROWH };
+      if (xOf[n.id] > maxSlot) maxSlot = xOf[n.id];
+      if (depth[n.id] > maxDep) maxDep = depth[n.id];
     });
-    var heads = ["Goal · 목표", "Intent · 의도", "Fact · 사실", "Finding · 발견"].map(function (t, ci) {
-      return '<text class="agk" x="' + (colX[ci] + 2) + '" y="16" font-size="10.5" font-weight="700" fill="#8a97ab">' + t + "</text>";
-    }).join("");
+    var W = PADX * 2 + maxSlot * COLW + NW, H = TOP + maxDep * ROWH + NH + 20;
     var newSet = {}; nodes.forEach(function (n) { if (n._new) newSet[n.id] = 1; });
     var edgeSvg = edges.map(function (e) {
       var a = pos[e.src], b = pos[e.dst]; if (!a || !b) return "";
-      var hot = (agSel === e.src || agSel === e.dst), isNew = newSet[e.dst] || newSet[e.src];
-      var y1 = a.y + NH / 2, y2 = b.y + NH / 2, d;
-      if (Math.abs(b.x - a.x) < 1) {        // 같은 열(파생 등) — 왼쪽으로 살짝 빼 세로로 잇는다(겹침·끊김 방지)
-        var lx = Math.max(2, a.x - 20);
-        d = "M" + a.x + " " + y1 + " C" + lx + " " + y1 + " " + lx + " " + y2 + " " + b.x + " " + y2;
-      } else if (b.x > a.x) {               // 앞으로(열 증가)
-        var x1 = a.x + NW, x2 = b.x, mx = (x1 + x2) / 2;
-        d = "M" + x1 + " " + y1 + " C" + mx + " " + y1 + " " + mx + " " + y2 + " " + x2 + " " + y2;
-      } else {                              // 뒤로(파생) — 위로 둥글게, 위쪽 8px 밑으로 클램프(화면 밖 이탈 방지)
-        var bx1 = a.x, bx2 = b.x + NW, my = Math.max(8, Math.min(y1, y2) - Math.max(26, Math.abs(y2 - y1) * 0.55));
-        d = "M" + bx1 + " " + y1 + " C" + (bx1 + 30) + " " + my + " " + (bx2 - 30) + " " + my + " " + bx2 + " " + y2;
+      var hot = (agSel === e.src || agSel === e.dst), isNew = newSet[e.dst] || newSet[e.src], d;
+      if (b.y > a.y + 1) {                 // 아래로(부모→자식) — 수직 베지어로 떨어뜨림
+        var ax = a.x + NW / 2, ay = a.y + NH, bx = b.x + NW / 2, by = b.y, my = (ay + by) / 2;
+        d = "M" + ax + " " + ay + " C" + ax + " " + my + " " + bx + " " + my + " " + bx + " " + by;
+      } else {                             // 같은/위 레벨(교차 링크) — 오른쪽으로 둘러
+        var cx = a.x + NW, cy = a.y + NH / 2, dx = b.x + NW, dy = b.y + NH / 2, mx = Math.max(cx, dx) + 28;
+        d = "M" + cx + " " + cy + " C" + mx + " " + cy + " " + mx + " " + dy + " " + dx + " " + dy;
       }
       return '<path class="ag-edge' + (isNew ? " ag-new" : "") + (hot ? " ag-hot" : "") + '" d="' + d +
-        '" fill="none" stroke="' + relColor(e.rel) + '" stroke-width="' + (hot ? 2.2 : 1.3) + '" opacity="' + (hot ? 0.95 : 0.32) + '"' + (isNew ? ' style="animation-delay:280ms"' : "") + "/>";
+        '" fill="none" stroke="' + relColor(e.rel) + '" stroke-width="' + (hot ? 2.2 : 1.3) + '" opacity="' + (hot ? 0.95 : 0.34) + '"' + (isNew ? ' style="animation-delay:200ms"' : "") + "/>";
     }).join("");
     var nIdx = 0;
     var nodeSvg = nodes.map(function (n) {
@@ -1257,7 +1370,7 @@
       var cls = "ag-node" + (n._new ? " ag-new" : "") + (n.state === "running" ? " ag-run" : "") + (dead ? " ag-dead" : "") + (n.kind === "finding" ? " ag-find" : "");
       var delay = n._new ? (nIdx++ * 55) : 0;
       var l1 = kindLabel(n.kind) + (n.technique ? " · " + esc(n.technique) : "");
-      var l2 = esc(truncate(n.summary || kindLabel(n.kind), 15));
+      var l2 = esc(truncate(n.summary || kindLabel(n.kind), 16));
       // 상태 뱃지 — 대기·완료·막다름 외 의미 있는 상태(실행 중·차단·중단·확인됨·포착)만.
       var showSt = n.kind === "intent" && n.state && n.state !== "open" && n.state !== "done" && n.state !== "exhausted";
       var stBadge = showSt ? '<text x="' + (p.x + NW - 11) + '" y="' + (p.y + 21) + '" text-anchor="end" font-size="8.5" font-weight="700" fill="' + stateColor(n.state) + '">' + esc(stateKo(n.state)) + "</text>" : "";
@@ -1266,7 +1379,14 @@
         '<text class="agk" x="' + (p.x + 13) + '" y="' + (p.y + 21) + '" font-size="9.5" font-weight="700" fill="' + col.line + '">' + l1 + "</text>" + stBadge +
         '<text x="' + (p.x + 13) + '" y="' + (p.y + 39) + '" font-size="11.5" fill="#0f1b2d">' + l2 + "</text></g>";
     }).join("");
-    var svg = '<div class="ag-wrap"><svg viewBox="0 0 ' + W + " " + H + '" class="ag-svg">' + heads + edgeSvg + nodeSvg + "</svg></div>";
+    var vb = agView || { x: 0, y: 0, w: W, h: H };     // agView=수동 조작(확대·이동) 지속, null=자동 맞춤(라이브 성장 추적)
+    var tools = '<div class="ag-tools">' +
+      '<button class="ag-tool" data-agzoom="in" aria-label="확대">+</button>' +
+      '<button class="ag-tool" data-agzoom="out" aria-label="축소">−</button>' +
+      '<button class="ag-tool" data-agzoom="fit" aria-label="맞춤">⤢</button></div>';
+    var svg = '<div class="ag-wrap">' + tools +
+      '<svg class="ag-svg" tabindex="0" viewBox="' + vb.x + " " + vb.y + " " + vb.w + " " + vb.h +
+      '" preserveAspectRatio="xMidYMid meet" data-gw="' + W + '" data-gh="' + H + '">' + edgeSvg + nodeSvg + "</svg></div>";
     var legend = '<div class="ag-legend"><div class="legend">' +
       ["goal", "intent", "fact", "finding"].map(function (k) { return '<span><span class="tag-dot" style="background:' + kindColor(k).line + '"></span>' + kindLabel(k) + "</span>"; }).join("") +
       ["spawns", "yields", "proves", "derived_from"].map(function (r) { return '<span title="' + esc(relDesc(r)) + '"><span style="display:inline-block;width:15px;height:0;border-top:2px solid ' + relColor(r) + '"></span> ' + relLabel(r) + "</span>"; }).join("") + "</div>" +
