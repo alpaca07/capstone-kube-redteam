@@ -79,15 +79,6 @@ service with a DB credential and running a query on the target tables — NOT wi
 service-account token or the K8s secrets API, which return cluster objects, not table rows. When \
 the goal asset is a database and a DB credential has been found, dedicate an intent to connecting \
 to the DB service and reading the target tables directly.
-- The credential route is NOT the only route. A service that TAKES INPUT is itself an attack \
-surface — its input is a way in whether or not any credential is exposed. So when the DB/credential \
-path is unavailable, or a previously-working access is now BLOCKED by the defender (the "another \
-route" called for below), do not stall on it: dedicate an intent to probing the input surface of a \
-reachable [untouched] service for an injection/abuse flaw — a search/filter/lookup query parameter \
-for SQL injection, a host/URL/preview/fetch parameter for server-side request forgery toward \
-internal addresses, a host/diagnostic/command parameter for command injection. Set "technique" to \
-T1190 and keep "plan" direction-level (which endpoint, which parameter, what class of flaw to test) \
-— the worker writes the actual payload.
 - SELECTED KNOWLEDGE (when shown) lists ATT&CK techniques stage-1 already judged applicable to \
 the observed assets (with the asset, a why, and applicability). Build intents around these and \
 reuse their technique ids; add an intent with your own technique only when the situation clearly \
