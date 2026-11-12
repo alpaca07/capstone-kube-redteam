@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -136,6 +137,36 @@ def _params_from_args(cfg: Config, args: argparse.Namespace) -> RunParams:
         force_crown=args.force_crown)
 
 
+# 새 런 시작 시 이관할 지난 런 산출물 — 대시보드 _ARCHIVE_* 와 동일 집합(라이브 디렉토리를 비워
+# '지금 돌리는 실험'만 남긴다). runs.jsonl·progress.json·off_kg.jsonl 은 보존(런 레지스트리·현재
+# 상태·off-KG 포획 누적).
+_ARCHIVE_JSONL = ("rounds.jsonl", "episodes.jsonl", "events.jsonl", "attack_journal.jsonl")
+_ARCHIVE_DIRS = ("round_detail", "defense_topology", "attack_graph")
+
+
+def _archive_prior_logs(out_dir: str) -> Optional[str]:
+    """새 런 시작 전, 지난 런의 회차 로그·라운드 상세·공격 그래프를 runs_archive/<ts>/ 로 옮긴다.
+    삭제가 아니라 보관 — 대시보드가 이전 런 그래프를 계속 들고 있지 않게 라이브 디렉토리를 비운다."""
+    dest = os.path.join(out_dir, "runs_archive", time.strftime("%Y%m%d-%H%M%S"))
+    moved = False
+    try:
+        for name in _ARCHIVE_JSONL:
+            src = os.path.join(out_dir, name)
+            if os.path.isfile(src) and os.path.getsize(src) > 0:
+                os.makedirs(dest, exist_ok=True)
+                shutil.move(src, os.path.join(dest, name))
+                moved = True
+        for name in _ARCHIVE_DIRS:
+            src = os.path.join(out_dir, name)
+            if os.path.isdir(src) and os.listdir(src):
+                os.makedirs(dest, exist_ok=True)
+                shutil.move(src, os.path.join(dest, name))
+                moved = True
+    except OSError:
+        return None
+    return dest if moved else None
+
+
 def _append_run_manifest(path: str, params: RunParams, cfg: Config) -> None:
     """실행 시작 시 회차 설정을 runs.jsonl 에 한 줄 남긴다 — 대시보드가 로그를 회차별로 나누고
     각 회차의 초기 설정값(에피소드·라운드·제한시간·토큰·대상)을 보여주는 소스. 대시보드 /api/run 이
@@ -184,6 +215,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                     help="free 모드 목표 문구 — 공격자에게 줄 '무엇을'(어디서·어떻게는 안 줌)")
     ap.add_argument("--target-assets", default=None,
                     help="asset 모드 크라운 자산 id 쉼표구분(예: crown-pii,crown-secrets). 비우면 전체")
+    ap.add_argument("--keep-logs", action="store_true",
+                    help="지난 런 로그를 아카이브하지 않고 유지(기본: 새 런 시작 시 지난 로그를 "
+                         "runs_archive/ 로 이관해 대시보드에 이전 그래프가 남지 않게 함)")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
@@ -197,6 +231,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     params = _params_from_args(cfg, args)
 
     os.makedirs(args.out_dir, exist_ok=True)
+    if not args.keep_logs:                       # 새 런 = 깨끗한 시작(이전 그래프·회차 기록 이관)
+        _arch = _archive_prior_logs(args.out_dir)
+        if _arch:
+            print(f"[*] 지난 런 로그 보관 → {_arch}")
     rounds_path = os.path.join(args.out_dir, "rounds.jsonl")
     episodes_path = os.path.join(args.out_dir, "episodes.jsonl")
     progress_path = os.path.join(args.out_dir, "progress.json")
