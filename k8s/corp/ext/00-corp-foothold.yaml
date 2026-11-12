@@ -1,0 +1,79 @@
+# corp 공격 발판 — corp-ext(zone:ext)에 앉아 유일 진입점 WAF 로 나간다.
+# ShopFlow frontend 발판(k8s/killchain/00-attacker-foothold.yaml)의 corp 판.
+#   하네스는 VM A(클러스터 밖)에서 corp-foothold-sa 토큰으로 kubectl exec 해 이 파드 '안'에서
+#   명령 실행(KubectlExecRunner namespace=corp-ext pod_ref=deploy/corp-attacker-foothold).
+# 네트워크: corp-ext → WAF(corp-dmz) 만 열림(일방향 킬체인). corp-internal·corp-crown 은
+#   발판에서 직접 못 감 — 1차 범위=발판→WAF→Tomcat/Solr(wget). 깊은 피벗은 corp 실행모델 별도.
+# 도구: postgres:16-alpine 재사용(wget·psql·nc). Samba(smbclient)·Redis(redis-cli)는 측면이동 단계에 이미지 보강.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: corp-foothold-sa
+  namespace: corp-ext
+  labels: { app.kubernetes.io/part-of: capstone-corp, role: attacker-foothold }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: corp-foothold-exec
+  namespace: corp-ext                 # corp-ext 한정 exec (frontend 발판과 동일한 최소 권한)
+  labels: { app.kubernetes.io/part-of: capstone-corp }
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: corp-foothold-exec
+  namespace: corp-ext
+  labels: { app.kubernetes.io/part-of: capstone-corp }
+subjects:
+  - kind: ServiceAccount
+    name: corp-foothold-sa
+    namespace: corp-ext
+roleRef:
+  kind: Role
+  name: corp-foothold-exec
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: corp-foothold-sa-token
+  namespace: corp-ext
+  labels: { app.kubernetes.io/part-of: capstone-corp }
+  annotations:
+    kubernetes.io/service-account.name: corp-foothold-sa
+type: kubernetes.io/service-account-token
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: corp-attacker-foothold
+  namespace: corp-ext
+  labels: { app: corp-attacker-foothold, app.kubernetes.io/part-of: capstone-corp, zone: ext }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: corp-attacker-foothold }
+  template:
+    metadata:
+      labels: { app: corp-attacker-foothold, zone: ext }   # zone:ext — WAF ingress(allow-from-ext) 매칭
+    spec:
+      containers:
+        - name: toolkit
+          image: postgres:16-alpine          # wget·psql·nc 내장 — ShopFlow 발판과 동일 재사용
+          imagePullPolicy: IfNotPresent
+          command: ["tail", "-f", "/dev/null"]   # postgres 서버 미기동, 유휴 대기
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }
