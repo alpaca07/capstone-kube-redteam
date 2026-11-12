@@ -397,7 +397,9 @@ def main(argv: Optional[list] = None) -> int:
     extra = (f"  mode=parallel workers={cfg.attack.n_workers} "
              f"planner={cfg.dgx.defender_model}") if mode == "parallel" else "  mode=single"
     print(f"[*] 공격 하네스 서버 {args.host}:{args.port}  attacker_model={cfg.dgx.attacker_model}{extra}")
-    uvicorn.run(app, host=args.host, port=args.port)
+    # access_log=False: /journal 증분 폴링(VM C)이 매 요청 'POST /journal 200 OK' 로 찍혀
+    # 저널을 덮는다 → uvicorn 접근 로그 off(공격 저널 줄은 별도 로거라 그대로 남음).
+    uvicorn.run(app, host=args.host, port=args.port, access_log=False)
     return 0
 
 
