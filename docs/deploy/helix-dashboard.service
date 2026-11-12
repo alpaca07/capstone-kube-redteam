@@ -1,0 +1,24 @@
+# VM C Helix 관제 대시보드(FastAPI :12345) systemd 유닛 — /etc/systemd/system/helix-dashboard.service
+# <USER> 를 VM C 사용자로 치환(아래 설치 명령이 자동 치환). 설치:
+#   sudo cp docs/deploy/helix-dashboard.service /etc/systemd/system/
+#   sudo sed -i "s/<USER>/$(whoami)/g" /etc/systemd/system/helix-dashboard.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now helix-dashboard
+# fastapi 미설치 시: pip install --break-system-packages fastapi uvicorn
+# venv 사용 시 ExecStart 의 python3 를 그 venv 의 python 절대경로로 교체.
+# 기존 orchestrator.api(:8090, capstone-dashboard)와 독립 — 같은 로그를 읽으며 나란히 돈다.
+[Unit]
+Description=Helix 공수 관제 대시보드 (VM C, FastAPI :12345)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<USER>
+WorkingDirectory=/home/<USER>/capstone
+ExecStart=/usr/bin/python3 -m orchestrator.dashboard
+Environment=PORT=12345
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
