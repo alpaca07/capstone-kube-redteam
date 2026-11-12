@@ -245,12 +245,18 @@ button { font-family: inherit; }
 .tabs { display: inline-flex; gap: 4px; background: var(--surface-2); padding: 3px; border-radius: 9px; margin-bottom: 14px; }
 .tab { padding: 6px 13px; border-radius: 7px; font-size: 12.5px; font-weight: 600; color: var(--text-2); cursor: pointer; border: none; background: none; }
 .tab.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
-.ev-row { display: grid; grid-template-columns: 62px 86px 1fr; gap: 12px; align-items: baseline; padding: 7px 10px; border-bottom: 1px solid var(--surface-3); font-size: 12.5px; }
+.ev-row { display: grid; grid-template-columns: 56px 76px 30px minmax(0,1fr) auto; gap: 10px; align-items: baseline; padding: 7px 10px; border-bottom: 1px solid var(--surface-3); font-size: 12.5px; }
 .ev-row:hover { background: var(--surface-2); }
 .ev-ts { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
 .ev-type { font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 5px; text-align: center; white-space: nowrap; }
-.ev-body { color: var(--text); min-width: 0; }
+.ev-rr { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); text-align: right; font-variant-numeric: tabular-nums; }
+.ev-body { color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ev-body .mono { color: var(--text-2); font-size: 11.5px; }
+.ev-status { justify-self: end; white-space: nowrap; }
+@media (max-width: 620px) {
+  .ev-row { grid-template-columns: 48px 64px minmax(0,1fr) auto; }
+  .ev-rr { display: none; }
+}
 
 /* 공격 저널(실시간 명령 로그) */
 .jhead { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-bottom: 12px; }

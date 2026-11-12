@@ -915,15 +915,30 @@
   function evRow(e) {
     var map = { attack_step: ["b-atk", "명령"], attack_turn: ["b-atk", "공격 차례"], detection: ["b-def", "탐지"],
       patch: ["b-def", "패치"], defense_turn: ["b-def", "방어 차례"], verdict: ["b-sys", "판정"], planner_wave: ["b-atk", "계획"] };
-    var m = map[e.type] || ["b-sys", e.type]; var p = e.payload || {}, body = "";
-    if (e.type === "attack_step") body = '<span class="mono">' + esc(p.tool) + " " + esc((p.args || []).join(" ")).slice(0, 90) + "</span>" + (p.flag ? ' <span class="badge b-crown">목표 획득</span>' : p.success ? "" : ' <span class="badge b-sys">실패</span>');
-    else if (e.type === "attack_turn") body = "공격 차례 종료 · " + esc(reasonLabel(p.end_reason)) + " · 획득 " + num(p.flags) + " · 명령 " + num(p.steps) + "개";
-    else if (e.type === "detection") body = '추정 <b>' + esc(p.technique) + '</b> <span class="mono">' + esc((p.evidence || "")).slice(0, 70) + "</span>";
-    else if (e.type === "patch") body = '<span class="mono">' + esc((p.detail || (p.kind + " → " + p.target))).slice(0, 90) + "</span>" + (p.applied ? ' <span class="badge b-ok">적용</span>' : ' <span class="badge b-sys">건너뜀</span>');
-    else if (e.type === "defense_turn") body = "방어 차례 · 패치 " + (p.patch_applied ? "적용" : "미적용") + " · 탐지 " + num(p.detected) + "건 · 서비스 " + (p.healthcheck_passed ? "정상" : "중단");
-    else if (e.type === "verdict") { var v = VERDICT[p.verdict]; body = (v ? '<span class="badge ' + v.cls + '">' + v.label + "</span>" : esc(p.verdict)) + ' <span class="mono">' + esc((p.detail || "")).slice(0, 60) + "</span>"; }
-    else body = '<span class="mono">' + esc(JSON.stringify(p)).slice(0, 90) + "</span>";
-    return '<div class="ev-row"><span class="ev-ts">' + hhmmss(e.ts) + '</span><span class="ev-type ' + m[0] + '">' + m[1] + '</span><span class="ev-body">R' + (e.round || "?") + " · " + body + "</span></div>";
+    var m = map[e.type] || ["b-sys", e.type]; var p = e.payload || {}, body = "", status = "";
+    // 본문(가변 길이)과 결과 배지(실패·적용·판정 등)를 분리 — 배지는 오른쪽 고정 열로 정렬.
+    if (e.type === "attack_step") {
+      body = '<span class="mono">' + esc(p.tool) + " " + esc((p.args || []).join(" ")).slice(0, 110) + "</span>";
+      status = p.flag ? '<span class="badge b-crown">목표 획득</span>' : p.success ? "" : '<span class="badge b-sys">실패</span>';
+    } else if (e.type === "attack_turn") {
+      body = "공격 차례 종료 · " + esc(reasonLabel(p.end_reason)) + " · 획득 " + num(p.flags) + " · 명령 " + num(p.steps) + "개";
+    } else if (e.type === "detection") {
+      body = '추정 <b>' + esc(p.technique) + '</b> <span class="mono">' + esc((p.evidence || "")).slice(0, 80) + "</span>";
+    } else if (e.type === "patch") {
+      body = '<span class="mono">' + esc((p.detail || (p.kind + " → " + p.target))).slice(0, 110) + "</span>";
+      status = p.applied ? '<span class="badge b-ok">적용</span>' : '<span class="badge b-sys">건너뜀</span>';
+    } else if (e.type === "defense_turn") {
+      body = "방어 차례 · 패치 " + (p.patch_applied ? "적용" : "미적용") + " · 탐지 " + num(p.detected) + "건 · 서비스 " + (p.healthcheck_passed ? "정상" : "중단");
+    } else if (e.type === "verdict") {
+      var v = VERDICT[p.verdict];
+      status = v ? '<span class="badge ' + v.cls + '">' + v.label + "</span>" : '<span class="badge b-sys">' + esc(p.verdict) + "</span>";
+      body = '<span class="mono">' + esc((p.detail || "")).slice(0, 80) + "</span>";
+    } else body = '<span class="mono">' + esc(JSON.stringify(p)).slice(0, 110) + "</span>";
+    return '<div class="ev-row"><span class="ev-ts">' + hhmmss(e.ts) + '</span>' +
+      '<span class="ev-type ' + m[0] + '">' + m[1] + '</span>' +
+      '<span class="ev-rr">R' + (e.round || "?") + '</span>' +
+      '<span class="ev-body">' + body + '</span>' +
+      '<span class="ev-status">' + status + '</span></div>';
   }
 
   // ───────── 페이지: 공격 저널(실시간 명령 로그) ─────────
@@ -1117,23 +1132,35 @@
     });
   }
   function agLine(k, v) { return '<div class="rep-line"><span class="rep-k">' + esc(k) + "</span><span>" + esc(v) + "</span></div>"; }
-  // 개요 큐레이션 — 워커가 채운 서술(desc)이 있으면 그대로, 없으면 노드 필드로 우리말 요약 생성
+  // 개요 큐레이션 — 수동 서술(desc)이 있으면 그대로, 없으면 노드 필드(summary·detail·근거 등)를
+  // 한국어 해설 프레임에 엮어 노드별 판단 근거를 생성한다. 워커 산출값(summary·detail)이 영어여도
+  // 프레임은 우리말 — 값은 그대로 인용. 어떤 노드든 빈 큐레이션이 나오지 않게 한다.
+  function _dot(x) { x = String(x || "").trim(); return !x || /[.!?。…]$/.test(x) ? x : x + "."; }
   function agCuration(n) {
     if (n.desc) return n.desc;
-    var parts = [];
-    if (n.kind === "finding") {
-      parts.push((n.technique ? n.technique + " 기법으로 " : "") + (n.target ? n.target + " 대상에서 " : "") +
-        (n.severity ? n.severity + " 등급 " : "") + "침해를 확인했습니다.");
-      if (n.occurrences > 1) parts.push("이 발견은 " + n.occurrences + "회 재현돼 일시적 우연이 아님이 확인됐습니다.");
-      if (n.loot != null && n.loot !== "") parts.push("아래 '확보한 데이터'에 실제 탈취 값이 담겨 있습니다.");
-    } else if (n.kind === "fact") {
-      parts.push((n.target ? n.target + " 관련 " : "") + "사실을 확인했습니다.");
-      if (n.evidence) parts.push("관측 근거 — " + n.evidence);
-    } else if (n.kind === "intent") {
-      parts.push((n.target ? n.target + "을(를) 겨냥한 " : "") + "탐색 의도입니다." + (n.why ? " 판단 근거: " + n.why : ""));
-    } else if (n.kind === "goal") {
+    var s = String(n.summary || "").trim(), d = String(n.detail || "").trim(), parts = [];
+    if (n.kind === "goal") {
       parts.push("이번 회차 공격의 최종 목표입니다. 아래의 모든 의도·사실·발견이 이 목표에서 뻗어 나옵니다.");
+      if (s) parts.push("목표 — " + _dot(s));
+    } else if (n.kind === "intent") {
+      parts.push((n.target ? "'" + n.target + "'을(를) 겨냥한 " : "") + "탐색 의도입니다.");
+      if (s) parts.push("방향 — " + _dot(s));
+      if (n.why) parts.push("판단 근거: " + _dot(n.why));
+      if (n.state) parts.push("현재 " + stateKo(n.state) + " 상태입니다.");
+    } else if (n.kind === "fact") {
+      parts.push((n.target ? "'" + n.target + "' 관련 " : "") + "확인된 사실입니다.");
+      if (s) parts.push("내용 — " + _dot(s));
+      if (n.evidence) parts.push("관측 근거: " + _dot(n.evidence));
+    } else if (n.kind === "finding") {
+      parts.push((n.technique ? n.technique + " 기법으로 " : "") + (n.target ? "'" + n.target + "'에서 " : "") +
+        (n.severity ? n.severity + " 등급 " : "") + "침해를 확인했습니다.");
+      if (s) parts.push("내용 — " + _dot(s));
+      if (n.occurrences > 1) parts.push(n.occurrences + "회 재현돼 일시적 우연이 아님이 확인됐습니다.");
+      if (n.loot != null && String(n.loot) !== "") parts.push("아래 '확보한 데이터'에 실제 탈취 값이 담겨 있습니다.");
+    } else if (s) {
+      parts.push(_dot(s));
     }
+    if (d && d !== s) parts.push("상세: " + _dot(d));
     return parts.join(" ");
   }
   function agPanel(nodes) {
