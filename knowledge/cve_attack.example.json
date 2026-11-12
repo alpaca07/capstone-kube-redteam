@@ -1,0 +1,7 @@
+{
+  "_note": "예시 템플릿. VM-B 타깃 CVE 의 실제 공격 기법으로 교체/추가해서 --cve-map 으로 넘긴다. CWE 브리지보다 정확한 CVE->Technique 직접 매핑(EXPLOITED_BY). category: primary_impact|secondary_impact|exploitation_technique|uncategorized. technique 은 현재 enterprise-attack 에 있는 id 여야 붙는다(없으면 조용히 스킵).",
+  "mappings": [
+    {"cve": "CVE-2021-44228", "techniques": ["T1190"], "category": "exploitation_technique"},
+    {"cve": "CVE-2021-44228", "techniques": ["T1059"], "category": "primary_impact"}
+  ]
+}

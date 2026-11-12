@@ -1,0 +1,5 @@
+{
+  "_note": "VulHub 4 핵심 타깃 — 바닥층(CPE·CVE·CWE) 수집용. 정확히 그 CVE만 수집해 노이즈를 줄인다(VulHub 는 CVE 단위라 id 를 안다). 제품 전체 CVE 가 필요하면 cpe_matches 에 CPE 를 넣는다 — 단 gitlab 은 1400+ CVE 라 메모리(VM-A 5~8GB) 주의. 적재: python -m knowledge --sources nvd --nvd-targets knowledge/nvd_targets.vulhub.json (cve_attack 보다 먼저 돌려 CVE 노드·속성을 채워두면 EXPLOITED_BY 가 완전한 스파인이 된다).",
+  "cve_ids": ["CVE-2017-5638", "CVE-2021-22205", "CVE-2022-22965", "CVE-2019-9193"],
+  "cpe_matches": []
+}

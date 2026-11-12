@@ -20,6 +20,10 @@ from .triage import PatchStep
 # 타깃을 주면 이걸로 걸러 무효 매니페스트(dry-run 실패 → 세트 통째 롤백)를 막는다.
 _DNS1123 = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 
+# [Phase A] patch_app 대상 서비스 → 재기동할 deployment 네임스페이스.
+_APP_SVC_NS = {"catalog-api": "backend", "order-api": "backend",
+               "auth-service": "backend", "admin-dashboard": "internal"}
+
 
 @dataclass
 class OpResult:
@@ -61,11 +65,13 @@ class PatchOutcome:
 # ───────────── patch_plan → 구체 조치 렌더 ─────────────
 @dataclass
 class _Op:
-    kind: str                          # "apply" | "delete"
+    kind: str                          # "apply" | "delete" | "patch_app"
     manifest: str = ""
     del_kind: str = ""
     del_name: str = ""
     del_ns: str = ""
+    svc: str = ""                      # patch_app: 대상 서비스(catalog-api 등)
+    restart_ns: str = ""               # patch_app: 재기동할 deployment 네임스페이스
     label: str = ""
 
 
@@ -138,6 +144,14 @@ def render_op(step: PatchStep) -> Optional[_Op]:
     """patch_plan 한 단계 → 구체 조치. 미지원이면 None."""
     a = step.action.lower()
     tgt = step.target.strip()
+    # [Phase A] patch_app — 서비스 하드닝 ConfigMap 배포 + 재기동(웹 취약점 제거). 파일 읽기·적용은
+    #   Patcher._exec_patch_app(hardened_dir 보유)이 담당. 여기선 서비스·재기동 NS 만 식별(순수).
+    if "patch_app" in a or "app_patch" in a or "patch_service" in a or ("patch" in a and "app" in a):
+        svc = _strip_kind(tgt, "svc", "service", "deploy", "deployment")
+        ns = _APP_SVC_NS.get(svc)
+        if ns is None:
+            return None                # 알 수 없는 서비스 → 미지원
+        return _Op(kind="patch_app", svc=svc, restart_ns=ns, label=f"patch_app({svc})")
     if "networkpolicy" in a or "netpol" in a or "network" in a:
         ns = _ns_from_target(tgt) or "database"
         return _Op(kind="apply", manifest=_np_manifest(ns), label=f"NetworkPolicy({ns})")
@@ -164,13 +178,39 @@ def render_op(step: PatchStep) -> Optional[_Op]:
 
 
 class Patcher:
-    def __init__(self, cluster: ClusterClient) -> None:
+    def __init__(self, cluster: ClusterClient, hardened_dir: Optional[str] = None) -> None:
         self.cluster = cluster
+        self.hardened_dir = hardened_dir   # [Phase A] app-hardened/ 경로(patch_app). 없으면 patch_app 미지원.
 
     def _exec(self, op: _Op, *, dry_run: bool) -> OpResult:
         if op.kind == "apply":
             return self.cluster.apply(op.manifest, dry_run=dry_run)
+        if op.kind == "patch_app":
+            return self._exec_patch_app(op, dry_run=dry_run)
         return self.cluster.delete(op.del_kind, op.del_name, op.del_ns, dry_run=dry_run)
+
+    def _exec_patch_app(self, op: _Op, *, dry_run: bool) -> OpResult:
+        """하드닝 ConfigMap 적용(+실적용 시 rollout 재기동). hardened_dir 없으면 미지원→세트 롤백."""
+        if not self.hardened_dir:
+            return OpResult(False, "patch_app 미지원(hardened_dir 미설정 — VM D 에 레포 체크아웃 필요)")
+        import os
+        path = os.path.join(self.hardened_dir, f"{op.svc}-code.yaml")
+        try:
+            with open(path, encoding="utf-8") as f:
+                manifest = f.read()
+        except OSError as e:
+            return OpResult(False, f"하드닝 매니페스트 읽기 실패: {path}: {e}")
+        r = self.cluster.apply(manifest, dry_run=dry_run)
+        if dry_run or not r.ok:
+            return r
+        # ConfigMap 교체는 파드 재시작해야 반영 → rollout_restart(있으면). 없으면 적용만 보고.
+        rr = getattr(self.cluster, "rollout_restart", None)
+        if rr is None:
+            return OpResult(True, f"{op.svc} ConfigMap 적용(rollout_restart 미지원 — 수동 재기동 필요)")
+        ro = rr("deployment", op.svc, op.restart_ns)
+        ok = getattr(ro, "ok", False)
+        return OpResult(ok, f"patch_app {op.svc}: 적용+재기동" if ok
+                        else f"적용됐으나 재기동 실패: {getattr(ro, 'detail', '')}")
 
     def apply_plan(self, plan: list[PatchStep]) -> PatchOutcome:
         rendered = [(s, render_op(s)) for s in plan]

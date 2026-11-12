@@ -1,0 +1,16 @@
+{
+  "_note": "VulHub 4 타깃 CVE→Technique 큐레이트 직접 매핑(EXPLOITED_BY). CWE→CAPEC→Technique 자동 사슬이 끊기는 구간(특히 CVE-2017-5638 의 CWE-755 는 CAPEC 공백)을 CVE→Technique 직접 매핑으로 메운다. 적재: python -m knowledge --sources cve_attack --cve-map knowledge/cve_attack.vulhub.json (attack 소스를 먼저 적재해 Technique 노드가 있어야 붙음). category: exploitation_technique(익스플로잇 수법) | primary_impact(1차 효과) | secondary_impact(후속). source 는 생략 시 curated.",
+  "mappings": [
+    {"cve": "CVE-2017-5638", "techniques": ["T1190"], "category": "exploitation_technique"},
+    {"cve": "CVE-2017-5638", "techniques": ["T1059"], "category": "primary_impact"},
+
+    {"cve": "CVE-2021-22205", "techniques": ["T1190"], "category": "exploitation_technique"},
+    {"cve": "CVE-2021-22205", "techniques": ["T1059"], "category": "primary_impact"},
+
+    {"cve": "CVE-2022-22965", "techniques": ["T1190"], "category": "exploitation_technique"},
+    {"cve": "CVE-2022-22965", "techniques": ["T1059"], "category": "primary_impact"},
+
+    {"cve": "CVE-2019-9193", "techniques": ["T1059"], "category": "exploitation_technique"},
+    {"cve": "CVE-2019-9193", "techniques": ["T1213"], "category": "secondary_impact"}
+  ]
+}

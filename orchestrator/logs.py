@@ -15,10 +15,17 @@ from typing import Protocol, runtime_checkable
 
 @runtime_checkable
 class LogSource(Protocol):
-    """god-view 로그 조회 계약. 시간창 내 관측된 MITRE 기법 집합을 반환."""
+    """god-view 로그 조회 계약. 시간창 내 관측된 기법·크라운 반출 집합을 반환."""
 
     def techniques_in_window(self, *, since_ts: float, until_ts: float) -> set[str]:
         """[since_ts, until_ts] 구간의 감사/Falco 로그에서 관측된 기법 ID들."""
+        ...
+
+    def crowns_in_window(self, *, since_ts: float, until_ts: float) -> set[str]:
+        """[since_ts, until_ts] 구간에 반출된 크라운 자산 집합(app·db 자백 통로가 기여).
+
+        크라운 통로가 없는 소스는 빈 집합을 반환한다(기법 전용 소스도 계약 충족).
+        """
         ...
 
 

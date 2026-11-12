@@ -1,7 +1,9 @@
-"""관측 레이어 — 감사로그 + Falco 를 구조화해 증분 수집.
+"""관측 레이어 — 감사로그 + Falco + 앱 감사 로그를 구조화해 증분 수집.
 
 방어자의 '눈' 1단: 원시 로그 → 구조화된 Observation(이번 라운드에 새로 생긴 것만).
 시간 파싱은 common.k8s_logs 공유. 로그 읽기(I/O)는 LineReader 주입 → fake로 테스트.
+[Phase A] 앱 감사 로그(서비스 after_request JSON)도 수집 → 웹 공격(SQLi·SSRF·cmdi·cred-leak)
+관측. 분류는 filter 에서 common.app_signals 로(god-view 와 같은 키).
 상태 diff(클러스터 현재 상태 vs baseline)는 ClusterClient 필요 → triage 파이프라인 단계에서 합류.
 """
 from __future__ import annotations
@@ -44,15 +46,29 @@ class ServiceLogEntry:
 
 
 @dataclass
+class AppEntry:
+    """서비스 앱 감사 로그 1줄(after_request JSON)."""
+    timestamp: float
+    svc: str
+    path: str
+    query: str = ""
+    url: str = ""
+    status: int = 0
+    fields: str = ""      # 요청 본문 필드명 목록(mass-assign 판정; preview url 처럼 엔드포인트가 기록)
+    authn: str = ""       # 인증 이상 표식(alg:none 등)
+
+
+@dataclass
 class Observation:
     since_ts: float
     until_ts: float
     audit: list[AuditEntry] = field(default_factory=list)
     falco: list[FalcoEvent] = field(default_factory=list)
-    service: list[ServiceLogEntry] = field(default_factory=list)   # B층 — 서비스 로그
+    service: list[ServiceLogEntry] = field(default_factory=list)   # B층 — 서비스 로그(corp)
+    app: list[AppEntry] = field(default_factory=list)              # 앱 감사 로그(ShopFlow)
 
     def is_empty(self) -> bool:
-        return not self.audit and not self.falco and not self.service
+        return not self.audit and not self.falco and not self.service and not self.app
 
 
 def _loads(line: str) -> Optional[dict]:
@@ -113,15 +129,33 @@ def parse_service_log_line(line: str, source: str) -> Optional[ServiceLogEntry]:
     return ServiceLogEntry(timestamp=ts, source=source, line=rest)
 
 
+def parse_app_line(line: str) -> Optional[AppEntry]:
+    """서비스 앱 감사 JSON 한 줄 → AppEntry. src!=app·타임스탬프 없음이면 None."""
+    ev = _loads(line)
+    if ev is None or ev.get("src") != "app":
+        return None
+    ts = parse_rfc3339(ev.get("ts", ""))
+    if ts is None:
+        return None
+    return AppEntry(
+        timestamp=ts, svc=ev.get("svc", ""), path=ev.get("path", ""),
+        query=ev.get("query", "") or "", url=ev.get("url", "") or "",
+        status=int(ev.get("status", 0) or 0),
+        fields=ev.get("fields", "") or "", authn=ev.get("authn", "") or "")
+
+
 class Observer:
-    """감사/Falco 로그를 증분 수집. since_ts 이후 ~ until_ts 이하만."""
+    """감사/Falco/서비스/앱 로그를 증분 수집. since_ts 이후 ~ until_ts 이하만.
+    service_readers(corp 서비스 로그)·app_reader(ShopFlow 앱 로그) 둘 다 선택적(없으면 생략)."""
 
     def __init__(self, audit_reader: LineReader, falco_reader: LineReader,
-                 service_readers: Optional[dict] = None) -> None:
+                 service_readers: Optional[dict] = None,
+                 app_reader: Optional[LineReader] = None) -> None:
         self.audit_reader = audit_reader
         self.falco_reader = falco_reader
         # source(postgres/samba/waf) → LineReader. 기본 없음(하위호환: 서비스 로그 미수집).
         self.service_readers = service_readers or {}
+        self.app_reader = app_reader
 
     def collect(self, *, since_ts: float, until_ts: Optional[float] = None) -> Observation:
         hi = until_ts if until_ts is not None else float("inf")
@@ -141,16 +175,24 @@ class Observer:
                 s = parse_service_log_line(line, source)
                 if s is not None and since_ts < s.timestamp <= hi:
                     service.append(s)
+        app: list[AppEntry] = []
+        if self.app_reader is not None:
+            for line in self.app_reader():
+                a = parse_app_line(line)
+                if a is not None and since_ts < a.timestamp <= hi:
+                    app.append(a)
 
         if until_ts is not None:
             end = until_ts
         else:                              # 윗경계 미지정 → 관측된 최대 ts(없으면 since_ts)
             seen = ([e.timestamp for e in audit] + [f.timestamp for f in falco]
-                    + [s.timestamp for s in service])
+                    + [s.timestamp for s in service]
+                    + [a.timestamp for a in app])
             end = max(seen) if seen else since_ts
         return Observation(since_ts=since_ts, until_ts=end, audit=audit, falco=falco,
-                           service=service)
+                           service=service, app=app)
 
 
-__all__ = ["AuditEntry", "FalcoEvent", "ServiceLogEntry", "Observation",
-           "parse_audit_line", "parse_falco_line", "parse_service_log_line", "Observer"]
+__all__ = ["AuditEntry", "FalcoEvent", "ServiceLogEntry", "AppEntry", "Observation",
+           "parse_audit_line", "parse_falco_line", "parse_service_log_line",
+           "parse_app_line", "Observer"]

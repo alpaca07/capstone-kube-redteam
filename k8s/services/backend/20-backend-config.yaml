@@ -10,8 +10,10 @@ stringData:
   DB_HOST: postgres.database.svc.cluster.local
   DB_PORT: "5432"
   DB_NAME: customerdb
-  DB_USER: appuser
-  DB_PASSWORD: devpassword123
+  # 앱 전용 제한 role(shopflow_app) — superuser(appuser) 아님. god-view actor 스코핑이 앱 조회를
+  # 크라운에서 빼는 전제: 공격자가 ②(appuser)·①(legacy_admin)로 얻는 role 과 '달라야' 한다.
+  DB_USER: shopflow_app
+  DB_PASSWORD: Sh0pFl0wApp!svc
 ---
 apiVersion: v1
 kind: ConfigMap

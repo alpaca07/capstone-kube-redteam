@@ -38,7 +38,6 @@ class HistoryEntry:
     blocked: bool
     exit_code: int
     stdout_excerpt: str = ""
-    flag_found: Optional[str] = None
 
 
 class AttackHistory:
@@ -50,8 +49,7 @@ class AttackHistory:
         self.entries.append(HistoryEntry(
             step=obs.step, thought=action.thought, tool=action.tool, args=list(action.args),
             success=obs.success, blocked=obs.blocked, exit_code=obs.exit_code,
-            stdout_excerpt=(obs.stdout[:_RECORD_CHARS] if obs.stdout else obs.stderr[:_RECORD_CHARS]),
-            flag_found=obs.flag_found))
+            stdout_excerpt=(obs.stdout[:_RECORD_CHARS] if obs.stdout else obs.stderr[:_RECORD_CHARS])))
 
     def _pinned_secrets(self, *, max_items: int = 6, clip: int = 200) -> list[str]:
         """전체 히스토리에서 크레덴셜·플래그 후보를 추출(중복 제거, 등장 순)."""
@@ -64,6 +62,19 @@ class AttackHistory:
                     if len(seen) >= max_items:
                         return seen
         return seen
+
+    def breach_evidence(self) -> Optional[str]:
+        """출력에서 '실제 돌파' 신호(크레덴셜·토큰·비밀값)가 있으면 짧은 증거 문자열, 없으면 None.
+
+        정착 LLM 이 finding 을 놓쳐도(null 반환) 이 기계적 신호로 침해를 기록하기 위함.
+        값 꼴(커넥션 스트링·key=value·토큰·FLAG 리터럴)만 보므로 거짓양성이 낮다 — 엔드포인트
+        경로에 'credentials'가 있는 것만으론 안 잡히고, 실제로 값이 출력에 나와야 잡힌다.
+        (플래그리스: 공격자측 flag 탐지 필드는 제거됨 — _SECRET_PAT 이 FLAG{} 리터럴까지 포괄하므로
+         별도 flag 경로 없이도 비밀값 반출을 기계적으로 포착한다. 최종 침해 판정은 심판이 크라운으로.)"""
+        secrets = self._pinned_secrets(max_items=2)
+        if secrets:
+            return "credential/secret retrieved: " + "; ".join(s[:80] for s in secrets)
+        return None
 
     def render(self, *, max_entries: int = 12, recent_full: int = 2,
                full_chars: int = 1500, old_chars: int = 200) -> str:
@@ -94,7 +105,6 @@ class AttackHistory:
             return "행동 없음"
         blocked = sum(1 for e in self.entries if e.blocked)
         failed = sum(1 for e in self.entries if not e.success and not e.blocked)
-        flags = [e.flag_found for e in self.entries if e.flag_found]
         lines = [f"{len(self.entries)}개 행동(실패 {failed}·차단 {blocked})."]
         useful = [e for e in self.entries if e.success and not e.blocked]
         if useful:
@@ -103,8 +113,6 @@ class AttackHistory:
                 cmd = (e.tool + " " + " ".join(e.args)).strip()
                 out = (e.stdout_excerpt or "").replace("\n", " ").strip()[:excerpt]
                 lines.append(f"- {cmd} → {out}")
-        if flags:
-            lines.append(f"플래그 획득: {flags}")
         return "\n".join(lines)
 
 

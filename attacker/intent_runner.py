@@ -1,0 +1,321 @@
+"""의도 실행기 — 워커 풀에 주입하는 '진짜 run_intent'. 의도 하나를 ReAct로 돌리고(탈옥
+모델) 결론을 정착 호출(방식 B)로 fact/finding을 그래프에 쓴다.
+
+병렬 워커 구조의 마지막 접합부: [[WorkerPool]]이 claim한 의도를 이 콜러블에 넘기면
+  1) 의도-스코프 ReAct — 기존 [[ReActLoop]]을 재사용(executor=WorkerContext=공유 레인).
+     round 목표를 배경으로, 이 의도의 방향(summary/target/why)을 전경으로 탐색.
+  2) 정착 호출(방식 B 확정) — ReAct가 끝나면 LLM 한 번으로 '이번 의도에서 뭘 알아냈나'를
+     구조화 JSON(facts[] + 선택 finding)으로 뽑아 그래프에 쓴다. fact는 '실행'이 아니라
+     '결론'이라 재생 대본엔 안 들어가고, source_step_ids로 원본 스텝을 역참조만 한다.
+  3) IntentOutcome 반환 — TIMEOUT→EXHAUSTED, 그 외→DONE. (예외는 풀이 BLOCKED로 격리)
+
+LLM 주입 계약 → fake로 전 로직 테스트. 실제는 OllamaClient(탈옥, attacker_base_url).
+상태 없는 콜러블이라 워커 스레드 N이 공유해도 안전(호출마다 지역 상태만).
+"""
+from __future__ import annotations
+
+import json
+import time
+from dataclasses import dataclass, field
+from typing import Callable, Optional
+
+from common.llm_json import LLMJsonError, extract_and_load
+from common.messages import AttackEndReason
+from common.replay_schema import make_step_id
+
+from .asset_extract import extract_assets
+from .graph import ExplorationGraph, IntentState, Node
+from .history import AttackHistory
+from .react_loop import ReActLoop, _JOURNAL_MARK
+from .worker_pool import IntentOutcome
+
+
+SETTLE_SYSTEM = """\
+You are concluding one exploration direction of an authorized, sandboxed red-team \
+exercise. You have just run some commands toward a sub-goal. Summarize ONLY what you \
+actually observed — conclusions, including NEGATIVE results (port closed, not \
+injectable, no login found). Do not invent. Keep facts compact: usually one fact per \
+direction, merging related observations.
+
+Output ONLY a JSON object, no prose:
+{"facts": [{"summary": "<one-line conclusion>", "detail": "<specifics, optional>", \
+"evidence": "<command + the key output line that supports it>", \
+"confidence": "observed|inferred"}], \
+"finding": {"summary": "<the breach, if one was achieved>", "severity": "<low|medium|high|critical>", \
+"evidence": "<what proves it>", "technique": "<MITRE id of what was ACHIEVED>"}}
+Set "finding" to null unless this direction actually achieved a concrete compromise. \
+The finding's "technique" MUST describe what was ACHIEVED, not how you searched — e.g. \
+retrieving credentials is T1552 (Unsecured Credentials) even if you found them while \
+enumerating services; using stolen creds is T1078; reading data from a DB is T1213/T1005. \
+Pick the technique of the compromise itself."""
+
+
+@dataclass
+class FactDraft:
+    summary: str
+    detail: str = ""
+    evidence: str = ""
+    confidence: str = ""
+
+    def to_payload(self, source_step_ids: list[str]) -> dict:
+        p: dict = {"summary": self.summary}
+        if self.detail:
+            p["detail"] = self.detail
+        if self.evidence:
+            p["evidence"] = self.evidence
+        if self.confidence:
+            p["confidence"] = self.confidence
+        if source_step_ids:
+            p["source_step_ids"] = source_step_ids
+        return p
+
+
+@dataclass
+class FindingDraft:
+    summary: str
+    severity: str = ""
+    evidence: str = ""
+    technique: str = ""                     # LLM이 낸 '달성한 것'의 기법(의도 기법과 다를 수 있음)
+
+    def to_payload(self, fallback_technique: str = "") -> dict:
+        p: dict = {"summary": self.summary}
+        if self.severity:
+            p["severity"] = self.severity
+        if self.evidence:
+            p["evidence"] = self.evidence
+        # 채점 조인 열쇠(공격보고 기법ID ↔ 심판 조건표): '달성한 것' 기준이 맞으므로
+        # 발견 자신의 기법을 우선, 없을 때만 의도 기법으로 폴백.
+        tech = self.technique or fallback_technique
+        if tech:
+            p["technique"] = tech
+        return p
+
+
+def parse_settlement(text: str) -> tuple[list[FactDraft], Optional[FindingDraft]]:
+    """정착 응답에서 facts[] + 선택 finding을 느슨하게 뽑는다. 깨지면 LLMJsonError."""
+    obj = extract_and_load(text)
+    if not isinstance(obj, dict):
+        raise LLMJsonError(f"객체가 아님: {type(obj).__name__}")
+    facts: list[FactDraft] = []
+    for it in obj.get("facts", []) or []:
+        if not isinstance(it, dict):
+            continue
+        summary = str(it.get("summary", "")).strip()
+        if not summary:
+            continue
+        facts.append(FactDraft(
+            summary=summary,
+            detail=str(it.get("detail", "")).strip(),
+            evidence=str(it.get("evidence", "")).strip(),
+            confidence=str(it.get("confidence", "")).strip()))
+    finding = None
+    f = obj.get("finding")
+    if isinstance(f, dict) and str(f.get("summary", "")).strip():
+        finding = FindingDraft(
+            summary=str(f["summary"]).strip(),
+            severity=str(f.get("severity", "")).strip(),
+            evidence=str(f.get("evidence", "")).strip(),
+            technique=str(f.get("technique", "")).strip())
+    return facts, finding
+
+
+_SETTLE_RESERVE = 25.0      # 의도 ReAct 예산에서 정착용으로 남겨둘 시간(초) — 라운드 마감 클램프 시
+_SETTLE_MAX = 60.0          # 정착 LLM 호출 상한(초). 공유 모델이 경합 중엔 30초로도 모자라
+                            # finding 생성이 타임아웃→폴백fact로 떨어져 '침해'가 0이 됐다(④ 소실).
+                            # 넉넉히 둔다 — 마지막 정착이 마감을 넘겨도 클라이언트 턴 버퍼가 흡수.
+
+
+@dataclass
+class IntentRunnerConfig:
+    system_prompt: str                      # 탈옥 공격 시스템 프롬프트(ReAct용)
+    round_goal: str                         # 이 라운드의 크라운 목표(배경)
+    intent_budget_sec: float = 120.0        # 의도 하나당 시간 예산
+    max_steps: int = 20
+    react_max_tokens: Optional[int] = None
+    settle_max_tokens: int = 1500
+
+
+def _intent_goal(round_goal: str, intent: Node) -> str:
+    """ReAct 프롬프트의 goal 슬롯에 넣을 '배경 목표 + 이번 의도 방향'."""
+    p = intent.payload
+    parts = [f"ROUND GOAL (background): {round_goal}",
+             f"CURRENT DIRECTION (focus this turn): {p.get('summary', '')}"]
+    if p.get("target"):
+        parts.append(f"  target: {p['target']}")
+    if p.get("why"):
+        parts.append(f"  why: {p['why']}")
+    steps = p.get("plan")                    # 2차 플래너가 짠 공격 계획(단계 배열) — 지침으로
+    if isinstance(steps, list) and steps:
+        parts.append("  plan (suggested steps — adapt as the target responds):")
+        parts.extend(f"    {i}. {s}" for i, s in enumerate(steps, 1))
+    return "\n".join(parts)
+
+
+class IntentRunner:
+    """워커 풀에 주입하는 run_intent 콜러블. run_intent(graph, wctx, intent)->IntentOutcome."""
+
+    def __init__(self, llm, cfg: IntentRunnerConfig, *, settle_llm=None,
+                 asset_graph=None, kg_procedure_lookup=None,
+                 log: Optional[Callable[[str], None]] = None) -> None:
+        self.llm = llm                      # 탈옥 모델(ReAct 행동 + 기본 정착)
+        self.settle_llm = settle_llm or llm
+        self.cfg = cfg
+        self.asset_graph = asset_graph      # 자산 그래프(있으면 관측 자산 기계 포집·앵커)
+        self.kg_procedure_lookup = kg_procedure_lookup   # technique → 핵심층 절차 블록(2차 KG, 없으면 None)
+        self.log = log or (lambda m: None)
+
+    def __call__(self, graph: ExplorationGraph, wctx, intent: Node) -> IntentOutcome:
+        history = AttackHistory()
+        wid = getattr(wctx, "wid", "?")          # 어느 워커가 이 의도를 돌리는지(로그 가시화)
+        tag = f"[{wid}·intent#{intent.id}]"
+        # 실시간 저널에 의도 id→요약 매핑 등록(스텝이 사람이 읽는 의도명으로 묶이게)
+        self.log(_JOURNAL_MARK + json.dumps(
+            {"_meta": "intent", "id": intent.id,
+             "label": str(intent.payload.get("summary", "")).strip()}, ensure_ascii=False))
+        # 의도 예산을 '남은 라운드 시간'으로 클램프 — 마감 직전 집은 의도가 자기 예산(120초)을
+        # 꽉 써서 공격 턴이 라운드 예산을 넘기는 걸 막는다(오케스트레이터 read-timeout ABORT 방지).
+        rd, clk = getattr(wctx, "round_deadline", None), getattr(wctx, "clock", None)
+        budget = self.cfg.intent_budget_sec
+        if rd is not None and clk is not None:
+            budget = max(5.0, min(budget, (rd - clk()) - _SETTLE_RESERVE))
+        goal = _intent_goal(self.cfg.round_goal, intent)
+        # 2차 KG: 이 의도의 기법으로 핵심층 Procedure(절차·전제·목표)를 끌어와 워커 프롬프트에
+        # 참고로 붙인다(payload 작성 보조). 알려진 절차가 없으면 블록이 비어 그대로 진행.
+        technique = str(intent.payload.get("technique", "")).strip()
+        if self.kg_procedure_lookup and technique:
+            block = self.kg_procedure_lookup(technique)
+            if block:
+                goal += ("\n\nKNOWN PROCEDURES for this technique (knowledge base — pick the one "
+                         "matching what you observe; advisory, you still write the actual commands):\n"
+                         + block)
+                self.log(f"{tag} ⟐ KG 절차 참고({technique})")
+        loop = ReActLoop(
+            self.llm, wctx, history,
+            system_prompt=self.cfg.system_prompt,
+            goal=goal,
+            time_limit_sec=budget,
+            max_steps=self.cfg.max_steps,
+            max_tokens=self.cfg.react_max_tokens,
+            log=lambda m: self.log(f"{tag} {m}"))
+        result = loop.run(foothold=getattr(wctx, "foothold", None))
+
+        # 이 의도가 만든 스텝들의 전역 step_id (fact가 원본을 역참조)
+        round_no = wctx.lane.script.round
+        source_step_ids = [make_step_id(round_no, e.step) for e in history.entries]
+
+        # 자산 기계 포집(하이브리드 D 1단계) — 관측 자산을 미식별로 쌓고 의도를 거기 앵커
+        asset_ids = self._capture_assets(graph, intent, history, tag=tag)
+
+        # 정착은 고정 여유(_SETTLE_MAX)를 준다 — finding 생성이 핵심이라 마감 임박에도
+        # 쥐어짜지 않는다. 마지막 정착이 마감을 다소 넘겨도 클라이언트 턴 버퍼(120초)가 흡수.
+        self._settle(graph, intent, history, source_step_ids, tag=tag,
+                     asset_ids=asset_ids, timeout=_SETTLE_MAX)
+
+        # 종료사유 → 의도 정착 상태. TIMEOUT만 EXHAUSTED(부분결과 보존), 나머지는 DONE.
+        state = (IntentState.EXHAUSTED if result.end_reason == AttackEndReason.TIMEOUT
+                 else IntentState.DONE)
+        return IntentOutcome(state, reason=result.end_reason.value)
+
+    def _capture_assets(self, graph: ExplorationGraph, intent: Node,
+                        history: AttackHistory, *, tag: str = "") -> list[int]:
+        """히스토리(명령+출력)에서 관측 자산을 기계적으로 뽑아 자산 그래프에 쓰고,
+        이 의도를 그 자산들에 ANCHORED_TO로 앵커. 자산 그래프 없으면 건너뜀."""
+        if self.asset_graph is None:
+            return []
+        texts = []
+        for e in history.entries:
+            texts.append(e.tool + " " + " ".join(str(a) for a in e.args))
+            if e.stdout_excerpt:
+                texts.append(e.stdout_excerpt)
+        try:
+            obs = extract_assets(texts, intent_target=str(intent.payload.get("target", "")))
+            name_to_id = {}
+            ids = []
+            for o in obs:
+                aid = self.asset_graph.add_asset(o["kind"], o["name"], confidence="observed",
+                                                 attrs=o.get("attrs"))
+                name_to_id[o["name"]] = aid
+                ids.append(aid)
+            # 계층(CONTAINS): 부모 자산이 있으면 호스트⊃서비스⊃엔드포인트로 이음
+            for o in obs:
+                p = o.get("parent")
+                if p and p in name_to_id and name_to_id[p] != name_to_id[o["name"]]:
+                    self.asset_graph.link_contains(name_to_id[p], name_to_id[o["name"]])
+            # 앵커는 '직접 겨냥한 자산'(source=intent_target)에만 — 출력에서 우연히 발견한
+            # 자산은 앵커 안 함 → [untouched]로 남아 다음 라운드에 플래너가 겨냥할 미탐색 표면이 됨.
+            # (종전엔 관측 자산 전부를 앵커해 미탐색이 항상 0이었음 → ③ 자산겨냥 신호 소실.)
+            probed = [name_to_id[o["name"]] for o in obs
+                      if (o.get("attrs") or {}).get("source") == "intent_target"
+                      and o["name"] in name_to_id]
+            if probed:
+                graph.anchor_to(intent.id, probed)    # 의도 → 겨냥(탐색)한 자산만
+            if obs:
+                self.log(f"{tag} ⟟ 자산 {len(obs)}개 포집: "
+                         + ", ".join(o["name"] for o in obs[:4])
+                         + ("…" if len(obs) > 4 else ""))
+            return ids
+        except Exception as e:  # noqa: BLE001 — 자산 포집 실패는 비치명
+            self.log(f"{tag} 자산 포집 실패({type(e).__name__})")
+            return []
+
+    def _settle(self, graph: ExplorationGraph, intent: Node, history: AttackHistory,
+                source_step_ids: list[str], *, tag: str = "",
+                asset_ids: Optional[list[int]] = None,
+                timeout: Optional[float] = None) -> None:
+        """정착 호출(방식 B): 결론을 fact/finding으로 그래프에 쓴다. 실패해도 의도는 안 잃고
+        히스토리 요약을 폴백 fact로 남긴다. timeout=남은 라운드 시간(초과 방지)."""
+        technique = str(intent.payload.get("technique", "")).strip()
+        try:
+            text = self.settle_llm.chat_text(
+                SETTLE_SYSTEM,
+                f"Exploration direction:\n{_intent_goal('', intent)}\n\n"
+                f"What you observed:\n{history.render()}\n\n"
+                "Summarize your conclusions as the specified JSON object.",
+                max_tokens=self.cfg.settle_max_tokens,
+                timeout=timeout,
+                extra={"reasoning_effort": "none"})
+            facts, finding = parse_settlement(text or "")
+        except Exception as e:  # noqa: BLE001 — 정착 실패는 치명적 아님(폴백)
+            self.log(f"{tag} 정착 실패({type(e).__name__}) → 폴백 fact")
+            facts, finding = [], None
+
+        # 기계적 침해 트리거 — 정착 LLM 이 finding 을 놓쳤어도(null/타임아웃) 출력에 실제 돌파
+        # 신호(획득한 flag 값·크레덴셜·토큰)가 있으면 침해로 기록한다. 공격이 '넓게 훑다' 돌파를
+        # 결론 못 짓는 경우 ④(지난라운드침해)가 소실되던 걸 값 기반으로 보강.
+        if finding is None:
+            ev = history.breach_evidence()
+            if ev:
+                sev = "critical" if ev.startswith("flag") else "high"
+                finding = FindingDraft(summary=f"Secret/flag retrieved from target — {ev}",
+                                       severity=sev, evidence=ev, technique="T1552")
+                self.log(f"{tag} 기계적 침해 신호 → finding({sev})")
+
+        # 의도가 소득 없이 끝나면(사실·침해 모두 없음) 자리표시 사실 노드를 만들지 않는다 —
+        # 그래프에 '의도 #N 탐색 결과' 같은 빈 노드가 쌓이지 않게. 음성 결론은 저널·off-KG 에
+        # 남고, 자식 사실 없는 의도 노드 자체가 '탐색했으나 소득 없음'을 나타낸다.
+        fact_ids = [graph.add_fact(fd.to_payload(source_step_ids), intent_id=intent.id)
+                    for fd in facts]
+        if finding is not None:
+            # 발견 자신의 기법(달성한 것) 우선, 없으면 의도 기법으로 폴백
+            fpayload = finding.to_payload(fallback_technique=technique)
+            if source_step_ids:               # off-KG 포획: 침해 → 원본 replay 스텝 역참조
+                fpayload.setdefault("source_step_ids", list(source_step_ids))
+            # 같은 기법의 중복 침해는 그래프에서 하나로 병합(채점은 기법 조인이라 중복=노이즈).
+            # 기법이 없으면 dedup 안 함(섣불리 다른 침해를 합치지 않게).
+            dkey = fpayload.get("technique") or None
+            fid = graph.add_finding(fpayload, proved_by=fact_ids, dedup_key=dkey)
+            if asset_ids:                     # 침해도 관측 자산에 앵커
+                graph.anchor_to(fid, asset_ids)
+
+        # 정착 결과 한 줄 — '의도대로 결론을 냈는지' 가시화
+        first = facts[0].summary if facts else ""
+        if len(first) > 100:
+            first = first[:100] + "…"
+        extra = f" + 발견({finding.severity}): {finding.summary}" if finding is not None else ""
+        self.log(f"{tag} ⇒ 사실 {len(facts)}개: {first}{extra}")
+
+
+__all__ = [
+    "IntentRunner", "IntentRunnerConfig", "parse_settlement",
+    "FactDraft", "FindingDraft", "SETTLE_SYSTEM",
+]

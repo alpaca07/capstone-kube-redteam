@@ -21,6 +21,16 @@ spec:
       containers:
         - name: postgres
           image: postgres:16-alpine
+          # [B] 직접 DB 접속 크라운 판정용 statement 로깅(god-view DbLogSource 가 kubectl logs 로 읽음).
+          #   log_statement=all → 모든 SQL 을 stderr(컨테이너 stdout)로. 노이즈는 crown_of_sql 이 필터.
+          #   log_line_prefix 의 %m(타임스탬프)으로 시간창, %u@%d(접속 role@db)로 actor 스코핑을 판정.
+          #   → 앱(appuser)과 공격자 유출 role(legacy_admin)이 갈려 거짓 크라운 방지(attacker_db_roles).
+          args:
+            - "postgres"
+            - "-c"
+            - "log_statement=all"
+            - "-c"
+            - "log_line_prefix=%m [%p] %u@%d "
           ports:
             - containerPort: 5432
           envFrom:

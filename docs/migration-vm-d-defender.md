@@ -61,7 +61,7 @@
 - [ ] systemd `defense-harness.service` 를 VM D 에 등록·enable
 - [ ] **VM C `config.yaml` 의 `network.defender_url` 을 VM D IP 로 변경** → `capstone-dashboard`/orchestrator 재시작
 - [ ] VM B 정리: `defense-harness.service` disable·제거, (방어자 전용이던) `capstone-falco-tail` 제거 — god-view 용 로그는 VM C 가 별도 sync 하므로 무관
-- [ ] end-to-end: 1 에피소드 실행 → 방어 턴이 **VM D 에서** 패치 적용되고 god-view 채점·대시보드 정상인지
+- [ ] end-to-end: 1 회차 실행 → 방어 턴이 **VM D 에서** 패치 적용되고 god-view 채점·대시보드 정상인지
 
 ---
 
@@ -83,7 +83,7 @@
 9. **수동 스모크** — `python3 -m defender.server --config config.yaml --port 8000` 기동 → 다른 창에서 `python3 -m scripts.probe_defender --config config.yaml` 로 1턴. `detected`/`patch_attempts`/`patch_note` 확인(비어 있으면 로그 sync·경로 점검).
 10. **systemd 등록** — `defense-harness.service`(ExecStart 를 VM D 기준으로) enable·start.
 11. **VM C 전환** — VM C `config.yaml` `network.defender_url` = `http://<VM D 관리망 IP>:8000` 으로 변경 후 orchestrator/대시보드 재시작.
-12. **VM B 정리 + end-to-end** — VM B 의 defender 유닛 disable, 1 에피소드 실행으로 전체 루프(방어 턴이 VM D 에서 수행·채점) 검증.
+12. **VM B 정리 + end-to-end** — VM B 의 defender 유닛 disable, 1 회차 실행으로 전체 루프(방어 턴이 VM D 에서 수행·채점) 검증.
 
 ### VM D config 값 (바뀌는 항목만)
 
@@ -111,7 +111,7 @@
 
 ## 주의점 (로직)
 
-- **두 원격 kubectl writer**(VM C 리셋 + VM D 패치)가 VM B 에 동시 접근 — 시퀀서가 순서를 잡으므로(리셋=에피소드 시작, 패치=라운드 중) 충돌 아님.
+- **두 원격 kubectl writer**(VM C 리셋 + VM D 패치)가 VM B 에 동시 접근 — 시퀀서가 순서를 잡으므로(리셋=회차 시작, 패치=라운드 중) 충돌 아님.
 - **시계 스큐** — window 필터는 로그 타임스탬프 기준이라 둔감하지만 NTP 동기 권장.
 - **로그 소스 변화** — "노드 로컬 raw audit.log" → "DaemonSet 경유 pull(2시간 롤링)". VM C 가 이미 이 방식이라 검증됨.
 - **빈 관측 NOOP** — (재강조) VM D 에서 로그 sync 가 떠 있지 않으면 방어자가 조용히 아무것도 안 함.

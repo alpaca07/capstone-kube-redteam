@@ -76,7 +76,7 @@ _DEFAULT_PSA_NS = ("frontend", "backend", "database", "internal", "default")
 
 
 class BaselineManager:
-    """k8s 네이티브 아레나 리셋. SnapshotManager 자리에 끼우되(에피소드 init의 revert_to 호환),
+    """k8s 네이티브 아레나 리셋. SnapshotManager 자리에 끼우되(회차 init의 revert_to 호환),
     실제 동작은 reset_to_clean()."""
 
     def __init__(self, *, runner: Runner,
@@ -155,7 +155,7 @@ class BaselineManager:
             raise ResetError(f"과권한 바인딩 미복구: {self.overperm_binding}")
 
     # ───────────── SnapshotManager 호환(기존 이음새에 그대로 끼우기) ─────────────
-    # verify 는 reset_to_clean() 을 직접 쓰지만, 시퀀서의 에피소드 init(revert_to(baseline))·
+    # verify 는 reset_to_clean() 을 직접 쓰지만, 시퀀서의 회차 init(revert_to(baseline))·
     # 정리 호출은 아래 어댑터로 흡수한다. 클린 상태는 하나뿐이라 name 은 무시(안전상 검증).
     def revert_to(self, name: str) -> None:
         self.reset_to_clean()

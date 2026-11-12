@@ -1,4 +1,4 @@
-"""턴 시퀀서 테스트 — fake 이음새로 에피소드 전체 루프를 돌려 제어 로직 검증.
+"""턴 시퀀서 테스트 — fake 이음새로 회차 전체 루프를 돌려 제어 로직 검증.
 
     python3 tests/test_sequencer.py     # 자체 러너
 종료조건·라운드 흐름·크래시 복구·킬스위치·god-view 정답 구축을 독립 기댓값으로 확인.
@@ -15,15 +15,17 @@ if str(_ROOT) not in sys.path:
 from common.messages import (  # noqa: E402
     AgentRole, AgentState, AgentStatus,
     AttackEndReason, AttackTurnResult, DefenseEndReason, DefenseTurnResult,
-    Detection, FlagObtained, ReplayPhase, ReplayResult, StepReplayRec,
+    Detection, ReplayPhase, ReplayResult, StepReplayRec,
 )
-from common.replay_schema import Command, FlagCheck, ReplayScript, Step  # noqa: E402
+from common.replay_schema import Command, ReplayScript, Step  # noqa: E402
 from orchestrator.fakes import (  # noqa: E402
     FakeAttackerClient, FakeDefenderClient, FakeLogSource, FakeBaseline,
 )
 from orchestrator.flags import default_registry  # noqa: E402
+from orchestrator.objectives import default_objectives  # noqa: E402
 from orchestrator.sequencer import RunParams, TurnSequencer  # noqa: E402
 from orchestrator.truth_log import TruthLog  # noqa: E402
+from common.app_signals import CROWN_INTERNAL_SECRETS  # noqa: E402
 from orchestrator.verifier import VerificationEngine  # noqa: E402
 
 PRE, POST = ReplayPhase.PRE, ReplayPhase.POST
@@ -33,14 +35,13 @@ PRE, POST = ReplayPhase.PRE, ReplayPhase.POST
 def _script() -> ReplayScript:
     return ReplayScript(session_id="s", episode=1, round=1, steps=[
         Step(step=1, command=Command(tool="kubectl", args=["get", "secret"])),
-        Step(step=2, command=Command(tool="psql", args=["-c", "SELECT value"]),
-             flag_check=FlagCheck(flag_id="4", obtained=True))])
+        Step(step=2, command=Command(tool="psql", args=["-c", "SELECT value"]))])
 
 
 def _attack_result() -> AttackTurnResult:
+    # 플래그리스: 공격자는 성공을 자기보고하지 않는다. 크라운은 심판의 로그원이 주입(_seq 참조).
     return AttackTurnResult(
-        end_reason=AttackEndReason.FLAG,
-        flags_obtained=[FlagObtained(flag_id="4", value="FLAG{win}", step=2)],
+        end_reason=AttackEndReason.DEADEND,
         replay_script=_script(), attack_summary="② SA→DB", elapsed_sec=1.0)
 
 
@@ -58,26 +59,61 @@ def _defense_result() -> DefenseTurnResult:
 
 
 def _make(*, post_success: bool, n_consec: int = 2, max_rounds: int = 10,
-          episodes: int = 1, kill=None, attacker_override=None, skip_revert: bool = False):
+          episodes: int = 1, kill=None, attacker_override=None, skip_revert: bool = False,
+          crown_sync_grace_sec: float = 0.0, crown_skew_pad_sec: float = 0.0, logs_override=None):
     attacker = attacker_override or FakeAttackerClient(
         replay_by_phase={PRE: _replay(PRE, True), POST: _replay(POST, post_success)},
         attack_result=_attack_result())
     defender = FakeDefenderClient(defense_result=_defense_result(),
                                   vulnerable_by_check={"1": False, "2": False, "3": False})
     snaps = FakeBaseline(existing=["clean-baseline"])
-    registry = default_registry("FLAG{win}")
-    verifier = VerificationEngine(attacker, defender, snaps, registry)
-    logs = FakeLogSource(constant={"T1078"})
+    registry = default_registry()
+    objectives = default_objectives()
+    # verify 재생창 crown: post_success=True → 재생 후에도 크라운 빠짐(FAKE_PATCH) / False → 안 빠짐(BLOCKED)
+    verifier_logs = FakeLogSource(
+        crown_constant=({CROWN_INTERNAL_SECRETS} if post_success else set()))
+    verifier = VerificationEngine(attacker, defender, snaps, registry,
+                                  logs=verifier_logs, objectives=objectives)
+    # _build_truth 공격창: 공격이 ④(internal_secrets) 획득했다고 기록(기법 T1078 도 관측)
+    logs = logs_override if logs_override is not None else FakeLogSource(
+        constant={"T1078"}, crown_constant={CROWN_INTERNAL_SECRETS})
     truth = TruthLog()
     captured: list[dict] = []
     params = RunParams(episodes=episodes, max_rounds=max_rounds, n_consecutive_defense=n_consec,
                        baseline_snapshot="clean-baseline", attack_endpoint="10.0.0.5",
-                       skip_revert=skip_revert)
+                       skip_revert=skip_revert,
+                       crown_sync_grace_sec=crown_sync_grace_sec, crown_skew_pad_sec=crown_skew_pad_sec)
     seq = TurnSequencer(attacker=attacker, defender=defender, snapshots=snaps, verifier=verifier,
-                        logs=logs, registry=registry, truth=truth, params=params,
-                        sink=captured.append, kill_switch=kill)
+                        logs=logs, registry=registry, objectives=objectives, truth=truth,
+                        params=params, sink=captured.append, kill_switch=kill)
     return seq, {"attacker": attacker, "defender": defender, "snaps": snaps,
                  "truth": truth, "captured": captured}
+
+
+def test_crown_gate_applies_sync_grace_and_skew_pad():
+    # 게이트 크라운 읽기에 유예(sleep=grace)·창 since 스큐 패드(폭↑) 적용 잠금 — 동기화 경합 보정.
+    import orchestrator.sequencer as seqmod
+    windows: list[float] = []
+
+    class RecLog(FakeLogSource):
+        def crowns_in_window(self, *, since_ts, until_ts):
+            windows.append(until_ts - since_ts)
+            return super().crowns_in_window(since_ts=since_ts, until_ts=until_ts)
+
+    rec = RecLog(constant={"T1078"}, crown_constant={CROWN_INTERNAL_SECRETS})
+    seq, _ = _make(post_success=False, n_consec=99, max_rounds=1,
+                   crown_sync_grace_sec=7.0, crown_skew_pad_sec=100.0, logs_override=rec)
+
+    slept: list[float] = []
+    orig_sleep = seqmod.time.sleep
+    seqmod.time.sleep = lambda s: slept.append(s)   # 실제 대기 없이 호출만 기록
+    try:
+        seq.run_episode(1)
+    finally:
+        seqmod.time.sleep = orig_sleep
+
+    assert 7.0 in slept                 # 게이트 전 유예(grace) 적용
+    assert max(windows) >= 100.0        # 게이트 창 since 패드로 ≥100s 확장(막판 크라운 줄 포착)
 
 
 # ───────────── 종료조건 ─────────────
@@ -98,7 +134,7 @@ def test_max_rounds_ends_episode():
 
 # ───────────── 라운드 흐름 ─────────────
 def test_skip_revert_omits_baseline_revert():
-    # --no-revert: 에피소드 init 의 baseline revert 를 생략한다(라이브 클러스터 그대로).
+    # --no-revert: 회차 init 의 baseline revert 를 생략한다(라이브 클러스터 그대로).
     seq, ctx = _make(post_success=False, n_consec=99, max_rounds=1, skip_revert=True)
     seq.run_episode(1)
     assert ("revert_to", "clean-baseline") not in ctx["snaps"].calls, ctx["snaps"].calls
@@ -108,11 +144,11 @@ def test_round_flow_and_cleanup():
     seq, ctx = _make(post_success=False, n_consec=99, max_rounds=1)
     seq.run_episode(1)
     snaps = ctx["snaps"]
-    assert snaps.calls[0] == ("revert_to", "clean-baseline")        # 0. 에피소드 init 리셋
+    assert snaps.calls[0] == ("revert_to", "clean-baseline")        # 0. 회차 init 리셋
     assert not any(op == "save" for op, _ in snaps.calls)           # A2: 공격후 VM 스냅샷 없음
     assert len(ctx["defender"].defense_calls) == 1                  # 2. 방어 턴
     assert [p for p, _, _ in ctx["attacker"].replay_calls] == [POST]  # 3. 검증(POST-only)
-    assert snaps.reset_calls == 1                                   # 에피소드 init 만(verify 는 리셋 안 함)
+    assert snaps.reset_calls == 1                                   # 회차 init 만(verify 는 리셋 안 함)
     assert len(ctx["truth"].entries(1)) == 1                        # 정답 기록
     assert len(ctx["captured"]) == 1                                # 채점(JSONL)
 
@@ -121,8 +157,8 @@ def test_godview_truth_and_detection():
     seq, ctx = _make(post_success=False, n_consec=99, max_rounds=1)
     seq.run_episode(1)
     entry = ctx["truth"].entries(1)[0]
-    assert entry.techniques() == {"T1213", "T1078"}                 # ④값대조 + 로그관측
-    assert set(entry.flags_reached) == {"2", "4"}
+    assert entry.techniques() == {"T1213", "T1078"}                 # 크라운(T1213) + 로그관측(T1078)
+    assert set(entry.flags_reached) == {"2", "crown-secrets"}
     det = ctx["captured"][0]["detection_cum"]
     assert det["tp"] == 1 and det["fn"] == 1                         # T1078 맞춤 / T1213 놓침
 
@@ -173,19 +209,22 @@ class _DeadDefender:
 
 
 def test_not_ready_after_revert_aborts_episode():
-    # VM B가 revert 후 안 깨어나면(공격자는 정상) 공격 턴도 안 가고 에피소드 중단.
+    # VM B가 revert 후 안 깨어나면(공격자는 정상) 공격 턴도 안 가고 회차 중단.
     attacker = FakeAttackerClient(
         replay_by_phase={PRE: _replay(PRE, True), POST: _replay(POST, False)},
         attack_result=_attack_result())
     dead = _DeadDefender()
     snaps = FakeBaseline(existing=["clean-baseline"])
-    registry = default_registry("FLAG{win}")
-    verifier = VerificationEngine(attacker, dead, snaps, registry)
+    registry = default_registry()
+    objectives = default_objectives()
+    verifier = VerificationEngine(attacker, dead, snaps, registry,
+                                  logs=FakeLogSource(), objectives=objectives)
     params = RunParams(episodes=1, max_rounds=5, baseline_snapshot="clean-baseline",
                        attack_endpoint="10.0.0.5", ready_timeout_sec=0.0)
     seq = TurnSequencer(attacker=attacker, defender=dead, snapshots=snaps, verifier=verifier,
                         logs=FakeLogSource(constant={"T1078"}), registry=registry,
-                        truth=TruthLog(), params=params, sleeper=lambda s: None)
+                        objectives=objectives, truth=TruthLog(), params=params,
+                        sleeper=lambda s: None)
     s = seq.run_episode(1)
     assert s.end_reason == "aborted"
     assert s.rounds == 0
@@ -206,19 +245,19 @@ def test_kill_switch_stops_mid_episode():
     assert s.rounds == 1
 
 
-# ───────────── 다중 에피소드 ─────────────
+# ───────────── 다중 회차 ─────────────
 def test_run_experiment_multiple_episodes():
     seq, ctx = _make(post_success=True, max_rounds=1, episodes=2)
     res = seq.run_experiment()
     assert len(res) == 2 and all(r.rounds == 1 for r in res)
-    assert ctx["snaps"].calls.count(("revert_to", "clean-baseline")) == 2   # 에피소드마다 리셋
+    assert ctx["snaps"].calls.count(("revert_to", "clean-baseline")) == 2   # 회차마다 리셋
 
 
-# ───────────── 게이팅(플래그 획득 시에만 방어+검증) ─────────────
+# ───────────── 게이팅(크라운 반출 시에만 방어+검증) ─────────────
 def _no_flag_result(reason: AttackEndReason = AttackEndReason.DEADEND) -> AttackTurnResult:
-    """플래그 미획득 공격 결과(정찰/막다른 길) — 방어·검증이 생략돼야 한다."""
-    return AttackTurnResult(end_reason=reason, flags_obtained=[], replay_script=None,
-                            attack_summary="정찰만 하고 플래그 못 찾음", elapsed_sec=1.0)
+    """크라운 미반출 공격 결과(정찰/막다른 길) — 방어·검증이 생략돼야 한다."""
+    return AttackTurnResult(end_reason=reason, replay_script=None,
+                            attack_summary="정찰만 하고 크라운 미반출", elapsed_sec=1.0)
 
 
 class _ScriptedAttacker(FakeAttackerClient):
@@ -232,26 +271,37 @@ class _ScriptedAttacker(FakeAttackerClient):
         return self._results[min(round - 1, len(self._results) - 1)]
 
 
-def _gating_seq(results, *, n_consec=2, max_rounds=10):
+def _gating_seq(results, *, crown_rounds, n_consec=2, max_rounds=10, force_crown=False):
     attacker = _ScriptedAttacker(
         results, replay_by_phase={PRE: _replay(PRE, True), POST: _replay(POST, False)})
     defender = FakeDefenderClient(defense_result=_defense_result(),
                                   vulnerable_by_check={"1": False, "2": False, "3": False})
     snaps = FakeBaseline(existing=["clean-baseline"])
-    registry = default_registry("FLAG{win}")
-    verifier = VerificationEngine(attacker, defender, snaps, registry)
+    registry = default_registry()
+    objectives = default_objectives()
+    verifier = VerificationEngine(attacker, defender, snaps, registry,
+                                  logs=FakeLogSource(), objectives=objectives)
     captured: list[dict] = []
     params = RunParams(episodes=1, max_rounds=max_rounds, n_consecutive_defense=n_consec,
-                       baseline_snapshot="clean-baseline", attack_endpoint="10.0.0.5")
+                       baseline_snapshot="clean-baseline", attack_endpoint="10.0.0.5",
+                       force_crown=force_crown)
+    # 플래그리스: 게이팅은 접근기록(crowns) 기반 — 공격자 자기보고가 아니라 심판이 로그원으로 판정한다.
+    # crown_rounds[i] 는 그 라운드에 중요자산이 반출됐는지(심판 관측)를 시뮬레이션한다.
+    # seq logs 는 라운드당 crown 을 2회 조회(게이팅 + _build_truth)하므로 각 라운드값을 2번 넣는다.
+    cw: list[set] = []
+    for has_crown in crown_rounds:
+        c = {CROWN_INTERNAL_SECRETS} if has_crown else set()
+        cw += [set(c), set(c)]
     seq = TurnSequencer(attacker=attacker, defender=defender, snapshots=snaps, verifier=verifier,
-                        logs=FakeLogSource(constant=set()), registry=registry, truth=TruthLog(),
+                        logs=FakeLogSource(constant=set(), crown_windows=cw), registry=registry,
+                        objectives=objectives, truth=TruthLog(),
                         params=params, sink=captured.append)
     return seq, {"attacker": attacker, "defender": defender, "snaps": snaps, "captured": captured}
 
 
 def test_no_flag_round_skips_defense_verify_snapshot():
-    # 플래그 미획득 → 공격후 스냅샷·방어·검증 전부 생략, 라운드 기록만 남는다.
-    seq, ctx = _gating_seq([_no_flag_result()], n_consec=99, max_rounds=1)
+    # 크라운 미반출 → 공격후 스냅샷·방어·검증 전부 생략, 라운드 기록만 남는다.
+    seq, ctx = _gating_seq([_no_flag_result()], crown_rounds=[False], n_consec=99, max_rounds=1)
     s = seq.run_episode(1)
     snaps, defender, attacker, captured = (ctx["snaps"], ctx["defender"],
                                            ctx["attacker"], ctx["captured"])
@@ -264,17 +314,34 @@ def test_no_flag_round_skips_defense_verify_snapshot():
     assert s.rounds == 1 and s.end_reason == "max_rounds"
 
 
+# ── 스모크: force_crown 이면 크라운 미검출(crown_rounds=[False])이어도 방어+검증 배관이 돈다 ──
+def test_force_crown_overrides_skip_gate():
+    seq, ctx = _gating_seq([_no_flag_result()], crown_rounds=[False],
+                           n_consec=99, max_rounds=1, force_crown=True)
+    seq.run_episode(1)
+    assert len(ctx["defender"].defense_calls) == 1          # 게이트 강제 → 방어 턴 실행
+    assert ctx["captured"][0]["defense_end_reason"] != "skipped"   # skip 경로가 아니라 실제 방어
+
+
+# ── 대조: force_crown 없으면 같은 미검출 라운드는 방어 생략(게이팅 정상) ──
+def test_without_force_crown_no_flag_still_skips():
+    seq, ctx = _gating_seq([_no_flag_result()], crown_rounds=[False],
+                           n_consec=99, max_rounds=1, force_crown=False)
+    seq.run_episode(1)
+    assert len(ctx["defender"].defense_calls) == 0          # 강제 안 하면 그대로 생략
+
+
 def test_gating_ladder_no_flag_before_and_after_breakthrough():
-    # R1·R2 미획득(탐색중)=안정화 안 됨 → R3 돌파+BLOCKED(consec=1) → R4 미획득이나
+    # R1·R2 미반출(탐색중)=안정화 안 됨 → R3 돌파+BLOCKED(consec=1) → R4 미반출이나
     # 과거 돌파가 있어 방어유지로 consec=2 → CONSECUTIVE_DEFENSE 종료.
     seq, ctx = _gating_seq(
         [_no_flag_result(), _no_flag_result(), _attack_result(), _no_flag_result()],
-        n_consec=2, max_rounds=10)
+        crown_rounds=[False, False, True, False], n_consec=2, max_rounds=10)
     s = seq.run_episode(1)
     assert s.end_reason == "consecutive_defense"
     assert s.rounds == 4                                        # R4에서 종료
     assert len(ctx["defender"].defense_calls) == 1              # 방어는 돌파한 R3에서만
-    assert ctx["snaps"].reset_calls == 1                        # 에피소드 init 만(verify 는 리셋 안 함)
+    assert ctx["snaps"].reset_calls == 1                        # 회차 init 만(verify 는 리셋 안 함)
 
 
 # ───────────── 자체 러너 ─────────────

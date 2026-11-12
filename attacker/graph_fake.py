@@ -1,0 +1,240 @@
+"""인메모리 탐색 그래프 — ExplorationGraph 계약의 테스트/오프라인 구현.
+
+실 Neo4j 없이 플래너·워커 풀·실행레인을 돌려보기 위한 '큰 어댑터·작은 구현'.
+claim_next의 원자성은 스레드 락으로 보장한다 — 워커 N(스레드)이 동시에 불러도
+같은 의도를 둘이 집지 못한다(ARTEX의 CAS `WHERE state='open'`과 같은 의미를 락으로).
+
+단일 프로세스·단일 작성자 전제라 락이면 충분(이번 세션 확정). Neo4j 어댑터는 같은
+계약을 조건부 MATCH(CAS)로 구현하고, 워커 코드는 어느 쪽이든 안 바뀐다.
+"""
+from __future__ import annotations
+
+import threading
+from typing import Optional
+
+from .graph import (
+    Edge, ExplorationGraph, IntentState, Node, NodeKind, Rel,
+    max_severity, merge_finding_payload,
+)
+
+_max_severity = max_severity        # 하위호환 별칭(기존 테스트 import 유지)
+
+
+def _as_id_list(x) -> list[int]:
+    """spawned_by를 리스트로 정규화(None/단일 int/리스트 모두 허용)."""
+    if x is None:
+        return []
+    if isinstance(x, int):
+        return [x]
+    return list(x)
+
+
+class InMemoryGraph(ExplorationGraph):
+    def __init__(self, *, episode: int = 0) -> None:
+        self._episode = episode
+        self._lock = threading.Lock()        # claim 및 모든 변이의 원자성
+        self._nodes: dict[int, Node] = {}
+        self._edges: list[Edge] = []
+        self._seq = 0                        # 노드 id 발급(단조 증가)
+        self._finding_by_key: dict[str, int] = {}   # dedup_key → finding 노드 id(중복 병합)
+
+    # ── 내부 헬퍼(락 안에서만 호출) ──
+    def _new_node(self, kind: NodeKind, payload: dict, state: str,
+                  priority: int, anchors: Optional[list[int]], owner: str = "") -> int:
+        self._seq += 1
+        nid = self._seq
+        self._nodes[nid] = Node(
+            id=nid, kind=kind, payload=dict(payload), state=state, owner=owner,
+            priority=priority, episode=self._episode, anchors=list(anchors or []))
+        return nid
+
+    def _link(self, src: int, rel: Rel, dst: int) -> None:
+        self._edges.append(Edge(src_id=src, rel=rel, dst_id=dst))
+
+    # ── 쓰기 ──
+    def add_goal(self, payload: dict, *, anchors: Optional[list[int]] = None) -> int:
+        with self._lock:
+            for n in self._nodes.values():      # 회차당 goal 하나 — 라운드마다 중복 생성 방지(이미 있으면 재사용)
+                if n.kind == NodeKind.GOAL:
+                    return n.id
+            return self._new_node(NodeKind.GOAL, payload, "", 0, anchors)
+
+    def add_intent(self, payload: dict, *, priority: int = 0,
+                   anchors: Optional[list[int]] = None, origin: str = "planner",
+                   spawned_by=None) -> int:
+        with self._lock:
+            nid = self._new_node(NodeKind.INTENT, payload, IntentState.OPEN.value,
+                                 priority, anchors)
+            for src in _as_id_list(spawned_by):   # 출처(목표·사실·상위의도) → SPAWNS → 이 의도
+                if src in self._nodes:            # 존재하는 노드만(헛 id 무시)
+                    self._link(src, Rel.SPAWNS, nid)
+            return nid
+
+    def add_fact(self, payload: dict, *, intent_id: Optional[int] = None,
+                 anchors: Optional[list[int]] = None,
+                 derived_from: Optional[list[int]] = None) -> int:
+        with self._lock:
+            nid = self._new_node(NodeKind.FACT, payload, "confirmed", 0, anchors)
+            if intent_id is not None:
+                self._link(intent_id, Rel.YIELDS, nid)
+            for src in (derived_from or []):
+                self._link(nid, Rel.DERIVED_FROM, src)
+            return nid
+
+    def add_finding(self, payload: dict, *, proved_by: Optional[list[int]] = None,
+                    anchors: Optional[list[int]] = None,
+                    dedup_key: Optional[str] = None) -> int:
+        with self._lock:
+            # 같은 dedup_key의 finding이 있으면 새로 안 만들고 병합
+            if dedup_key and dedup_key in self._finding_by_key:
+                nid = self._finding_by_key[dedup_key]
+                n = self._nodes[nid]
+                n.payload = merge_finding_payload(n.payload, payload)   # 공유 병합 규칙
+                for src in (proved_by or []):       # 근거 엣지는 계속 누적
+                    self._link(src, Rel.PROVES, nid)
+                return nid
+            # 신규 finding
+            nid = self._new_node(NodeKind.FINDING, payload, "claimed", 0, anchors)
+            for src in (proved_by or []):
+                self._link(src, Rel.PROVES, nid)
+            if dedup_key:
+                self._finding_by_key[dedup_key] = nid
+            return nid
+
+    # ── frontier / claim ──
+    def _open_intents_sorted(self) -> list[Node]:
+        opens = [n for n in self._nodes.values()
+                 if n.kind == NodeKind.INTENT and n.state == IntentState.OPEN.value]
+        # 우선순위 높은 것 먼저, 같으면 먼저 생성된 것(id 오름차순)
+        opens.sort(key=lambda n: (-n.priority, n.id))
+        return opens
+
+    def frontier(self, limit: int = 20) -> list[Node]:
+        with self._lock:
+            return [self._copy(n) for n in self._open_intents_sorted()[:limit]]
+
+    def claim_next(self, worker: str, limit: int = 20) -> Optional[Node]:
+        # 락이 CAS를 대신한다: open→running 전이를 한 워커만 통과시킨다.
+        with self._lock:
+            for n in self._open_intents_sorted()[:limit]:
+                # 락 안이라 여기 온 시점에 반드시 아직 open — 바로 집는다.
+                n.state = IntentState.RUNNING.value
+                n.owner = worker
+                return self._copy(n)
+            return None
+
+    def settle_intent(self, intent_id: int, state: IntentState,
+                      reason: str = "") -> bool:
+        with self._lock:
+            n = self._nodes.get(intent_id)
+            if n is None or n.kind != NodeKind.INTENT:
+                return False
+            if n.state != IntentState.RUNNING.value:
+                return False  # running 중인 것만 종료 전이
+            n.state = state.value
+            if reason:
+                n.payload = {**n.payload, "settle_reason": reason}
+            return True
+
+    def reopen_intent(self, intent_id: int) -> bool:
+        with self._lock:
+            n = self._nodes.get(intent_id)
+            if n is None or n.kind != NodeKind.INTENT:
+                return False
+            n.state = IntentState.OPEN.value
+            n.owner = ""
+            return True
+
+    def anchor_to(self, node_id: int, asset_ids: list[int]) -> None:
+        with self._lock:
+            n = self._nodes.get(node_id)
+            if n is None:
+                return
+            for aid in asset_ids:
+                if aid not in n.anchors:
+                    n.anchors.append(aid)
+
+    def select_knowledge(self, node_id: int, technique_ids: list[str]) -> None:
+        # memory 백엔드엔 KG 노드가 없으니 payload 에 선택 기법만 누적(프로비넌스 기록).
+        with self._lock:
+            n = self._nodes.get(node_id)
+            if n is None:
+                return
+            sel = n.payload.setdefault("selected_techniques", [])
+            for t in technique_ids:
+                t = str(t).strip()
+                if t and t not in sel:
+                    sel.append(t)
+
+    # ── 읽기 ──
+    def _copy(self, n: Node) -> Node:
+        """호출자에게 내부 노드의 사본을 준다(바깥 변이가 저장소를 안 건드리게)."""
+        return Node(id=n.id, kind=n.kind, payload=dict(n.payload), state=n.state,
+                    owner=n.owner, priority=n.priority, episode=n.episode,
+                    anchors=list(n.anchors))
+
+    def get_node(self, node_id: int) -> Optional[Node]:
+        with self._lock:
+            n = self._nodes.get(node_id)
+            return self._copy(n) if n else None
+
+    def recent_facts(self, limit: int = 20) -> list[Node]:
+        with self._lock:
+            facts = [n for n in self._nodes.values() if n.kind == NodeKind.FACT]
+            facts.sort(key=lambda n: n.id, reverse=True)
+            return [self._copy(n) for n in facts[:limit]]
+
+    def recent_findings(self, limit: int = 20) -> list[Node]:
+        with self._lock:
+            fs = [n for n in self._nodes.values() if n.kind == NodeKind.FINDING]
+            fs.sort(key=lambda n: n.id, reverse=True)
+            return [self._copy(n) for n in fs[:limit]]
+
+    def running_intents(self) -> list[Node]:
+        with self._lock:
+            return [self._copy(n) for n in self._nodes.values()
+                    if n.kind == NodeKind.INTENT
+                    and n.state == IntentState.RUNNING.value]
+
+    def anchored_asset_ids(self) -> set[int]:
+        with self._lock:
+            out: set[int] = set()
+            for n in self._nodes.values():
+                out.update(n.anchors)
+            return out
+
+    # ── 표시용 스냅샷(대시보드 공격 추적 그래프) ──
+    def snapshot(self) -> dict:
+        """탐색 그래프 전체(노드·엣지)를 표시용 dict 로. 판정 무관·표시 전용.
+
+        대시보드가 읽는 공격 노드 그래프의 원자료 — payload 에서 표시 필드만 평탄화한다.
+        """
+        with self._lock:
+            nodes = []
+            for n in sorted(self._nodes.values(), key=lambda x: x.id):
+                p = n.payload or {}
+                nodes.append({
+                    "id": n.id,
+                    "kind": n.kind.value if hasattr(n.kind, "value") else str(n.kind),
+                    "state": n.state, "owner": n.owner, "priority": n.priority,
+                    "summary": p.get("summary", ""), "target": p.get("target", ""),
+                    "why": p.get("why", ""), "technique": p.get("technique", ""),
+                    "evidence": p.get("evidence", ""), "detail": p.get("detail", ""),
+                    "desc": p.get("desc", ""),            # 사람이 읽는 상세 설명(대시보드 노드 큐레이션)
+                    "loot": p.get("loot"),                # 실제 탈취/확보한 값(표시 전용) — 워커가 채우면 그대로 노출
+                    "severity": p.get("severity", ""), "confidence": p.get("confidence"),
+                    "occurrences": p.get("occurrences"), "anchors": list(n.anchors),
+                })
+            edges = [{"src": e.src_id,
+                      "rel": e.rel.value if hasattr(e.rel, "value") else str(e.rel),
+                      "dst": e.dst_id} for e in self._edges]
+            return {"nodes": nodes, "edges": edges}
+
+    # ── 테스트 편의 ──
+    def edges_from(self, src_id: int, rel: Optional[Rel] = None) -> list[Edge]:
+        with self._lock:
+            return [e for e in self._edges
+                    if e.src_id == src_id and (rel is None or e.rel == rel)]
+
+
+__all__ = ["InMemoryGraph"]

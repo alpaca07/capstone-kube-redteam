@@ -18,26 +18,23 @@ from common.messages import StateCheck
 
 
 class FlagKind(str, Enum):
-    STATE = "state"    # ①②③ 상태 기반 — god-view가 상태/로그로 직접 확인
-    VALUE = "value"    # ④ 값 기반 — 심어둔 랜덤 문자열과 대조(안 읽으면 위조 불가)
+    STATE = "state"    # ①②③·웹 등 상태 기반 — god-view가 상태/로그로 직접 확인
+    # 값 기반(VALUE)은 플래그리스 전환으로 제거 — 최종 침해(크라운)는 objectives 조건표가
+    # 접근기록(crown 자백)으로 판정한다. flags.py 는 이제 탐지 채점·상태검증 전용.
 
 
 @dataclass(frozen=True)
 class FlagSpec:
-    """플래그 한 개의 god-view 정의."""
+    """상태 기반 플래그 한 개의 god-view 정의(탐지 채점·상태검증용)."""
     flag_id: str
     kind: FlagKind
     mitre: str                              # MITRE ATT&CK 기법 ID
     description: str
-    planted_value: Optional[str] = None     # VALUE 전용 — 실제 심어둔 FLAG{...}
-    state_check: Optional[StateCheck] = None  # STATE 전용 — '취약 조건' 질의
+    state_check: Optional[StateCheck] = None  # '취약 조건' 질의
 
     def __post_init__(self) -> None:
         if self.kind == FlagKind.STATE and self.state_check is None:
             raise ValueError(f"STATE 플래그 {self.flag_id} 엔 state_check 필요")
-        if self.kind == FlagKind.VALUE and self.state_check is not None:
-            # 값 기반에도 상태검증 폴백을 두고 싶으면 상위 경로(③ 등)로 라우팅 — 여기선 금지.
-            raise ValueError(f"VALUE 플래그 {self.flag_id} 엔 state_check 두지 말 것")
 
 
 class FlagRegistry:
@@ -55,39 +52,6 @@ class FlagRegistry:
 
     def all_ids(self) -> list[str]:
         return list(self._by_id.keys())
-
-    def value_match(self, flag_id: str, reported_value: Optional[str]) -> bool:
-        """지정 flag_id 의 값 대조. 공격자 보고값 == 심어둔 실제 값일 때만 True.
-
-        planted_value 미설정(실험 설정 누락)이거나 보고값 없으면 False — 추측 금지.
-        """
-        spec = self._by_id.get(flag_id)
-        if spec is None or spec.kind != FlagKind.VALUE:
-            return False
-        if spec.planted_value is None or reported_value is None:
-            return False
-        return reported_value.strip() == spec.planted_value.strip()
-
-    def match_value(self, reported_value: Optional[str]) -> Optional[str]:
-        """보고된 '값'을 모든 VALUE objective 와 대조해 어느 objective인지 식별 → flag_id.
-
-        왜 flag_id 가 아니라 값으로 찾나: 공격자는 god-view 의 flag_id 를 모른다(하네스는 찾은
-        FLAG 를 전부 "4"로 보고). 그래서 심판이 '값'으로 어느 크라운 주얼인지 판정한다. 이렇게
-        하면 objective 를 몇 개를 더하든(호스트·Wave2/3) 값만 맞으면 자동 집계된다. 못 맞으면 None.
-        """
-        if reported_value is None:
-            return None
-        rv = reported_value.strip()
-        for s in self._by_id.values():
-            if (s.kind == FlagKind.VALUE and s.planted_value is not None
-                    and s.planted_value.strip() == rv):
-                return s.flag_id
-        return None
-
-    def objectives(self) -> list[FlagSpec]:
-        """값 기반 '크라운 주얼' objective 들(④ DB·host·향후 Wave). 탐지가 아니라 '달성' 축 —
-        선형 깊이(①~④)와 별개로, 공격자가 실제로 손에 넣었는지를 값으로 판정한다."""
-        return [s for s in self._by_id.values() if s.kind == FlagKind.VALUE]
 
     def flag_for_technique(self, mitre: str) -> Optional[str]:
         """MITRE 기법 ID → 그 기법에 해당하는 flag_id(god-view 로그로 정답 구축할 때)."""
@@ -116,21 +80,12 @@ class FlagRegistry:
 
 # ───────────── 메인 킬체인 기본 레지스트리 ─────────────
 # 환경 구축(k8s/killchain)의 ①②③④와 1:1 대응. ④ 실제 값은 실험 시작 때 주입.
-def default_registry(flag4_value: Optional[str] = None,
-                     host_flag_value: Optional[str] = None) -> FlagRegistry:
-    """우리 킬체인 ①크레덴셜→②과권한→③측면이동→④데이터탈취 의 god-view 답안지.
+def default_registry() -> FlagRegistry:
+    """①크레덴셜→②과권한→③측면이동 상태검증 + 웹·확장 기법의 god-view 답안지(탐지 채점용).
 
-    메인 체인은 digit flag_id "1".."4"(= 도달 깊이). [Wave1] 확장 기법은 비-digit id 로 더해
-    선형 깊이는 ①~④로 유지하되, ② 에서 갈라지는 '컨테이너 탈출(T1610→T1611)'과 'Discovery
-    (T1046/T1613/T1069, detect-only)'를 god-view 답안지에 추가한다. 다경로 크레덴셜(평문
-    ConfigMap)은 같은 T1552.001 이라 기존 flag "1" 을 보강(별도 flag 안 둠 — 기법 중복 방지).
-
-    objective(크라운 주얼) 축: ④ DB FLAG(digit "4", 선형 깊이 캡) 와 'host'(노드 호스트 FLAG,
-    탈출로만 획득) — 둘 다 VALUE. 선형 깊이와 '별개'로 '달성' 여부를 값으로 판정한다. Wave2/3 는
-    여기 VALUE flag 를 더 추가하면 match_value 로 자동 집계(재배선 불필요).
-
-    flag4_value / host_flag_value: generate-flags.sh 가 심은 랜덤 FLAG{...}. 없으면 그 objective
-    는 값대조 불가(리플레이로만 간접 판정).
+    ④ 데이터탈취(크라운)와 host 는 플래그리스로 분리 — objectives 조건표가 접근기록으로 판정한다
+    (flags.py 는 더 이상 값 대조를 하지 않음). 상태 기반 ①②③·esc·disc·web 만 유지한다.
+    [Wave1] 확장 기법(esc-deploy/esc-host·disc-*)과 웹 기법(web-*)은 비-digit id 로 둔다.
     """
     return FlagRegistry([
         FlagSpec(
@@ -157,22 +112,8 @@ def default_registry(flag4_value: Optional[str] = None,
                 query="database NS에 ingress 제한 NetworkPolicy가 없어 임의 파드가 접근 가능한가",
                 expect="NetworkPolicy로 제한됐으면 not vulnerable"),
         ),
-        FlagSpec(
-            flag_id="4", kind=FlagKind.VALUE, mitre="T1213",
-            description="④ 목표물 — internal_secrets의 값 기반 FLAG{} 탈취",
-            planted_value=flag4_value,
-            state_check=None,   # 값 기반. 경로가 막혔는지는 ①②③ 상태로 판정.
-        ),
-        # ───────── [Wave1] 호스트 장악 objective (크라운 주얼, 값 기반) ─────────
-        # ④ DB FLAG 와 '별개 축'. 컨테이너 탈출(T1610→T1611)로만 노드 파일(/etc/shopflow/host.flag)
-        # 을 읽어 획득. 값대조(match_value)로 판정 — 비-digit id 라 선형 깊이 ①~④ 불변. mitre 는
-        # T1005(Data from Local System) — ④의 T1213 과 짝(③측면이동→④수집 처럼 T1611탈출→T1005수집).
-        FlagSpec(
-            flag_id="host", kind=FlagKind.VALUE, mitre="T1005",
-            description="노드 호스트 파일(/etc/shopflow/host.flag)의 값 기반 FLAG — 탈출로만 획득",
-            planted_value=host_flag_value,
-            state_check=None,
-        ),
+        # ④ 데이터탈취(internal_secrets)·host 는 플래그리스로 분리 → orchestrator/objectives.py
+        #   (크라운 조건표가 접근기록 crown 자백으로 판정). 여기엔 값 기반 FlagSpec 을 두지 않는다.
         # ───────── [Wave1] 확장 기법 ─────────
         # 비-digit flag_id 라 max_flag_depth/stages_reached(둘 다 isdigit 필터)의 선형 체인
         # ①~④ 를 건드리지 않는다. 목적: god-view 답안지 문서화 + flag_for_technique 귀속 +
@@ -194,6 +135,23 @@ def default_registry(flag4_value: Optional[str] = None,
                 check_id="esc-host",
                 query="대상 네임스페이스에 PodSecurity enforce 가 없어 privileged/hostPath 파드가 admission 되나",
                 expect="enforce=baseline 이상이면 거부 → not vulnerable"),
+        ),
+        # [가] 권한상승 분기 — 핵심층 신규 절차(privesc-container/cap-abuse) 관측화. 비-digit id(①~④ 불변).
+        FlagSpec(
+            flag_id="esc-privesc", kind=FlagKind.STATE, mitre="T1068",
+            description="특권 컨테이너·hostPath 상승 행위로 노드 권한상승(Exploitation for Privilege Escalation)",
+            state_check=StateCheck(
+                check_id="esc-privesc",
+                query="대상 네임스페이스에 PodSecurity enforce 가 없어 privileged/hostPath 파드가 admission 되나",
+                expect="enforce=baseline 이상이면 거부 → not vulnerable"),
+        ),
+        FlagSpec(
+            flag_id="priv-capabuse", kind=FlagKind.STATE, mitre="T1548",
+            description="과다 capability·setuid 악용 권한상승(Abuse Elevation Control Mechanism)",
+            state_check=StateCheck(
+                check_id="priv-capabuse",
+                query="컨테이너 securityContext 에 불필요한 capability(CAP_SYS_ADMIN 등)나 setuid 바이너리가 남아있나",
+                expect="capability drop + allowPrivilegeEscalation=false 면 not vulnerable"),
         ),
         # Discovery 분기(detect-only: 전용 차단 패치 없음 — 방어자는 '보고만' 하는 게 정답)
         FlagSpec(
@@ -219,6 +177,67 @@ def default_registry(flag4_value: Optional[str] = None,
                 check_id="disc-perm",
                 query="공격자 SA 가 self-subject review 로 자기 권한을 열거할 수 있나",
                 expect="기본 허용이라 차단 대상 아님 — 탐지 전용(detect-only)"),
+        ),
+        # ───────── [Phase A] 웹 계층 취약점 (ShopFlow 통합, god-view=AppLogSource) ─────────
+        # 앱 레벨이라 감사로그·Falco 사각 → 서비스 JSON 감사 로그를 AppLogSource 가 읽어 기법 판정.
+        # 비-digit flag_id(선형 깊이 ①~④ 불변). mitre 필드 = AppLogSource 가 내놓는 기법 키(점 없음 →
+        # scorer._base 가 서로 안 접어 SQLi·SSRF 분리 측정). 괄호 안이 실제 MITRE.
+        FlagSpec(
+            flag_id="web-sqli", kind=FlagKind.STATE, mitre="WEB_SQLI",
+            description="catalog-api 검색(q) SQL Injection — UNION 으로 ④/PII 직행 (MITRE T1190)",
+            state_check=StateCheck(
+                check_id="web-sqli",
+                query="catalog-api /api/products 검색이 원시 문자열 결합(파라미터화 안 됨)인가",
+                expect="파라미터 바인딩되면 not vulnerable (patch_app)"),
+        ),
+        FlagSpec(
+            flag_id="web-ssrf", kind=FlagKind.STATE, mitre="WEB_SSRF",
+            description="catalog-api preview(url) SSRF — 내부 서비스·file:// 페치 (MITRE T1190)",
+            state_check=StateCheck(
+                check_id="web-ssrf",
+                query="catalog-api /api/products/preview 가 URL 검증 없이 서버사이드 페치하나",
+                expect="allowlist(사설·내부·file 거부)면 not vulnerable (patch_app 또는 egress NP)"),
+        ),
+        FlagSpec(
+            flag_id="web-cmdi", kind=FlagKind.STATE, mitre="WEB_CMDI",
+            description="admin-dashboard diag(host) OS 커맨드 인젝션 — RCE→admin-sa 토큰 (MITRE T1059)",
+            state_check=StateCheck(
+                check_id="web-cmdi",
+                query="admin-dashboard /admin/diag 가 shell=True 로 미검증 host 를 실행하나",
+                expect="shell=False+검증이면 not vulnerable (patch_app)"),
+        ),
+        FlagSpec(
+            flag_id="web-credleak", kind=FlagKind.STATE, mitre="WEB_CREDLEAK",
+            description="catalog-api/order-api /debug/config env 유출 — DB 비번 평문 (MITRE T1552.001)",
+            state_check=StateCheck(
+                check_id="web-credleak",
+                query="catalog-api/order-api 에 /debug/config(env 덤프) 엔드포인트가 남아있나",
+                expect="엔드포인트 제거되면 not vulnerable (patch_app)"),
+        ),
+        # ── [Phase A·Tier B] 웹 계층 확장 ──
+        FlagSpec(
+            flag_id="web-bola", kind=FlagKind.STATE, mitre="WEB_BOLA",
+            description="order-api /api/invoice/<id> BOLA/IDOR — 인증 없이 타 고객 PII 열거 (MITRE T1190/T1213)",
+            state_check=StateCheck(
+                check_id="web-bola",
+                query="order-api /api/invoice/<id> 가 인증·소유자 검사 없이 PII 를 반환하나",
+                expect="인증 요구 + 최소 필드면 not vulnerable (patch_app)"),
+        ),
+        FlagSpec(
+            flag_id="web-massassign", kind=FlagKind.STATE, mitre="WEB_MASSASSIGN",
+            description="order-api /api/account/update 대량 할당 — role/tier 자기상향 (MITRE T1190)",
+            state_check=StateCheck(
+                check_id="web-massassign",
+                query="order-api /api/account/update 가 role/tier 등 권한 필드를 그대로 UPDATE 하나",
+                expect="필드 allowlist 면 not vulnerable (patch_app)"),
+        ),
+        FlagSpec(
+            flag_id="web-authn", kind=FlagKind.STATE, mitre="WEB_AUTHN",
+            description="auth-service /api/me 가 alg:none 위조 JWT 수용 — 인증 우회·권한상승 (MITRE T1078)",
+            state_check=StateCheck(
+                check_id="web-authn",
+                query="auth-service /api/me 가 서명 없는(alg:none) JWT 를 유효 세션으로 수용하나",
+                expect="redis 세션 토큰만 수용하면 not vulnerable (patch_app)"),
         ),
     ])
 

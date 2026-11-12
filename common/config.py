@@ -64,6 +64,14 @@ class AttackConfig(BaseModel):
     exec_kubeconfig: str = ""                       # frontend exec 전용 kubeconfig 경로(VM A)
     exec_namespace: str = "frontend"                # 발판 파드 네임스페이스
     exec_pod: str = "deploy/attacker-foothold"      # kubectl exec 대상(deploy/… 또는 파드 이름)
+    # ── 병렬 워커(ARTEX식) 설정 ──
+    # mode="single"(기본): 단일 ReAct 루프. mode="parallel": 플래너(정렬 모델)+워커 N(탈옥).
+    mode: str = "single"                            # single | parallel
+    n_workers: int = 2                              # 병렬 워커 수(탈옥 모델 1개 공유 → 2~3 권장)
+    intent_budget_sec: float = 120.0               # 의도 하나당 ReAct 시간 예산
+    intent_max_steps: int = 20                     # 의도 하나당 최대 스텝
+    max_waves: int = 6                              # 라운드당 플래너 웨이브 상한
+    graph_backend: str = "memory"                   # memory | neo4j (탐색 그래프 저장소)
 
 
 class VmwareConfig(BaseModel):
@@ -84,9 +92,17 @@ class VmwareConfig(BaseModel):
 
 class ExperimentConfig(BaseModel):
     time_limit_sec: int = 300          # 턴당 제한 시간 T (공수 공통)
-    max_rounds: int = 20               # 에피소드당 최대 라운드
-    episodes: int = 50                 # 반복 에피소드 수(통계용)
+    max_rounds: int = 20               # 회차당 최대 라운드
+    episodes: int = 50                 # 반복 회차 수(통계용)
     n_consecutive_defense: int = 3     # N라운드 연속 방어 성공 시 종료
+    # ── 목표 설정: 두 모드, 분리해서 각각 사용(CLI 로 덮어쓰기 가능) ──
+    #   free : 목표 문구를 사람이 자유 입력(objective) → 크라운 채점 없음(탐색·데모용).
+    #   asset: 크라운 자산을 골라(target_assets) god-view 가 자산별로 채점. 목표 문구는 선택 자산에서 자동 생성.
+    objective_mode: str = "asset"                           # free | asset
+    objective: str = ""                                     # free 모드 전용: 공격자에게 줄 자유 목표 문구
+    target_assets: list[str] = Field(default_factory=list)  # asset 모드 전용: 크라운 objective_id 목록(비면 전체)
+    crown_sync_grace_sec: float = 5.0  # 공격 턴 직후 크라운 게이트 읽기 전 유예 — vmc-sync-dblog(kubectl logs -f) 스트리밍 지연 흡수
+    crown_skew_pad_sec: float = 3.0    # 크라운 창 since 경계 스큐 패드 — VM-B(postgres 로그)↔VM-C 클럭 오차 흡수
 
 
 class FlagsConfig(BaseModel):
@@ -100,9 +116,30 @@ class ObservabilityConfig(BaseModel):
     # 방어 B층 — corp 서비스 로그(source → 경로). `kubectl logs --timestamps` 를 파일로 수집 전제.
     # 예: {"postgres": "/var/log/corp/postgres.log", "samba": "...", "waf": "..."}. 비면 미수집.
     service_log_paths: dict = Field(default_factory=dict)
+    # [Phase A] 취약 서비스 파드 stdout(JSON 앱 감사 로그) 동기 파일 — AppLogSource 가 읽음.
+    # vmc-sync-applog.sh 가 kubectl logs 로 생성(catalog/order/admin).
+    app_log_path: str = "/var/log/capstone/app-requests.log"
+    # [B] 직접 DB 접속 크라운 — postgres statement 로그(log_statement=all). DbLogSource 가 읽음.
+    # vmc-sync-dblog.sh 가 kubectl logs 로 생성(database/postgres). 앱을 안 거치는 ④ 경로 커버.
+    db_log_path: str = "/var/log/capstone/db-statements.log"
+    # DB 크라운 actor 스코핑(선택): 이 role 로 접속한 쿼리만 크라운으로 센다(유출 크레덴셜 전용 role).
+    # ShopFlow 처럼 앱이 민감 테이블을 상시 조회하는 환경에서 거짓 크라운 방지. 켤 땐 postgres
+    # log_line_prefix 에 '%u@%d' 필요. 빈 목록이면 스코핑 없이 쿼리 패턴만(VulHub 단독 등).
+    attacker_db_roles: list[str] = Field(default_factory=list)
 
 
 # ───────────────────────── 루트 ─────────────────────────
+class Neo4jConfig(BaseModel):
+    """병렬 워커 탐색 그래프 영속화용 Neo4j(attack.graph_backend=neo4j일 때만).
+
+    VM-A 로컬 Neo4j 권장(확정 배포). database는 Community면 보통 'neo4j' 하나뿐이라 생략 가능.
+    """
+    uri: str = "bolt://127.0.0.1:7687"
+    user: str = "neo4j"
+    password: str = ""
+    database: Optional[str] = None
+
+
 class Config(BaseModel):
     dgx: DgxConfig
     network: NetworkConfig
@@ -112,6 +149,7 @@ class Config(BaseModel):
     flags: FlagsConfig = Field(default_factory=FlagsConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     attack: AttackConfig = Field(default_factory=AttackConfig)
+    neo4j: Neo4jConfig = Field(default_factory=Neo4jConfig)
 
 
 # ───────────────────────── 로더 ─────────────────────────

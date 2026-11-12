@@ -11,5 +11,8 @@ pyyaml>=6.0
 # VM B (방어) — 쿠버네티스 조회
 # kubernetes>=29.0
 
+# VM A (공격) — 병렬 워커 탐색 그래프 영속화(attack.graph_backend=neo4j일 때만)
+# neo4j>=5.14          # 로컬 Neo4j 드라이버. memory 백엔드면 불필요
+
 # 개발/분석
 # jupyter             # 사후 분석 (논문 그래프)

@@ -38,6 +38,24 @@ attack:
   exec_kubeconfig: "/home/vm-a/foothold.kubeconfig"   # frontend exec 전용(secret-read 없음)
   exec_namespace: "frontend"
   exec_pod: "deploy/attacker-foothold"
+  # ── 병렬 워커(ARTEX식) ──
+  # single(기본): 단일 ReAct 루프. parallel: 플래너(정렬 모델, dgx.defender_*)가 의도를
+  # 뿌리고 워커 N개(탈옥 모델, dgx.attacker_*)가 claim해 ReAct·정착. 탈옥 모델 1개를
+  # 워커들이 공유하므로 n_workers는 2~3 권장(그 이상은 decode 경합만 커짐).
+  mode: "single"               # single | parallel
+  n_workers: 2
+  intent_budget_sec: 120       # 의도 하나당 ReAct 시간 예산
+  intent_max_steps: 20
+  max_waves: 6                 # 라운드당 플래너 웨이브 상한
+  graph_backend: "memory"      # memory | neo4j (탐색 그래프 저장소; neo4j면 아래 neo4j 섹션)
+
+# ===== Neo4j (attack.graph_backend=neo4j 일 때만) =====
+# 병렬 워커 탐색 그래프 영속화. VM-A 로컬 Neo4j 권장. memory 백엔드면 이 섹션 무시됨.
+neo4j:
+  uri: "bolt://127.0.0.1:7687"
+  user: "neo4j"
+  password: ""               # 반드시 설정(set-initial-password로 정한 값)
+  # database: "neo4j"        # Community면 보통 생략
 
 # ===== VMware 스냅샷 제어 =====
 # Workstation 권장: method=agent. 이유 — vmrun 스냅샷은 SSH로 되지만 revert 후 VM '재개'는
@@ -60,9 +78,17 @@ vmware:
 # ===== 실험 파라미터 (아직 미확정 — 개발하며 튜닝) =====
 experiment:
   time_limit_sec: 300           # 턴당 제한 시간 T (공수 공통)
-  max_rounds: 20                # 에피소드당 최대 라운드
-  episodes: 50                  # 반복 에피소드 수 (통계용)
+  max_rounds: 20                # 회차당 최대 라운드
+  episodes: 50                  # 반복 회차 수 (통계용)
   n_consecutive_defense: 3      # N라운드 연속 방어 성공 시 종료
+  # ── 목표 설정: 두 모드, 분리해서 각각 사용(CLI --objective-mode/--objective/--target-assets 로 덮어쓰기) ──
+  #   asset: 크라운 자산을 골라 god-view 가 자산별로 채점(기본). target_assets 비우면 전체 크라운.
+  #   free : objective 문구를 공격자에게 그대로 주고 크라운 채점은 끔(탐색·데모용).
+  objective_mode: asset         # free | asset
+  objective: ""                 # free 모드 전용: 공격자에게 줄 자유 목표 문구
+  target_assets: []             # asset 모드 전용: 크라운 objective_id 목록(예: [crown-pii, crown-secrets]; 비면 전체)
+  crown_sync_grace_sec: 5.0     # 공격 턴 직후 크라운 게이트 읽기 전 유예 — vmc-sync-dblog(kubectl logs -f) 지연 흡수
+  crown_skew_pad_sec: 3.0       # 크라운 창 since 경계 스큐 패드 — VM-B(postgres 로그)↔VM-C 클럭 오차 흡수
 
 # ===== 플래그 형식 (공격자에게 알려주는 것) =====
 flags:
@@ -72,4 +98,13 @@ flags:
 observability:
   audit_log_path: "/var/lib/rancher/k3s/server/logs/audit.log"  # k3s 감사로그
   falco_log_path: "/var/log/falco/events.txt"                   # Falco file_output 경로
+  # [Phase A] 취약 서비스 파드 stdout(JSON 앱 감사 로그) 동기 파일 — vmc-sync-applog.sh 가 생성.
+  app_log_path: "/home/vm-c/capstone/logs/vmb-applog.log"       # AppLogSource 가 웹 공격(SQLi/SSRF/cmdi/cred-leak) 판정
+  # [B] 직접 DB 접속 크라운 — postgres statement 로그(database/postgres) 동기 파일.
+  db_log_path: "/home/vm-c/capstone/logs/vmb-dblog.log"         # DbLogSource 가 민감 테이블 조회 판정
+  # DB 크라운 actor 스코핑(선택): 공격자가 유출로 얻는 role 만 크라운으로(앱 role=shopflow_app 제외).
+  # ShopFlow 는 앱이 민감 테이블을 상시 조회하므로 role 로 가른다. 켤 땐 postgres log_line_prefix 에
+  # '%u@%d' 필요(예: '%m [%p] %u@%d '). 비우면 스코핑 없이 쿼리 패턴만(VulHub 단독 postgres 등).
+  #   legacy_admin = ① 평문 ConfigMap 유출 / appuser = ②(confused deputy)·B0 로 유출되는 superuser.
+  attacker_db_roles: ["appuser", "legacy_admin"]
   # 주의: VM C가 이 경로를 읽을 수 있어야 함(관리망 마운트/동기). 공격받는 VM B 안 거침.

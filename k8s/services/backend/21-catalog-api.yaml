@@ -1,4 +1,7 @@
 # catalog-api — 상품 카탈로그 (backend ns). postgres products 테이블 조회.
+# [Phase A 웹취약점·취약 베이스라인] 공개 API 티어에 3종을 '운영 실수'처럼 심음:
+#   A1 SQLi (/api/products?q=) · A2 SSRF (/api/products/preview) · B0 cred-leak (/debug/config)
+# 방어자 하드닝 변종: k8s/killchain/defense-reference/app-hardened/catalog-api-code.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -6,10 +9,48 @@ metadata:
   namespace: backend
 data:
   app.py: |
-    import os
-    from flask import Flask, jsonify, abort
+    import os, urllib.request, json
+    from datetime import datetime, timezone
+    from flask import Flask, jsonify, request, Response, abort
     import psycopg2, psycopg2.extras
     app = Flask(__name__)
+    @app.after_request
+    def _audit(resp):
+        # 앱 감사 로그(god-view AppLogSource 가 읽어 웹 공격 기법 판정). /health 는 제외(노이즈).
+        try:
+            if request.path != "/health":
+                rec = {"ts": datetime.now(timezone.utc).isoformat(), "src": "app",
+                       "svc": "catalog-api", "path": request.path,
+                       "query": request.query_string.decode("utf-8", "replace"),
+                       "status": resp.status_code}
+                u = request.environ.get("capstone.ssrf_url")
+                if u is not None:
+                    rec["url"] = u
+                print(json.dumps(rec), flush=True)
+                cr = request.environ.get("capstone.crown")
+                if cr is not None:
+                    print(json.dumps({"ts": rec["ts"], "src": "app", "svc": rec["svc"],
+                                      "event": "crown_exfil", "target": cr,
+                                      "via": request.path, "status": resp.status_code}),
+                          flush=True)
+        except Exception:
+            pass
+        return resp
+    def _crown_of(cur, rows):
+        # 크라운 반출 자백(god-view): 실행된 실제 쿼리가 민감 데이터를 읽어 행을 돌려줬나.
+        # 플래그 문자열이 아니라 '접근 흔적'으로 판정 — internal_secrets 접근(정상 앱은 미접근) 또는
+        # PII 컬럼(ssn/email/phone/address) 반환. products(SQLi)·invoice(BOLA) 에서만 호출(오탐 방지).
+        if not rows:            # fetch 결과가 실제로 있을 때만(rowcount 는 execute 직후 신뢰 불가)
+            return None
+        try:
+            q = (cur.query or b"").decode("utf-8", "replace").lower()
+        except Exception:
+            return None
+        if "internal_secrets" in q:
+            return "internal_secrets"
+        if any(col in q for col in ("ssn", "email", "phone", "address")):
+            return "customers_pii"
+        return None
     def conn():
         return psycopg2.connect(host=os.environ["DB_HOST"], port=os.environ.get("DB_PORT","5432"),
             dbname=os.environ["DB_NAME"], user=os.environ["DB_USER"],
@@ -23,9 +64,19 @@ data:
             return {"status": "error", "detail": str(e)}, 500
     @app.get("/api/products")
     def products():
+        q = request.args.get("q")
         with conn() as c, c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT id,name,category,price,stock FROM products ORDER BY id")
-            return jsonify(cur.fetchall())
+            if q:
+                # 상품 검색 — 이름/카테고리 부분일치.
+                # ⚠ A1 SQLi: 원시 문자열 결합. UNION 으로 customers(PII)·internal_secrets(④ FLAG) 추출 가능.
+                sql = ("SELECT id,name,category,price,stock FROM products "
+                       "WHERE name ILIKE '%" + q + "%' OR category ILIKE '%" + q + "%' ORDER BY id")
+                cur.execute(sql)
+            else:
+                cur.execute("SELECT id,name,category,price,stock FROM products ORDER BY id")
+            rows = cur.fetchall()
+            request.environ["capstone.crown"] = _crown_of(cur, rows)   # 자백: fetch 후 rowcount 확정 시점에 판정(SQLi 우회)
+            return jsonify(rows)
     @app.get("/api/products/<int:pid>")
     def product(pid):
         with conn() as c, c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -33,6 +84,29 @@ data:
             r = cur.fetchone()
             if not r: abort(404)
             return jsonify(r)
+    @app.post("/api/products/preview")
+    def preview():
+        # 상품 이미지 URL 미리보기 — 서버가 대신 가져와 응답.
+        # ⚠ A2 SSRF: URL 검증 없음. 내부 서비스(admin-dashboard /internal/secret → ①② DB비번,
+        #   internal-wiki runbook, kubernetes.default.svc)·file:// 로컬파일까지 요청됨.
+        data = request.get_json(silent=True) or {}
+        url = data.get("url", "")
+        request.environ["capstone.ssrf_url"] = url   # god-view 감사용(after_request 가 기록)
+        if not url:
+            return {"error": "url required"}, 400
+        try:
+            with urllib.request.urlopen(url, timeout=5) as resp:
+                body = resp.read(65536)
+                ct = resp.headers.get("Content-Type", "application/octet-stream")
+            return Response(body, mimetype=ct)
+        except Exception as e:
+            return {"error": str(e)}, 502
+    @app.get("/debug/config")
+    def debug_config():
+        # 레거시 환경 점검 엔드포인트.
+        # ⚠ B0 cred-leak: env 를 그대로 노출 → DB_PASSWORD(Sh0pFl0wApp!svc, shopflow_app) 평문 유출. (운영 제거 누락)
+        #   주의: 이 경로로 새는 건 앱 role(shopflow_app) → god-view 크라운에선 빠짐(거짓음성). ①②는 공격 role.
+        return jsonify({k: v for k, v in os.environ.items()})
     if __name__ == "__main__":
         app.run(host="0.0.0.0", port=8080)
 ---

@@ -1,0 +1,43 @@
+{
+  "_note": "핵심층 환경 — Spring Framework CVE-2022-22965 (Spring4Shell, 데이터 바인딩 클래스로더 조작 → 웹셸 투하 → 명령실행). 조건 문법은 postgres.json(canonical) 참고. RCE 3환경 공통: 명령실행(진행도 T1059) 후 호스트/인접 민감파일 read(크라운 T1611). technique=T1190. CWE-94(코드 주입). vmware:spring_framework.",
+
+  "env": "spring",
+  "technique": "T1190",
+  "cve": "CVE-2022-22965",
+
+  "procedure": {
+    "id": "PROC-spring-classloader-webshell",
+    "name": "데이터 바인딩 클래스로더 조작 웹셸 투하",
+    "description": "JDK 9+ 에서 데이터 바인딩으로 class.module.classLoader 접근을 조작해 톰캣 접근 로그 밸브를 재설정, 임의 경로에 웹셸(JSP)을 써 명령을 실행한다.",
+    "status": "REVIEW_REQUIRED"
+  },
+
+  "preconditions": [
+    {
+      "id": "PRE-spring-vuln-stack",
+      "name": "취약 Spring + JDK9+ + 톰캣 WAR 배포",
+      "description": "취약 Spring(5.3.0~5.3.17, 5.2.0~5.2.19)이 JDK 9 이상에서 톰캣 WAR 로 배포되고 @RequestMapping 데이터 바인딩 엔드포인트 도달 가능."
+    }
+  ],
+
+  "expected_results": [
+    {
+      "id": "ER-spring-progress-exec",
+      "name": "컨테이너 내 명령 실행 흔적 (진행도)",
+      "kind": "progress",
+      "outcome": {"id": "AO-command-execution", "name": "명령 실행"},
+      "conditions": [
+        {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1059"}
+      ]
+    },
+    {
+      "id": "ER-spring-crown-hostfile",
+      "name": "호스트/인접 민감파일 read (크라운)",
+      "kind": "crown",
+      "outcome": {"id": "AO-data-exposure", "name": "민감 데이터 유출"},
+      "conditions": [
+        {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1611"}
+      ]
+    }
+  ]
+}

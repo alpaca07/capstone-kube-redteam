@@ -2,7 +2,7 @@
 # ④ FLAG는 여기(커밋되는 파일)에 값을 두지 않는다. 03-inject-flag.sh가 env(FLAG_4)에서 주입.
 # → 레포만 읽어선 FLAG를 못 알아냄(공격자는 DB를 실제로 뚫어야 함).
 # postgres 이미지는 /docker-entrypoint-initdb.d/* 를 최초 기동 시 알파벳순 실행(.sql→.sh).
-# emptyDir라 파드 재시작마다 재초기화 + flag 재주입 → 에피소드 리셋에 유리.
+# emptyDir라 파드 재시작마다 재초기화 + flag 재주입 → 회차 리셋에 유리.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -13,6 +13,7 @@ data:
     CREATE TABLE IF NOT EXISTS customers (
       id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL,
       phone TEXT, address TEXT, ssn TEXT, tier TEXT DEFAULT 'standard',
+      role TEXT DEFAULT 'user',           -- Phase A 권한 축: 권한상승(B2 JWT·B3 mass-assign) 대상. 평상시 전원 'user'.
       created_at TIMESTAMP DEFAULT now()
     );
     CREATE TABLE IF NOT EXISTS products (
@@ -61,6 +62,30 @@ data:
      (4,3,1,'paid'),(4,8,1,'shipped'),(5,2,1,'cancelled'),(6,4,3,'paid'),
      (7,1,1,'shipped'),(7,6,1,'paid'),(8,10,1,'pending'),(9,7,2,'paid'),
      (10,3,1,'shipped'),(11,5,1,'paid'),(12,9,1,'pending');
+
+  02a-roles.sql: |
+    -- DB 크라운 actor 스코핑용 role 분리 (god-view DbLogSource.attacker_db_roles 와 짝).
+    -- 세 role 로 '앱 vs 공격자'를 statement 로그의 접속 role 로 가른다(log_line_prefix %u@%d).
+    --   shopflow_app = 앱(catalog/order) 전용 제한 role. internal_secrets 접근 없음 → 앱 조회는 크라운 제외.
+    --   legacy_admin = 킬체인 ① 평문 ConfigMap(legacy-db-config) 유출 '레거시 관리자' → ④ 크라운 role.
+    --   appuser(=POSTGRES_USER superuser) = ②(confused deputy→postgres-credentials)·B0로 유출되는
+    --     superuser → 앱이 더는 안 쓰므로(앱=shopflow_app) 이 role 접속은 전부 공격 = ④ 크라운 role.
+    -- 유출 비밀번호는 평문 OK(그게 ①② 취약점). 앱 role(shopflow_app)만 공격 목록에서 빠진다.
+    -- initdb 는 POSTGRES_USER(superuser)로 실행 → CREATE ROLE 권한 있음. 테이블은 01-schema 에서 이미 생성됨.
+
+    -- 앱 전용 제한 role: 비즈니스 테이블만, internal_secrets(④ 목표물)엔 권한 없음.
+    CREATE ROLE shopflow_app LOGIN PASSWORD 'Sh0pFl0wApp!svc';
+    GRANT CONNECT ON DATABASE customerdb TO shopflow_app;
+    GRANT USAGE ON SCHEMA public TO shopflow_app;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON customers, products, orders TO shopflow_app;
+    GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO shopflow_app;
+
+    -- 유출될 레거시 관리자 role: DB read 전권(internal_secrets 포함) → ④ 크라운 경로.
+    CREATE ROLE legacy_admin LOGIN PASSWORD 'L3gacyAdm1n!2019';
+    GRANT CONNECT ON DATABASE customerdb TO legacy_admin;
+    GRANT USAGE ON SCHEMA public TO legacy_admin;
+    GRANT SELECT ON ALL TABLES IN SCHEMA public TO legacy_admin;   -- 넓은 read(관리자 흔적)
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO legacy_admin;
 
   03-inject-flag.sh: |
     #!/bin/sh

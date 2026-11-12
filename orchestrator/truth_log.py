@@ -19,6 +19,7 @@ class TruthEvent:
     technique: str                 # MITRE ATT&CK 기법 ID (예: T1078)
     flag_id: Optional[str] = None  # 연결된 플래그(있으면)
     detail: str = ""
+    channels: tuple[str, ...] = ()  # 크라운 반출 통로(app·db) — 표시 전용, 판정엔 안 쓰임
 
 
 @dataclass
@@ -35,7 +36,7 @@ class TruthEntry:
 
 
 class TruthLog:
-    """god-view 사실 원장(작은 인터페이스로 질의). 에피소드·라운드 단위 조회."""
+    """god-view 사실 원장(작은 인터페이스로 질의). 회차·라운드 단위 조회."""
 
     def __init__(self) -> None:
         self._entries: list[TruthEntry] = []
@@ -56,7 +57,7 @@ class TruthLog:
         return out
 
     def techniques_up_to(self, episode: int, round: int) -> set[str]:
-        """에피소드 내 round까지 누적 발생한 기법(한 번 일어난 공격은 이후에도 '사실')."""
+        """회차 내 round까지 누적 발생한 기법(한 번 일어난 공격은 이후에도 '사실')."""
         out: set[str] = set()
         for e in self._entries:
             if e.episode == episode and e.round <= round:
@@ -70,8 +71,22 @@ class TruthLog:
                 out |= set(e.flags_reached)
         return out
 
+    def crown_channels_up_to(self, episode: int, round: int) -> dict[str, set[str]]:
+        """round까지 누적 '어느 크라운(flag_id)이 어느 통로로 빠졌나' — 표시 전용.
+
+        한 크라운이 여러 통로(app·db)로 빠지면 통로가 합쳐진다. flags_up_to 와 별개 축:
+        판정은 flags_up_to 가, 통로 표시는 이 맵이 담당(심판 결정엔 영향 없음)."""
+        out: dict[str, set[str]] = {}
+        for e in self._entries:
+            if e.episode != episode or e.round > round:
+                continue
+            for ev in e.events:
+                if ev.flag_id and ev.channels:
+                    out.setdefault(ev.flag_id, set()).update(ev.channels)
+        return out
+
     def first_occurrence_round(self, episode: int) -> dict[str, int]:
-        """에피소드에서 각 기법이 '처음 발생'한 라운드 — MTTD 계산 기준선."""
+        """회차에서 각 기법이 '처음 발생'한 라운드 — MTTD 계산 기준선."""
         first: dict[str, int] = {}
         for e in sorted(self._entries, key=lambda x: x.round):
             if e.episode != episode:

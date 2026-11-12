@@ -2,7 +2,7 @@
 # ④ 값 기반 FLAG 생성·주입 (4단계). VM B에서 실행.
 # 실제 FLAG 값은 레포에 안 들어간다 — gitignore된 참조파일 + database ns secret 에만 존재.
 # → 공격자는 레포를 읽어서가 아니라 DB를 실제로 뚫어야 FLAG를 얻는다.
-# 재실행하면 새 FLAG 생성(에피소드 로테이션). 나중엔 오케스트레이터가 리셋 때 호출.
+# 재실행하면 새 FLAG 생성(회차 로테이션). 나중엔 오케스트레이터가 리셋 때 호출.
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 

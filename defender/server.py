@@ -26,6 +26,7 @@ from .filter import filter_observations
 from .observer import Observer
 from .patcher import Patcher
 from .state_query import StateQueryHandler
+from .topology import enumerate_topology
 from .triage import Triager
 
 # FastAPI가 `request: Request` 힌트를 모듈 전역에서 해석하려면 여기(함수 밖)에 있어야 한다.
@@ -36,9 +37,15 @@ try:
 except ImportError:                    # pragma: no cover
     Request = None  # type: ignore
 
+# 레포 루트(= defender/ 의 한 단계 위) — patch_app 하드닝 매니페스트 경로 계산용.
+_ROOT = Path(__file__).resolve().parent.parent
+_APP_HARDENED_DIR = _ROOT / "k8s" / "killchain" / "defense-reference" / "app-hardened"
+
 
 def _patch_kind(action: str) -> str:
     a = action.lower()
+    if "app" in a:                      # [Phase A] patch_app → 앱 코드(ConfigMap) 교체
+        return "config"
     if "network" in a or "netpol" in a:
         return "networkpolicy"
     if "rbac" in a or "role" in a:
@@ -54,14 +61,25 @@ class DefenseHarness:
     """방어 턴 로직. 상태는 증분 로그 커서만 보유(에이전트는 stateless 지향)."""
 
     def __init__(self, *, observer: Observer, triager: Triager, patcher: Patcher,
-                 state_handler: StateQueryHandler, cluster, service: str = "all") -> None:
+                 state_handler: StateQueryHandler, cluster, service: str = "all",
+                 emit_topology: bool = True) -> None:
         self.observer = observer
         self.triager = triager
         self.patcher = patcher
         self.state_handler = state_handler
-        self.cluster = cluster              # health_check용(healthcheck())
+        self.cluster = cluster              # health_check용(healthcheck()) + 토폴로지 열거(get)
         self.service = service
+        self.emit_topology = emit_topology  # 방어 관점 토폴로지 스냅샷 포함 여부(대시보드 P7용)
         self._cursor: float = 0.0           # 마지막으로 본 로그 시각(증분 관측)
+
+    def _topology(self) -> Optional[dict]:
+        """방어자 관점 토폴로지(대상을 훑어 재구성). 실패·비활성이면 None(판정 무관·표시 전용)."""
+        if not self.emit_topology:
+            return None
+        try:
+            return enumerate_topology(self.cluster)
+        except Exception:                   # noqa: BLE001 — 토폴로지 실패가 방어 턴을 깨면 안 됨
+            return None
 
     # ── defense_turn_start → defense_turn_result ──
     def defense_turn(self, start: DefenseTurnStart, *, episode: int, round: int) -> DefenseTurnResult:
@@ -84,6 +102,7 @@ class DefenseHarness:
                 detected=detected, patch_set=patch_set,
                 healthcheck_passed=outcome.healthcheck_passed,
                 patch_attempts=attempts, patch_note=outcome.note,
+                topology=self._topology(),          # 방어 관점 타깃 아키텍처(표시 전용)
                 elapsed_sec=time.time() - t0)
         except Exception as e:              # noqa: BLE001 — 하네스 오류는 ERROR로 보고(루프 보호)
             import traceback
@@ -165,10 +184,11 @@ def create_harness(cfg, *, prompt: Optional[str] = None, cluster=None, llm=None)
                        for src, path in (cfg.observability.service_log_paths or {}).items()}
     observer = Observer(_file_line_reader(cfg.observability.audit_log_path),
                         _file_line_reader(cfg.observability.falco_log_path),
-                        service_readers)
+                        service_readers=service_readers,
+                        app_reader=_file_line_reader(cfg.observability.app_log_path))
     return DefenseHarness(observer=observer, triager=Triager(llm, prompt or _load_prompt()),
-                          patcher=Patcher(cluster), state_handler=StateQueryHandler(cluster),
-                          cluster=cluster)
+                          patcher=Patcher(cluster, hardened_dir=str(_APP_HARDENED_DIR)),
+                          state_handler=StateQueryHandler(cluster), cluster=cluster)
 
 
 def create_app(harness: DefenseHarness):

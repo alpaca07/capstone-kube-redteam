@@ -24,6 +24,7 @@
   `<USER>` 등 경로를 환경에 맞게 치환 후, 이 파일의 **바로가기를 `shell:startup`** 폴더에 넣는다.
 - `attack-harness.service` — VM A systemd 유닛(공격 하네스 부팅 자동 기동).
 - `defense-harness.service` — 방어 하네스 systemd 유닛. **2026-10-31 부터 VM D**(이전엔 VM B). VM D 의 완전 유닛(KUBECONFIG override 포함)·로그 sync 2종은 `../setup-vm-d.md` §11, 호스트 자동 전원은 `host-startup.bat` 의 VM D 줄.
+- `helix-dashboard.service` — VM C Helix 관제 대시보드(`orchestrator.dashboard`, :12345) systemd 유닛. 부팅 시 자동 기동·크래시 자동 복구. 기존 `capstone-dashboard.service`(옛 `orchestrator.api`, :8090)와 독립이라 둘 다 두거나, Helix 만 쓰면 옛 유닛은 `sudo systemctl disable --now capstone-dashboard`.
 
 ## systemd 설치 (VM A·B 각각)
 ```bash

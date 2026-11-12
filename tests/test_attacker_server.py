@@ -2,7 +2,7 @@
 
 상주(systemd) 하네스는 매 런이 episode=1·round=1 로 들어온다. 리셋을 'episode 변화'로만
 하면 이전 런의 요약("이미 FLAG 획득")이 새어 공격자가 즉시 give_up 한다. 리셋 조건을
-'새 에피소드 OR 에피소드 첫 라운드(R1)'로 바꿨는지, 그러면서도 같은 에피소드의 R2+
+'새 회차 OR 회차 첫 라운드(R1)'로 바꿨는지, 그러면서도 같은 회차의 R2+
 이월은 유지되는지 검증한다(프롬프트에 이전 요약 센티넬이 실리는지로 관측).
 
     python3 tests/test_attacker_server.py
@@ -69,7 +69,7 @@ def test_round1_resets_stale_carryforward():
 
 
 def test_round2_keeps_carryforward():
-    # 기능 회귀 방지: 같은 에피소드의 R2 는 이월 유지 → 첫 프롬프트에 센티넬이 있어야.
+    # 기능 회귀 방지: 같은 회차의 R2 는 이월 유지 → 첫 프롬프트에 센티넬이 있어야.
     llm = _LLM()
     h = _harness(llm)
     _seed_prior_run(h)
@@ -79,13 +79,13 @@ def test_round2_keeps_carryforward():
 
 
 def test_new_episode_resets():
-    # 기존 동작 유지: 에피소드 번호가 바뀌면 리셋.
+    # 기존 동작 유지: 회차 번호가 바뀌면 리셋.
     llm = _LLM()
     h = _harness(llm)
     _seed_prior_run(h)
     h.attack_turn(AttackTurnStart(time_limit_sec=300), episode=2, round=5)
     assert llm.users_seen and _STALE not in llm.users_seen[0], \
-        "새 에피소드인데 리셋 안 됨"
+        "새 회차인데 리셋 안 됨"
 
 
 # ───────────── 자체 러너 ─────────────

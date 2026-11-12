@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import sys
-import tempfile
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -25,9 +24,13 @@ from orchestrator.govc_snapshot import (  # noqa: E402
 )
 from orchestrator.http_clients import HttpAttackerClient, HttpDefenderClient  # noqa: E402
 from orchestrator.log_source import (  # noqa: E402
-    AuditFalcoLogSource, map_audit_event, map_falco_event, parse_rfc3339,
+    AuditFalcoLogSource, map_audit_crown, map_audit_event,
+    map_falco_crown, map_falco_event, parse_rfc3339,
 )
-from orchestrator.main import build_sequencer, load_flag4  # noqa: E402
+from common.app_signals import (  # noqa: E402
+    CROWN_CONTAINER_DEPLOY, CROWN_RESOURCE_HIJACK,
+)
+from orchestrator.main import build_sequencer  # noqa: E402
 from orchestrator.sequencer import TurnSequencer  # noqa: E402
 
 
@@ -53,7 +56,8 @@ def test_http_attacker_attack_turn():
     assert sent["body"]["type"] == "attack_turn_start"
     assert sent["body"]["episode"] == 1 and sent["body"]["round"] == 2
     assert sent["body"]["payload"]["time_limit_sec"] == 300
-    assert sent["timeout"] == 300 + 30                           # time_limit + 여유
+    from orchestrator.http_clients import _TURN_BUFFER
+    assert sent["timeout"] == 300 + _TURN_BUFFER                 # time_limit + 턴 여유(좀비 방지)
     assert out.end_reason == AttackEndReason.FLAG                # 응답 파싱
 
 
@@ -194,6 +198,12 @@ def test_map_falco_wave1_escape_and_portscan():
     assert map_falco_event({"rule": "Port scan from foothold"}) == "T1046"
 
 
+def test_map_falco_privesc_and_capabuse():
+    # [가] 핵심층 신규 절차 관측화 — 규칙명은 falco-values customRules 와 1:1
+    assert map_falco_event({"rule": "Privilege escalation in container"}) == "T1068"
+    assert map_falco_event({"rule": "Elevation control abuse"}) == "T1548"
+
+
 def _reader(lines):
     return lambda: iter(lines)
 
@@ -212,21 +222,49 @@ def test_log_source_window_and_mapping():
     assert src.techniques_in_window(since_ts=t0, until_ts=t0 + 1) == set()
 
 
-# ───────────── main 조립 & flag 로드 ─────────────
-def test_load_flag4_formats():
-    with tempfile.TemporaryDirectory() as d:
-        p1 = Path(d) / "a.secret"; p1.write_text("FLAG_4=FLAG{abc}\n", encoding="utf-8")
-        assert load_flag4(str(p1)) == "FLAG{abc}"
-        p2 = Path(d) / "b.secret"; p2.write_text("FLAG{xyz}\n", encoding="utf-8")
-        assert load_flag4(str(p2)) == "FLAG{xyz}"
-        assert load_flag4(str(Path(d) / "missing")) is None
+# ───────────── [사후] 리소스탈취·악성배포 크라운 ─────────────
+def test_map_postex_technique_and_crown():
+    # Falco 마이너 → 기법 T1496 + 크라운 resource_hijack
+    assert map_falco_event({"rule": "Cryptocurrency mining in container"}) == "T1496"
+    assert map_falco_crown({"rule": "Cryptocurrency mining in container"}) == CROWN_RESOURCE_HIJACK
+    assert map_falco_crown({"rule": "Terminal shell in container"}) is None
+    # 감사 공격자-SA pods create → 기법 T1610 + 크라운 container_deploy(같은 이벤트, 별개 축)
+    sa = "system:serviceaccount:internal:admin-sa"
+    create_pod = {"verb": "create", "user": {"username": sa},
+                  "objectRef": {"resource": "pods"}}
+    assert map_audit_event(create_pod) == "T1610"
+    assert map_audit_crown(create_pod) == CROWN_CONTAINER_DEPLOY
+    # 비-공격자 SA·조회(get)는 크라운 아님
+    assert map_audit_crown({"verb": "create", "user": {"username": "kubernetes-admin"},
+                            "objectRef": {"resource": "pods"}}) is None
+    assert map_audit_crown({"verb": "get", "user": {"username": sa},
+                            "objectRef": {"resource": "pods"}}) is None
 
 
+def test_log_source_postex_crowns_window():
+    sa = "system:serviceaccount:internal:admin-sa"
+    audit = {"verb": "create", "user": {"username": sa},
+             "objectRef": {"resource": "pods"},
+             "requestReceivedTimestamp": "2026-10-11T14:56:03.100000Z"}
+    falco = {"rule": "Cryptocurrency mining in container",
+             "time": "2026-10-11T14:56:04.000000000Z"}
+    src = AuditFalcoLogSource(_reader([json.dumps(audit)]), _reader([json.dumps(falco)]))
+    t0 = parse_rfc3339("2026-10-11T14:56:00Z")
+    t1 = parse_rfc3339("2026-10-11T14:56:10Z")
+    assert src.crowns_in_window(since_ts=t0, until_ts=t1) == {
+        CROWN_CONTAINER_DEPLOY, CROWN_RESOURCE_HIJACK}
+    assert src.crowns_by_channel_in_window(since_ts=t0, until_ts=t1) == {
+        "audit": {CROWN_CONTAINER_DEPLOY}, "falco": {CROWN_RESOURCE_HIJACK}}
+    # 이벤트 기반이라 시간창에 묶임(창 밖이면 비어야 — 재생 검증 호환, 지속상태 아님)
+    assert src.crowns_in_window(since_ts=t0, until_ts=t0 + 1) == set()
+
+
+# ───────────── main 조립 ─────────────
 def test_build_sequencer_from_example_config():
     cfg = load_config(_ROOT / "common" / "config.example.yaml")
-    seq = build_sequencer(cfg, flag4_value="FLAG{t}")
+    seq = build_sequencer(cfg)
     assert isinstance(seq, TurnSequencer)
-    assert seq.registry.value_match("4", "FLAG{t}") is True       # ④ 값 주입됨
+    assert "db_exfil" in seq.objectives.goals()                   # 크라운 조건표 주입됨
     assert seq.params.episodes == cfg.experiment.episodes         # config에서 파라미터
     assert seq.params.baseline_snapshot == cfg.vmware.baseline_snapshot
 

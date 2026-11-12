@@ -13,7 +13,7 @@
 #   (admin-dashboard 는 자기 코드 ConfigMap 을 '볼륨 마운트'로 쓰지 API 로 get 하지 않으므로,
 #    admin-sa 의 configmap API 조회는 정상 트래픽에 없다 = 공격자 신호로 결정적.)
 #
-# 베이스라인 리셋: killchain/ 디렉터리째 재적용되므로 이 ConfigMap 도 매 에피소드 복구된다.
+# 베이스라인 리셋: killchain/ 디렉터리째 재적용되므로 이 ConfigMap 도 매 회차 복구된다.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -23,10 +23,12 @@ metadata:
     app.kubernetes.io/part-of: capstone-killchain
     role: plaintext-credentials
 data:
-  # ★ 평문 노출: Secret 에 있어야 할 접속 문자열이 ConfigMap 에 그대로. appuser/devpassword123
-  #   은 database/postgres-credentials Secret 과 동일한 '진짜' 크레덴셜 → ④ 로 가는 또 다른 열쇠.
-  DATABASE_URL: "postgresql://appuser:devpassword123@postgres.database.svc.cluster.local:5432/customerdb"
+  # ★ 평문 노출: Secret 에 있어야 할 접속 문자열이 ConfigMap 에 그대로. legacy_admin 은 '안 지워진
+  #   레거시 관리자' 계정 — 앱이 쓰는 appuser 와 '별개' role(DB read 전권)이다. 이 분리가 god-view
+  #   actor 스코핑의 전제: 공격자가 이 유출 role 로 DB 에 직접 접속(③)해 민감 테이블을 조회하면 ④
+  #   크라운(actor=legacy_admin)이 뜨고, 앱(appuser)의 정상 조회는 크라운에서 빠진다.
+  DATABASE_URL: "postgresql://legacy_admin:L3gacyAdm1n!2019@postgres.database.svc.cluster.local:5432/customerdb"
   DB_HOST: "postgres.database.svc.cluster.local"
-  DB_USER: "appuser"
-  DB_PASSWORD: "devpassword123"
-  NOTE: "TODO(legacy): move these to a Secret before prod — 아직 안 옮김(취약점)"
+  DB_USER: "legacy_admin"
+  DB_PASSWORD: "L3gacyAdm1n!2019"
+  NOTE: "TODO(legacy): 안 쓰는 레거시 관리자 계정인데 접속정보가 아직 평문으로 남음(취약점)"

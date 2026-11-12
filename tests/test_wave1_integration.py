@@ -21,11 +21,13 @@ if str(_ROOT) not in sys.path:
 
 from common.messages import (  # noqa: E402
     AttackEndReason, AttackTurnResult, DefenseEndReason, DefenseTurnResult,
-    Detection, FlagObtained, ReplayPhase, ReplayResult, StepReplayRec,
+    Detection, ReplayPhase, ReplayResult, StepReplayRec,
 )
-from common.replay_schema import Command, FlagCheck, ReplayScript, Step  # noqa: E402
+from common.replay_schema import Command, ReplayScript, Step  # noqa: E402
 from orchestrator.fakes import FakeAttackerClient, FakeBaseline, FakeDefenderClient, FakeLogSource  # noqa: E402
 from orchestrator.flags import default_registry  # noqa: E402
+from orchestrator.objectives import default_objectives  # noqa: E402
+from common.app_signals import CROWN_INTERNAL_SECRETS  # noqa: E402
 from orchestrator.log_source import AuditFalcoLogSource, parse_rfc3339  # noqa: E402
 from orchestrator.sequencer import RunParams, TurnSequencer  # noqa: E402
 from orchestrator.truth_log import TruthLog  # noqa: E402
@@ -78,42 +80,46 @@ def test_real_logsource_extracts_all_wave1_techniques():
 
 # ───────────── (2)(3) 실 시퀀서→truth→채점 (공격자/방어자/클러스터만 fake) ─────────────
 def _escape_script() -> ReplayScript:
-    # 토큰탈취 → T1610 파드배포 → ④ DB FLAG. flag_check 는 ④(검증 판정 기준).
+    # 토큰탈취 → T1610 파드배포 → ④ 내부비밀 SELECT. 플래그리스: 반출 판정은 심판이 크라운으로.
     return ReplayScript(session_id="s", episode=1, round=1, steps=[
         Step(step=1, command=Command(tool="sh", args=["-c", "wget .../internal/secret/internal/admin-sa-token"])),
         Step(step=2, command=Command(tool="sh", args=["-c", "wget --post-data=@pod .../pods"])),
-        Step(step=3, command=Command(tool="psql", args=["-c", "SELECT value FROM internal_secrets"]),
-             flag_check=FlagCheck(flag_id="4", obtained=True))])
+        Step(step=3, command=Command(tool="psql", args=["-c", "SELECT value FROM internal_secrets"]))])
 
 
 def _escape_attack() -> AttackTurnResult:
+    # 공격자는 성공을 자기보고하지 않는다(플래그리스). 크라운은 심판의 로그원(crown_constant)이 주입.
     return AttackTurnResult(
-        end_reason=AttackEndReason.FLAG,
-        flags_obtained=[FlagObtained(flag_id="4", value="FLAG{win}", step=3)],
+        end_reason=AttackEndReason.DEADEND,
         replay_script=_escape_script(),
-        attack_summary="②토큰탈취→T1610 배포→T1611 탈출 + ④ FLAG", elapsed_sec=1.0)
+        attack_summary="②토큰탈취→T1610 배포→T1611 탈출 + ④ 내부비밀 반출", elapsed_sec=1.0)
 
 
-def _seq(defense: DefenseTurnResult, *, attack: AttackTurnResult = None,
-         flag4: str = "FLAG{win}", host: str = None):
+def _seq(defense: DefenseTurnResult, *, attack: AttackTurnResult = None):
     attacker = FakeAttackerClient(
         replay_by_phase={
             PRE: ReplayResult(phase=PRE, overall_success=True,
                               steps_result=[StepReplayRec(step=3, success=True)]),
-            POST: ReplayResult(phase=POST, overall_success=False,          # 패치 후 ④ 재생 실패 → BLOCKED
+            POST: ReplayResult(phase=POST, overall_success=False,          # 패치 후 재생은 돌되
                                steps_result=[StepReplayRec(step=3, success=False)])},
         attack_result=attack or _escape_attack())
     defender = FakeDefenderClient(defense_result=defense)
     snaps = FakeBaseline(existing=["clean-baseline"])
-    registry = default_registry(flag4, host)
-    verifier = VerificationEngine(attacker, defender, snaps, registry)
+    registry = default_registry()
+    objectives = default_objectives()
+    # verify 재생창: 패치 후 크라운 안 빠짐 → BLOCKED
+    verifier = VerificationEngine(attacker, defender, snaps, registry,
+                                  logs=FakeLogSource(crown_constant=set()), objectives=objectives)
     truth = TruthLog()
     captured: list[dict] = []
     params = RunParams(episodes=1, max_rounds=1, n_consecutive_defense=99,
                        baseline_snapshot="clean-baseline", attack_endpoint="10.0.0.5")
-    seq = TurnSequencer(attacker=attacker, defender=defender, snapshots=snaps, verifier=verifier,
-                        logs=FakeLogSource(constant=_FULL), registry=registry, truth=truth,
-                        params=params, sink=captured.append)
+    # _build_truth 공격창: 기법 로그(_FULL) + 공격이 ④(internal_secrets) 획득(크라운)
+    seq = TurnSequencer(
+        attacker=attacker, defender=defender, snapshots=snaps, verifier=verifier,
+        logs=FakeLogSource(constant=_FULL, crown_constant={CROWN_INTERNAL_SECRETS}),
+        registry=registry, objectives=objectives, truth=truth,
+        params=params, sink=captured.append)
     return seq, {"truth": truth, "captured": captured}
 
 
@@ -140,11 +146,13 @@ def test_escape_chain_scored_end_to_end():
     assert det["fp"] == 0, det      # 오탐 없음
     assert det["fn"] == 5, det      # T1552·T1213·T1613·T1069·T1046 놓침(패밀리 단위)
 
-    # 선형 깊이는 digit 플래그만 → ④ 도달. 확장 기법(비-digit)이 깊이를 흐리지 않음.
-    assert summary.max_flag_depth == 4, summary.max_flag_depth
-    assert rec["stages_reached"] == [1, 2, 3, 4], rec["stages_reached"]
+    # 선형 깊이는 상태검증 digit 플래그(①②③)만. ④(데이터탈취)는 크라운 달성축으로 분리 —
+    # flags_reached 의 'crown-secrets'(비-digit)로 확인(깊이를 흐리지 않음).
+    assert summary.max_flag_depth == 3, summary.max_flag_depth
+    assert rec["stages_reached"] == [1, 2, 3], rec["stages_reached"]
+    assert "crown-secrets" in ctx["truth"].entries(1)[0].flags_reached
 
-    # 판정: 패치 후 ④ 재생 실패 → BLOCKED
+    # 판정: 패치 후 크라운 재도달 없음 → BLOCKED
     assert rec["verdict"] == "blocked", rec["verdict"]
 
 
@@ -161,41 +169,9 @@ def test_discovery_reported_counts_as_tp():
     assert det["tp"] == 2 and det["fp"] == 0, det   # 둘 다 truth 에 있음 → TP, 오탐 0
 
 
-# ───────────── 호스트 objective (크라운 주얼, 값대조) ─────────────
-def _attack_db_and_host() -> AttackTurnResult:
-    # 하네스는 찾은 FLAG 를 전부 flag_id="4" 로 보고(하드코딩) — god-view 가 '값'으로 구분해야 함.
-    return AttackTurnResult(
-        end_reason=AttackEndReason.FLAG,
-        flags_obtained=[FlagObtained(flag_id="4", value="FLAG{db1}", step=3),
-                        FlagObtained(flag_id="4", value="FLAG{host1}", step=5)],
-        replay_script=_escape_script(),
-        attack_summary="DB ④ + 호스트 탈출 objective 둘 다", elapsed_sec=1.0)
-
-
-def test_match_value_identifies_objective_by_value():
-    reg = default_registry("FLAG{db_xyz}", "FLAG{host_abc}")
-    assert reg.match_value("FLAG{db_xyz}") == "4"         # 값으로 ④ 식별
-    assert reg.match_value("FLAG{host_abc}") == "host"    # 값으로 호스트 objective 식별
-    assert reg.match_value("FLAG{unknown}") is None       # 안 심은 값은 매칭 안 됨(추측 금지)
-    assert {s.flag_id for s in reg.objectives()} == {"4", "host"}
-    assert reg.get("host").mitre == "T1005"
-
-
-def test_host_objective_scored_end_to_end():
-    # DB(④)·호스트 FLAG 를 둘 다 '값'으로 보고(하네스는 flag_id="4" 하드코딩) → god-view 가 값으로
-    # 각 objective 식별 → 'host'(T1005) + ④(T1213) 둘 다 truth. 선형 깊이는 digit(④)만.
-    defense = DefenseTurnResult(
-        patch_applied=True, end_reason=DefenseEndReason.PATCHED,
-        detected=[Detection(technique="T1611", evidence="falco escape")],  # 탈출 실제 발생 → TP
-        healthcheck_passed=True, elapsed_sec=1.0)
-    seq, ctx = _seq(defense, attack=_attack_db_and_host(), flag4="FLAG{db1}", host="FLAG{host1}")
-    summary = seq.run_episode(1)
-    entry = ctx["truth"].entries(1)[0]
-    assert "host" in entry.flags_reached and "4" in entry.flags_reached   # 두 크라운 주얼 달성
-    assert "T1005" in entry.techniques() and "T1213" in entry.techniques()
-    assert summary.max_flag_depth == 4            # 선형 깊이는 digit(④)만 — 'host'(비-digit) 안 흐림
-    det = ctx["captured"][0]["detection_cum"]
-    assert det["tp"] == 1 and det["fp"] == 0      # 탈출 실발생 → T1611 보고는 정탐(오탐 아님)
+# [플래그리스] 호스트 objective·값대조(match_value) 테스트는 제거.
+#   host 는 범위 밖(앱/DB 통로가 아닌 노드 파일 — Falco 통로로 별도 처리 예정),
+#   값기반 플래그는 접근기록 크라운으로 대체 → 크라운 판정은 test_objectives·test_verifier 가 커버.
 
 
 # ───────────── 자체 러너 ─────────────

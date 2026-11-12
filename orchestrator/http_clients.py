@@ -29,6 +29,11 @@ Transport = Callable[[str, dict, float], dict]
 _REPLAY_TIMEOUT = 600.0   # 리플레이 재생은 길 수 있음(대본 전체 재실행)
 _SHORT_TIMEOUT = 30.0     # 하트비트(/status)
 _STATE_TIMEOUT = 120.0    # 상태질의·헬스 — verify 내부 revert 직후 VM B(k3s·방어자)가 재개 중이라 느림
+# 공격·방어 턴 대기 여유 — 라운드는 time_limit 에 맞춰 끝나지만 정착(settlement)·마지막
+# 웨이브 조립이 마감을 살짝 넘길 수 있다. 여유가 빡빡하면(과거 30초) 클라이언트가 먼저
+# 포기→재시도 → 하네스에 좀비 턴이 쌓여 매 턴이 밀린다. 넉넉히 둬서 그 고리를 끊는다.
+# (하네스가 정상 응답하면 그 즉시 반환되므로, 큰 값이어도 평상시 손해 없음.)
+_TURN_BUFFER = 120.0
 
 
 def requests_transport(token: str = "") -> Transport:
@@ -66,12 +71,29 @@ class HttpAttackerClient(_BaseHttpClient):
 
     def attack_turn(self, start: AttackTurnStart, *, episode: int, round: int) -> AttackTurnResult:
         env = self._post(start, episode=episode, round=round,
-                         timeout=start.time_limit_sec + _SHORT_TIMEOUT)
+                         timeout=start.time_limit_sec + _TURN_BUFFER)
         return env.payload_as(AttackTurnResult)
 
     def replay(self, req: ReplayRequest, *, episode: int, round: int) -> ReplayResult:
         env = self._post(req, episode=episode, round=round, timeout=_REPLAY_TIMEOUT)
         return env.payload_as(ReplayResult)
+
+    def journal(self, since: int = 0) -> dict:
+        """공격 저널 증분 조회(스트리밍 폴러용). 봉투 아님 — {entries, next} 평문.
+        실패·미지원(구버전 하네스)이면 빈 결과({})로 조용히 넘어간다(저널은 보조)."""
+        try:
+            return self.transport(f"{self.base_url}/journal",
+                                  {"since": int(since)}, _SHORT_TIMEOUT) or {}
+        except Exception:    # noqa: BLE001 — 폴링 실패가 턴을 깨면 안 됨
+            return {}
+
+    def graph(self) -> dict:
+        """현재 탐색 그래프 스냅샷 조회(실시간 그래프 폴러용). 봉투 아님 — {episode, graph} 평문.
+        실패·미지원(구버전 하네스)이면 빈 결과({})로 조용히 넘어간다(그래프 미러는 보조)."""
+        try:
+            return self.transport(f"{self.base_url}/graph", {}, _SHORT_TIMEOUT) or {}
+        except Exception:    # noqa: BLE001 — 폴링 실패가 턴을 깨면 안 됨
+            return {}
 
     def status(self) -> AgentStatus:
         return self._status()
@@ -82,7 +104,7 @@ class HttpDefenderClient(_BaseHttpClient):
 
     def defense_turn(self, start: DefenseTurnStart, *, episode: int, round: int) -> DefenseTurnResult:
         env = self._post(start, episode=episode, round=round,
-                         timeout=start.time_limit_sec + _SHORT_TIMEOUT)
+                         timeout=start.time_limit_sec + _TURN_BUFFER)
         return env.payload_as(DefenseTurnResult)
 
     def state_query(self, query: StateQuery, *, episode: int, round: int) -> StateQueryResult:

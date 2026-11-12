@@ -1,17 +1,17 @@
 """④ 채점·로깅 — 정답 타임라인(TruthLog) 대조.
 
 방어자 자기보고(detected[]) vs god-view 사실(TruthLog) → TP/FP/FN·MTTD.
-검증 판정(verdict)·플래그 도달 깊이·가용성·종료사유와 합쳐 라운드/에피소드 점수 산출.
+검증 판정(verdict)·플래그 도달 깊이·가용성·종료사유와 합쳐 라운드/회차 점수 산출.
 JSON Lines(라운드당 1줄)로 떨궈 통계·그래프(공수 진화곡선 등)용.
 
 설계:
 - 지표는 순수 함수(confusion_matrix·mttd) — 독립 테스트.
 - 점수 계산은 결과 객체(RoundRecord/EpisodeSummary)를 '반환' — 부작용 없음.
 - 디스크 쓰기는 주입된 sink로 분리 — 테스트는 리스트, 실전은 파일.
-- Scorer 인스턴스 = 에피소드 1개 범위(시퀀서가 라운드마다 score_round, 끝에 summary).
+- Scorer 인스턴스 = 회차 1개 범위(시퀀서가 라운드마다 score_round, 끝에 summary).
 
 탐지 혼동행렬은 '누적 reported vs 누적 truth'로 매긴다 — 공수 진화곡선이 단조롭게 쌓이고,
-에피소드 끝에선 모든 발생 기법이 truth에 들어와 FP/FN이 확정된다.
+회차 끝에선 모든 발생 기법이 truth에 들어와 FP/FN이 확정된다.
 """
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from typing import Callable, Optional
 
 from common.messages import AttackTurnResult, DefenseTurnResult
 
+from .objectives import ObjectiveRegistry
 from .truth_log import TruthLog
 from .verifier import VerificationResult
 
@@ -89,7 +90,7 @@ def mttd(occurrence: dict[str, int], detection: dict[str, int]) -> MttdResult:
     return MttdResult(mean_rounds=mean, detected=len(delays), total_true=len(occurrence))
 
 
-# ───────────────────── 라운드/에피소드 기록 ─────────────────────
+# ───────────────────── 라운드/회차 기록 ─────────────────────
 @dataclass
 class RoundRecord:
     episode: int
@@ -113,9 +114,13 @@ class RoundRecord:
     elapsed_attack_sec: float
     elapsed_defense_sec: float
     timestamp: float
-    # 킬체인 상태판: 이 라운드 god-view 도달 단계(체인필 1..N). flag_id=단계번호.
-    # ①③는 감사 사각이라 로그엔 안 떠도 '④ 도달 ⟹ ①②③ 통과'(선형 체인)로 보강.
+    # 킬체인 상태판: 이 라운드 god-view 도달 단계(체인필 1..N). flag_id=단계번호(①②③ 상태검증).
     stages_reached: list[int] = field(default_factory=list)
+    # 크라운(최종 침해) 달성 축 — 선형 깊이와 별개. flags 중 objectives 조건표에 해당하는 것(누적).
+    crowns_reached_cum: list[str] = field(default_factory=list)   # 달성 objective id (crown-secrets 등)
+    goals_reached_cum: list[str] = field(default_factory=list)    # 달성 goal (db_exfil 등)
+    # 어느 크라운이 어느 통로로 빠졌나(표시 전용) — {objective id: [app·db]}. 판정엔 안 쓰임.
+    crowns_by_channel_cum: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -127,34 +132,41 @@ class RoundRecord:
 class EpisodeSummary:
     episode: int
     rounds: int
-    end_reason: str                    # 에피소드 종료사유(시퀀서가 지정)
-    max_flag_depth: int                # 도달 최고 플래그(①=1..④=4) = 도달 깊이
+    end_reason: str                    # 회차 종료사유(시퀀서가 지정)
+    max_flag_depth: int                # 상태검증 최고 단계(①=1..③=3) = 선형 깊이
     detection: DetectionScore          # 최종(누적) 혼동행렬
     mttd: MttdResult
     verdict_counts: dict[str, int]     # 판정별 횟수(BLOCKED/FAKE_PATCH/...)
     availability: Optional[float]      # 패치한 라운드 중 health 통과 비율
     patches: int                       # 총 패치 적용 횟수
+    crowns_reached: list[str] = field(default_factory=list)   # 달성 크라운 objective id(접근기록)
+    goals_reached: list[str] = field(default_factory=list)    # 달성 goal (db_exfil 등)
+    crowns_by_channel: dict = field(default_factory=dict)     # {objective id: [app·db]} — 표시 전용
 
     def to_dict(self) -> dict:
         return {"episode": self.episode, "rounds": self.rounds,
                 "end_reason": self.end_reason, "max_flag_depth": self.max_flag_depth,
                 "detection": self.detection.to_dict(), "mttd": self.mttd.to_dict(),
                 "verdict_counts": self.verdict_counts, "availability": self.availability,
-                "patches": self.patches}
+                "patches": self.patches,
+                "crowns_reached": self.crowns_reached, "goals_reached": self.goals_reached,
+                "crowns_by_channel": self.crowns_by_channel}
 
 
-# ───────────────────── 채점기(에피소드 1개) ─────────────────────
+# ───────────────────── 채점기(회차 1개) ─────────────────────
 class Scorer:
-    """라운드마다 점수를 매기고 JSONL로 흘린 뒤, 에피소드 끝에 요약을 낸다.
+    """라운드마다 점수를 매기고 JSONL로 흘린 뒤, 회차 끝에 요약을 낸다.
 
     truth: 시퀀서가 god-view로 채워두는 정답 타임라인(여기선 읽기만).
     sink : 라운드 dict를 받는 콜백(파일 append 등). None이면 메모리에만 쌓음.
     """
 
     def __init__(self, truth: TruthLog, episode: int,
+                 objectives: ObjectiveRegistry,
                  sink: Optional[Callable[[dict], None]] = None) -> None:
         self.truth = truth
         self.episode = episode
+        self.objectives = objectives    # 크라운 목표 조건표(flags 중 어느 게 크라운 달성인지 식별)
         self.sink = sink
         self._records: list[RoundRecord] = []
         self._reported_cum: set[str] = set()      # 누적 보고 기법
@@ -179,11 +191,16 @@ class Scorer:
         _reach = max(_round_stages) if _round_stages else 0
         stages_reached = list(range(1, _reach + 1))
 
+        flags_cum = sorted(self.truth.flags_up_to(self.episode, round))
+        crowns = [f for f in flags_cum if self.objectives.get(f)]   # flags 중 크라운 objective
+        goals = sorted({self.objectives.get(f).goal for f in crowns})
+        _ch = self.truth.crown_channels_up_to(self.episode, round)   # 어느 통로로 빠졌나(표시)
+        crowns_by_channel = {k: sorted(v) for k, v in _ch.items() if k in crowns}
         rec = RoundRecord(
             episode=self.episode, round=round,
             attack_end_reason=attack_result.end_reason.value,
             attack_summary=attack_result.attack_summary or "",
-            flags_reached_cum=sorted(self.truth.flags_up_to(self.episode, round)),
+            flags_reached_cum=flags_cum,
             patch_applied=defense_result.patch_applied,
             defense_end_reason=defense_result.end_reason.value,
             defense_error=getattr(defense_result, "error", "") or "",
@@ -196,6 +213,9 @@ class Scorer:
             elapsed_defense_sec=defense_result.elapsed_sec,
             timestamp=time.time(),
             stages_reached=stages_reached,
+            crowns_reached_cum=crowns,
+            goals_reached_cum=goals,
+            crowns_by_channel_cum=crowns_by_channel,
         )
         self._records.append(rec)
         if self.sink is not None:
@@ -215,6 +235,10 @@ class Scorer:
             occ[_b] = min(_r, occ.get(_b, _r))
         flags = self.truth.flags_up_to(self.episode, last_round)
         depth = max((int(f) for f in flags if f.isdigit()), default=0)
+        crowns = sorted(f for f in flags if self.objectives.get(f))   # 달성 크라운 objective
+        goals = sorted({self.objectives.get(f).goal for f in crowns})
+        _ch = self.truth.crown_channels_up_to(self.episode, last_round)   # 어느 통로로 빠졌나(표시)
+        crowns_by_channel = {k: sorted(v) for k, v in _ch.items() if k in crowns}
 
         verdict_counts: dict[str, int] = {}
         for r in self._records:
@@ -229,7 +253,9 @@ class Scorer:
             detection=confusion_matrix(self._reported_cum, truth_all),
             mttd=mttd(occ, self._detection_first),
             verdict_counts=verdict_counts, availability=availability,
-            patches=sum(1 for r in self._records if r.patch_applied))
+            patches=sum(1 for r in self._records if r.patch_applied),
+            crowns_reached=crowns, goals_reached=goals,
+            crowns_by_channel=crowns_by_channel)
 
 
 def jsonl_file_sink(path: str) -> Callable[[dict], None]:

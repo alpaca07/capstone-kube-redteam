@@ -16,8 +16,8 @@ from dataclasses import dataclass, field
 from typing import Optional, Protocol, runtime_checkable
 
 from common.replay_schema import (
-    Command, Extract, ExtractMethod, FlagCheck, InputSource, ReplayScript, Step,
-    StepResultRec, classify_determinism, hash_normalized,
+    Command, Extract, ExtractMethod, InputSource, ReplayScript, Step,
+    StepResultRec, classify_determinism, hash_normalized, make_step_id,
 )
 
 from .actions import AttackAction
@@ -46,11 +46,11 @@ class Observation:
     tool: str
     exit_code: int
     success: bool
+    step_id: str = ""      # "{round}.{step}" — fact 자동링크가 어느 스텝 결과인지 집어갈 때 사용
     stdout: str = ""
     stderr: str = ""
     blocked: bool = False
     block_reason: str = ""
-    flag_found: Optional[str] = None
 
 
 # ───────────── produces/inputs 값 추출 ─────────────
@@ -139,16 +139,8 @@ def resolve_args(args: list, inputs: dict, values: dict,
     return out
 
 
-# ───────────── 단일 통로 ─────────────
-_FLAG_RE = re.compile(r"FLAG\{[^}]*\}")
 _EXCERPT = 600          # 대본 발췌 길이
 _OBS_STDOUT = 2000      # LLM에 돌려줄 stdout 길이(컨텍스트 절약)
-
-
-def find_flag(text: str) -> Optional[str]:
-    """stdout에서 FLAG{} 하나. 공격·리플레이가 같은 탐지 규칙을 쓰도록 단일화."""
-    m = _FLAG_RE.search(text or "")
-    return m.group(0) if m else None
 
 
 class ActionExecutor:
@@ -157,20 +149,19 @@ class ActionExecutor:
     def __init__(self, runner: CommandRunner, *, scope_policy: ScopePolicy,
                  session_id: str, episode: int, round: int,
                  base_snapshot: Optional[str] = None,
-                 flag_value_id: str = "4", step_timeout: Optional[float] = None) -> None:
+                 step_timeout: Optional[float] = None) -> None:
         self.runner = runner
         self.scope = scope_policy
         self.script = ReplayScript(session_id=session_id, episode=episode, round=round,
                                    base_snapshot=base_snapshot, steps=[])
-        self.flag_value_id = flag_value_id
         self.step_timeout = step_timeout
         self._values: dict[str, str] = {}      # produces 이름 → 값(후속 input 주입용)
         self._step = 0
-        self.flags_found: list[str] = []
 
     def execute(self, action: AttackAction, *, foothold: Optional[dict] = None) -> Observation:
         self._step += 1
         n = self._step
+        sid = make_step_id(self.script.round, n)   # "{round}.{step}" — 대본·Observation 공통 식별자
         resolved = resolve_args(action.args, action.inputs, self._values, foothold)
         # ★ 대본에는 '템플릿'(원본 {name} 포함)을 기록 — 리플레이가 만료 토큰 대신
         #    재생 중 새 값으로 재치환할 수 있어야 하므로. 실제 실행은 resolved로.
@@ -181,10 +172,10 @@ class ActionExecutor:
         sc = check_scope(cmd_str, self.scope)
         if not sc.allowed:
             self.script.steps.append(Step(
-                step=n, command=command, inputs=action.inputs, produces=action.produces,
+                step=n, step_id=sid, command=command, inputs=action.inputs, produces=action.produces,
                 result=StepResultRec(exit_code=-1, success=False,
                                      stdout_excerpt=f"[BLOCKED] {sc.reason}")))
-            return Observation(step=n, tool=action.tool, exit_code=-1, success=False,
+            return Observation(step=n, step_id=sid, tool=action.tool, exit_code=-1, success=False,
                                blocked=True, block_reason=sc.reason, stderr=sc.reason)
 
         # 실행
@@ -196,27 +187,19 @@ class ActionExecutor:
             if val is not None:
                 self._values[name] = val
 
-        # 플래그 탐지
-        flag_found = find_flag(res.stdout)
-        if flag_found:
-            self.flags_found.append(flag_found)
-
         success = res.exit_code == 0
         rec = StepResultRec(
             exit_code=res.exit_code, success=success,
             stdout_hash=hash_normalized(res.stdout),
-            stdout_excerpt=res.stdout[:_EXCERPT],
-            stdout_full=(res.stdout if flag_found else None))
-        flag_check = FlagCheck(flag_id=self.flag_value_id, obtained=True) if flag_found else None
+            stdout_excerpt=res.stdout[:_EXCERPT])
         det = classify_determinism(command, action.inputs)
         self.script.steps.append(Step(
-            step=n, command=command, inputs=action.inputs, produces=action.produces,
-            result=rec, flag_check=flag_check, determinism=det))
+            step=n, step_id=sid, command=command, inputs=action.inputs, produces=action.produces,
+            result=rec, determinism=det))
 
-        return Observation(step=n, tool=action.tool, exit_code=res.exit_code, success=success,
-                           stdout=res.stdout[:_OBS_STDOUT], stderr=res.stderr[:_EXCERPT],
-                           flag_found=flag_found)
+        return Observation(step=n, step_id=sid, tool=action.tool, exit_code=res.exit_code, success=success,
+                           stdout=res.stdout[:_OBS_STDOUT], stderr=res.stderr[:_EXCERPT])
 
 
 __all__ = ["CommandResult", "CommandRunner", "Observation",
-           "extract_value", "resolve_args", "find_flag", "ActionExecutor"]
+           "extract_value", "resolve_args", "ActionExecutor"]

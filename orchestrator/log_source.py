@@ -10,6 +10,7 @@ Protocol(logs.py) 뒤에 끼우는 실제 층. 설계 핵심: '로그 줄 → �
   Falco:      컨테이너 셸 → T1059 / 발판→DB connect → T1210(③) / 발판 wget·curl → T1552.001(①)
   [Wave1] 감사: admin-sa configmaps→T1552.001 · pods create→T1610 · namespaces→T1613 ·
                selfsubject*review→T1069   Falco: 호스트 /host read→T1611 · 포트스캐너→T1046
+  [가] Falco: 특권컨테이너 상승행위(mount/nsenter)→T1068 · setuid/capability 악용→T1548 (핵심층 신규 절차 관측화)
   신규 기법은 여기 매핑만 추가하면 sequencer._build_truth 가 자동으로 truth 에 넣어 탐지 채점한다.
 """
 from __future__ import annotations
@@ -17,6 +18,7 @@ from __future__ import annotations
 import json
 from typing import Callable, Iterable, Optional
 
+from common.app_signals import CROWN_CONTAINER_DEPLOY, CROWN_RESOURCE_HIJACK
 from common.k8s_logs import audit_ts as _audit_ts, falco_ts as _falco_ts, parse_rfc3339
 
 # 로그 줄(JSON)을 순서대로 내놓는 콜백. 호출마다 새로 순회 가능해야 함.
@@ -71,6 +73,33 @@ def map_falco_event(ev: dict) -> Optional[str]:
         return "T1611"   # [Wave1] 컨테이너 탈출 — /host 민감파일 read
     if rule == "Port scan from foothold":
         return "T1046"   # [Wave1] 네트워크 서비스 탐색 — 포트 스캐너 기동
+    if rule == "Privilege escalation in container":
+        return "T1068"   # [가] 권한상승 익스플로잇 — 특권 컨테이너 mount/nsenter 상승 행위(T1611 /host read 와 구분)
+    if rule == "Elevation control abuse":
+        return "T1548"   # [가] 권한상승 제어 악용 — setuid 호출·capability 조작(capsh/setcap)
+    if rule == "Cryptocurrency mining in container":
+        return "T1496"   # 사후 — Resource Hijacking(마이너 프로세스 실행)
+    return None
+
+
+def map_falco_crown(ev: dict) -> Optional[str]:
+    """Falco 이벤트 → 사후 크라운 자산. 베이스라인엔 없는 신호라 attribution 불필요."""
+    if ev.get("rule") == "Cryptocurrency mining in container":
+        return CROWN_RESOURCE_HIJACK   # T1496 — 연산자원 탈취 달성
+    return None
+
+
+def map_audit_crown(ev: dict) -> Optional[str]:
+    """감사 이벤트 → 사후 크라운 자산. 공격자 SA 의 파드 배포 = 악성 컨테이너 배포(T1610).
+
+    베이스라인에선 admin-sa 가 파드를 생성하지 않으므로(admin-dashboard 는 Secret 만 조회)
+    공격자-SA pods create = 악성 배포로 결정적. 감사 이벤트라 시간창에 묶인다(재생 검증 호환).
+    """
+    user = (ev.get("user") or {}).get("username", "")
+    verb = ev.get("verb", "")
+    resource = (ev.get("objectRef") or {}).get("resource", "")
+    if user == _ADMIN_SA and resource == "pods" and verb == "create":
+        return CROWN_CONTAINER_DEPLOY
     return None
 
 
@@ -126,8 +155,52 @@ class AuditFalcoLogSource:
                 out.add(t)
         return out
 
+    def _scan_crowns(self, since_ts: float, until_ts: float) -> tuple[set[str], set[str]]:
+        """시간창 내 사후 크라운을 통로별로 수집 → (audit 크라운, falco 크라운)."""
+        audit_c: set[str] = set()
+        falco_c: set[str] = set()
+        for line in self.audit_reader():
+            ev = _loads(line)
+            if ev is None:
+                continue
+            ts = _audit_ts(ev)
+            if ts is None or not (since_ts <= ts <= until_ts):
+                continue
+            c = map_audit_crown(ev)
+            if c:
+                audit_c.add(c)
+        for line in self.falco_reader():
+            ev = _loads(line)
+            if ev is None:
+                continue
+            ts = _falco_ts(ev)
+            if ts is None or not (since_ts <= ts <= until_ts):
+                continue
+            c = map_falco_crown(ev)
+            if c:
+                falco_c.add(c)
+        return audit_c, falco_c
+
+    def crowns_in_window(self, *, since_ts: float, until_ts: float) -> set[str]:
+        """사후 크라운(런타임·API 통로): Falco 마이너 실행 → resource_hijack, 감사 공격자-SA
+        파드 배포 → container_deploy. 둘 다 이벤트라 시간창에 묶인다(재생 검증 호환). 앱·DB
+        레벨 반출(HTTP 페이로드·SQL 결과)은 사각 → AppLogSource/DbLogSource 가 담당."""
+        audit_c, falco_c = self._scan_crowns(since_ts, until_ts)
+        return audit_c | falco_c
+
+    def crowns_by_channel_in_window(self, *, since_ts: float, until_ts: float) -> dict[str, set[str]]:
+        """통로별 사후 크라운 맵(표시 전용) — {"audit": {...}, "falco": {...}}."""
+        audit_c, falco_c = self._scan_crowns(since_ts, until_ts)
+        out: dict[str, set[str]] = {}
+        if audit_c:
+            out["audit"] = audit_c
+        if falco_c:
+            out["falco"] = falco_c
+        return out
+
 
 __all__ = [
     "LineReader", "parse_rfc3339", "map_audit_event", "map_falco_event",
+    "map_falco_crown", "map_audit_crown",
     "file_line_reader", "AuditFalcoLogSource",
 ]

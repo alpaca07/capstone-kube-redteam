@@ -5,7 +5,7 @@ VM A에 재생을 위임한다. VM C는 이 대본만 보고 "이해 없이" 재
 
 구조:
   ReplayScript{ session_id, episode, round, base_snapshot, steps[] }
-  Step{ step, command, inputs, produces, result, flag_check, determinism }
+  Step{ step, command, inputs, produces, result, determinism }
 
 핵심 메커니즘:
 - inputs/produces 로 동적값(토큰 등) 의존성 재실행 — 녹음된 만료 토큰 대신
@@ -75,21 +75,26 @@ class StepResultRec(BaseModel):
     success: bool = False              # ★ 판정 1순위 지표
     stdout_hash: Optional[str] = None  # 정규화된 stdout의 sha256 (보조 비교)
     stdout_excerpt: str = ""           # 판정 근거 발췌
-    stdout_full: Optional[str] = None  # 플래그 등 중요 스텝만
 
 
-class FlagCheck(BaseModel):
-    flag_id: str
-    obtained: bool = False
+def make_step_id(round_no: int, step: int) -> str:
+    """스텝의 안정적 식별자 = "{round}.{step}".
+
+    탐색 그래프가 회차 스코프라 회차는 그래프 쪽에서 암시되므로
+    id 자체엔 round와 턴 내 seq(step)만 담는다. fact 노드가 이 문자열을
+    source_step_ids로 들고, 나중에 (회차의) replay_script[round].steps[step]
+    원본으로 역추적한다. 포맷은 여기 한 곳에서만 정의한다.
+    """
+    return f"{round_no}.{step}"
 
 
 class Step(BaseModel):
     step: int
+    step_id: str = ""                  # make_step_id(round, step) — fact 노드가 가리키는 포인터
     command: Command
     inputs: dict[str, InputRef] = Field(default_factory=dict)
     produces: dict[str, ProducesRef] = Field(default_factory=dict)
     result: StepResultRec = Field(default_factory=StepResultRec)
-    flag_check: Optional[FlagCheck] = None
     determinism: Determinism = Determinism.DETERMINISTIC
 
 
