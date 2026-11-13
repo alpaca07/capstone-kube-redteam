@@ -45,6 +45,33 @@ roleRef:
   name: corp-foothold-exec
   apiGroup: rbac.authorization.k8s.io
 ---
+# 열거(recon) — corp-foothold-sa 에 클러스터 서비스·네임스페이스 '읽기'(get/list) 부여.
+# 공격자가 API 로 서비스 토폴로지를 스스로 열거하게 한다(현실적 과권한 SA = 그 자체가 취약점).
+# NetworkPolicy 가 '도달'은 여전히 corp-ext→WAF 로만 강제하므로 '발견'만 열리고 킬체인 경로는 보존.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: corp-foothold-recon
+  labels: { app.kubernetes.io/part-of: capstone-corp }
+rules:
+  - apiGroups: [""]
+    resources: ["services", "namespaces"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: corp-foothold-recon
+  labels: { app.kubernetes.io/part-of: capstone-corp }
+subjects:
+  - kind: ServiceAccount
+    name: corp-foothold-sa
+    namespace: corp-ext
+roleRef:
+  kind: ClusterRole
+  name: corp-foothold-recon
+  apiGroup: rbac.authorization.k8s.io
+---
 apiVersion: v1
 kind: Secret
 metadata:
