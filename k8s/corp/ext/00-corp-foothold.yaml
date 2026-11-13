@@ -101,7 +101,17 @@ spec:
         - name: toolkit
           image: postgres:16-alpine          # wget·psql·nc 내장 — ShopFlow 발판과 동일 재사용
           imagePullPolicy: IfNotPresent
-          command: ["tail", "-f", "/dev/null"]   # postgres 서버 미기동, 유휴 대기
+          env:
+            # corp-dmz 진입점 단서 — 공격자 정찰(env|grep url/internal)에 노출. ShopFlow internal-wiki 런북 역할.
+            # WHERE(WAF 경유 진입)만 흘린다. HOW(WAF 우회·Tomcat PUT 웹셸·Solr Log4Shell)는 그대로 자율 과제.
+            - { name: INTERNAL_APP_URL,  value: "http://waf.corp-dmz.svc.cluster.local" }
+            - { name: INTERNAL_APP_NOTE, value: "legacy Tomcat 8.5 app, reachable only via WAF proxy" }
+          command: ["sh", "-c"]
+          # 재기동 생존: 라이브 패치였던 curl·python3 를 매니페스트에 고정(Tomcat PUT·Log4Shell 콜백용).
+          args:
+            - |
+              apk add --no-cache curl python3 || true
+              exec tail -f /dev/null
           resources:
             requests: { cpu: "50m", memory: "64Mi" }
             limits: { cpu: "500m", memory: "256Mi" }
