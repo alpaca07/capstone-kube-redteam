@@ -313,16 +313,51 @@
     return svg(w, hh, body);
   }
 
+  // ───────── 타깃 인식 — 실행별 공격 목표(ShopFlow 선형 체인 vs corp 크라운) ─────────
+  // 최신 실행 params.target(크라운 id CSV) → corp 자산 모드면 목표 크라운 배열, ShopFlow·config·데모면 null.
+  function targetCrowns() {
+    if (S.demo) return null;                           // 예시 데이터는 ShopFlow 색 → 선형 단계 뷰 유지
+    var run = (S.runs && S.runs.length) ? S.runs[0] : null;
+    var t = run && run.params ? run.params.target : null;
+    if (!t || t === "(config)") return null;
+    return String(t).split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+  }
+  // 라운드 누적 + 회차 집계에서 도달한 크라운 집합.
+  function reachedCrownSet() {
+    var set = {};
+    S.rounds.forEach(function (r) { (r.crowns_reached_cum || []).forEach(function (c) { set[c] = 1; }); });
+    S.episodes.forEach(function (e) { (e.crowns_reached || []).forEach(function (c) { set[c] = 1; }); });
+    return set;
+  }
+  // 한 라운드까지 도달한 목표 크라운 수(누적).
+  function crownHitsAt(r, tc) {
+    var cum = r.crowns_reached_cum || [];
+    return tc.filter(function (c) { return cum.indexOf(c) >= 0; }).length;
+  }
+  // 침투 진척 지표 — ShopFlow=선형 침투 단계(최대 4), corp=크라운 진행(목표 크라운 중 도달 종수).
+  //   scopeDepth: 이 스코프 최고 단계, scopeReached: 이 스코프 도달 크라운 배열(생략 시 실행 전체).
+  function progressMetric(scopeDepth, scopeReached) {
+    var tc = targetCrowns();
+    if (!tc) return { corp: false, label: "최고 침투", value: scopeDepth ? scopeDepth + "단계" : "—",
+      sub: "최대 4", longLabel: "최대 침투 단계", longSub: "공격자 최대 도달 단계 (최대 4)" };
+    var reached = scopeReached || Object.keys(reachedCrownSet());
+    var hit = tc.filter(function (c) { return reached.indexOf(c) >= 0; }).length;
+    var names = tc.map(crownLabel).join("·");
+    return { corp: true, hit: hit, total: tc.length, label: "크라운 진행",
+      value: hit + " / " + tc.length + "종", sub: names,
+      longLabel: "크라운 진행", longSub: "목표 크라운 " + names + " 중 도달" };
+  }
+
   // ───────── 페이지: 보안 현황 ─────────
   function pagePosture() {
-    var a = agg(), ev = evolution();
+    var a = agg(), ev = evolution(), pm = progressMetric(a.depth);
     var tiles = [
       { k: "핵심정보 유출", v: a.crownRounds + "회", sub: "전체 " + a.nrounds + "라운드 중 " + pct(a.crownRate), cls: a.crownRounds ? "accent-atk" : "accent-ok", dot: a.crownRounds ? C.atk : C.ok },
       { k: "공격 차단율", v: pct(a.blockRate), sub: "검증상 차단된 비율 (검증 " + a.decided + "건)", cls: "accent-ok", dot: C.ok },
       { k: "무효 패치율", v: pct(a.fakeRate), sub: "패치 적용에도 미차단 " + a.fake + "건", cls: a.fake ? "accent-atk" : "accent-ok", dot: C.atk },
       { k: "서비스 정상", v: pct(a.avail), sub: "패치 후 서비스 정상 비율", cls: "accent-def", dot: C.def },
       { k: "공격 탐지율", v: pct(a.recall), sub: "미탐 " + a.det.fn + "건", cls: "accent-teal", dot: C.teal },
-      { k: "최대 침투 단계", v: a.depth ? a.depth + "단계" : "—", sub: "공격자 최대 도달 단계 (최대 4)", cls: "accent-crown", dot: C.crown }
+      { k: pm.longLabel, v: pm.value, sub: pm.longSub, cls: "accent-crown", dot: C.crown }
     ];
     var tileHtml = tiles.map(function (t) {
       return '<div class="tile ' + t.cls + '"><div class="tile-k"><span class="tag-dot" style="background:' + t.dot + '"></span>' + t.k + '</div>' +
@@ -371,14 +406,23 @@
 
     var dcard = detectionCard();
 
-    var depth = S.rounds.map(function (r) { return (r.stages_reached || []).length ? Math.max.apply(null, r.stages_reached) : 0; });
-    var fcard = '<div class="card"><div class="card-h">침투 단계 추이</div>' +
-      lineChart([{ color: C.crown, points: depth }], Math.max(depth.length, 1), { ymax: 4 }) + "</div>";
+    var _tc = targetCrowns(), fcard, fLabel;
+    if (!_tc) {
+      var depth = S.rounds.map(function (r) { return (r.stages_reached || []).length ? Math.max.apply(null, r.stages_reached) : 0; });
+      fLabel = "침투 단계";
+      fcard = '<div class="card"><div class="card-h">침투 단계 추이</div>' +
+        lineChart([{ color: C.crown, points: depth }], Math.max(depth.length, 1), { ymax: 4 }) + "</div>";
+    } else {
+      var cseries = S.rounds.map(function (r) { return crownHitsAt(r, _tc); });
+      fLabel = "크라운 진행";
+      fcard = '<div class="card"><div class="card-h">크라운 진행 추이</div>' +
+        lineChart([{ color: C.crown, points: cseries }], Math.max(cseries.length, 1), { ymax: _tc.length }) + "</div>";
+    }
 
     return (S.demo ? demoBanner() : "") +
       evoCard +
       '<div class="section-label">탐지 정확도 · 미탐 추적</div>' + dcard +
-      '<div class="section-label">검증 · 침투 단계</div><div class="grid cols-2">' + vcard + fcard + "</div>";
+      '<div class="section-label">검증 · ' + fLabel + '</div><div class="grid cols-2">' + vcard + fcard + "</div>";
   }
   // ── 드릴 차트(막대 호버 → 발생 라운드 팝업 → 상세보기 점프). 탐지·검증 공용, 카드별 스코프 ──
   function drillCard(opts) {
@@ -578,8 +622,13 @@
       '<div class="section-label">공격 진행</div>' +
       '<div class="card">' +
       '<div style="display:flex;gap:7px;flex-wrap:wrap">' +
-      (["1", "2", "3", "4"].map(function (s) { var on = (demo.flags_reached || []).indexOf(s) >= 0; return '<span class="chip" style="' + (on ? "background:var(--crown-soft);color:#9a6a0c;border-color:#f3dca6" : "") + '">' + s + "단계" + (on ? " ✓" : "") + "</span>"; }).join("")) +
-      ((demo.crowns_reached || []).map(function (c) { return '<span class="badge b-atk">' + esc(crownLabel(c)) + "</span>"; }).join("")) +
+      (function () {
+        var tc = targetCrowns();
+        if (!tc) return (["1", "2", "3", "4"].map(function (s) { var on = (demo.flags_reached || []).indexOf(s) >= 0; return '<span class="chip" style="' + (on ? "background:var(--crown-soft);color:#9a6a0c;border-color:#f3dca6" : "") + '">' + s + "단계" + (on ? " ✓" : "") + "</span>"; }).join("")) +
+          ((demo.crowns_reached || []).map(function (c) { return '<span class="badge b-atk">' + esc(crownLabel(c)) + "</span>"; }).join(""));
+        var cr = demo.crowns_reached || [];
+        return tc.map(function (c) { var on = cr.indexOf(c) >= 0; return '<span class="chip" style="' + (on ? "background:var(--crown-soft);color:#9a6a0c;border-color:#f3dca6" : "") + '">' + esc(crownLabel(c)) + (on ? " ✓" : "") + "</span>"; }).join("");
+      })() +
       "</div></div>";
   }
 
@@ -786,13 +835,16 @@
     var chips = roundChipsHtml(rounds, "E" + ep, "data-rkey");
     var vc = { blocked: 0, fake_patch: 0, not_blocked: 0, inconclusive: 0 }, patched = 0, maxDepth = 0;
     rs.forEach(function (r) { if (vc[r.verdict] != null) vc[r.verdict]++; if (r.patch_applied) patched++; (r.stages_reached || []).forEach(function (s) { if (s > maxDepth) maxDepth = s; }); });
+    var _tc = targetCrowns(), epReached = {};
+    rs.forEach(function (r) { (r.crowns_reached_cum || []).forEach(function (c) { epReached[c] = 1; }); });
+    var pm = progressMetric(maxDepth, Object.keys(epReached));
     var last = rs[rs.length - 1] || {}, det = last.detection_cum || { tp: 0, fp: 0, fn: 0 }, fake = vc.fake_patch + vc.not_blocked;
     var tiles = [
       ["라운드", rs.length + "회", "", C.teal, "accent-teal"],
       ["차단", vc.blocked + "회", "무효 패치 " + fake + "회", C.ok, "accent-ok"],
       ["미탐", det.fn + "건", "정탐 " + det.tp + " · 오탐 " + det.fp, det.fn ? C.atk : C.ok, det.fn ? "accent-atk" : "accent-ok"],
       ["패치 적용", patched + "/" + rs.length, "라운드", C.def, "accent-def"],
-      ["최고 침투", maxDepth + "단계", "최대 4", C.crown, "accent-crown"]
+      [pm.label, pm.value, pm.sub, C.crown, "accent-crown"]
     ].map(function (t) { return '<div class="tile ' + t[4] + '"><div class="tile-k"><span class="tag-dot" style="background:' + t[3] + '"></span>' + t[0] + '</div><div class="tile-v">' + t[1] + "</div>" + (t[2] ? '<div class="tile-sub">' + t[2] + "</div>" : "") + "</div>"; }).join("");
     var rows = rs.map(function (r) {
       var vv = VERDICT[r.verdict], depth = (r.stages_reached || []).length ? Math.max.apply(null, r.stages_reached) : 0, ndet = (r.reported_techniques || []).length;
@@ -800,7 +852,7 @@
         "<td>" + (vv ? '<span class="badge ' + vv.cls + '">' + vv.label + "</span>" : esc(r.verdict)) + "</td>" +
         '<td class="mono">' + ndet + "건</td>" +
         "<td>" + (r.patch_applied ? '<span class="badge b-ok">적용</span>' : '<span class="badge b-sys">미적용</span>') + "</td>" +
-        '<td class="mono">' + depth + "단계</td>" +
+        '<td class="mono">' + (_tc ? crownHitsAt(r, _tc) + "종" : depth + "단계") + "</td>" +
         "<td>" + (r.healthcheck_passed ? '<span class="badge b-ok">정상</span>' : '<span class="badge b-atk">중단</span>') + "</td></tr>";
     }).join("");
     return (S.demo ? demoBanner() : "") + chips +
@@ -1427,6 +1479,7 @@
     var det = e.detection || { tp: 0, fp: 0, fn: 0 };
     var recall = det.recall != null ? det.recall : (det.tp + det.fn ? det.tp / (det.tp + det.fn) : null);
     var crowns = e.crowns_reached || [], mttd = e.mttd || {};
+    var _tc = targetCrowns(), pm = progressMetric(e.max_flag_depth, crowns);
 
     var chips = eps.length > 1 ? '<div class="rchips">' + eps.map(function (x, i) {
       var col = (x.crowns_reached && x.crowns_reached.length) ? C.atk : C.ok;
@@ -1439,7 +1492,7 @@
       ["차단", blocked + "회", "무효 패치 " + fake + "회", "accent-ok", C.ok],
       ["서비스 정상", pct(e.availability), "패치 후 가용성", "accent-def", C.def],
       ["공격 탐지율", pct(recall), "미탐 " + det.fn + "건", "accent-teal", C.teal],
-      ["최고 침투", (e.max_flag_depth || 0) + "단계", "최대 4", "accent-crown", C.crown]
+      [pm.label, pm.value, pm.sub, "accent-crown", C.crown]
     ].map(function (t) {
       return '<div class="tile ' + t[3] + '"><div class="tile-k"><span class="tag-dot" style="background:' + t[4] + '"></span>' + t[0] + '</div><div class="tile-v">' + t[1] + "</div>" + (t[2] ? '<div class="tile-sub">' + t[2] + "</div>" : "") + "</div>";
     }).join("");
@@ -1448,14 +1501,14 @@
       (crowns.length ? "공격자가 핵심정보 " + crowns.length + "종(" + crowns.map(crownLabel).join(", ") + ")을 유출했고, " : "공격자는 핵심정보를 유출하지 못했고, ") +
       "방어는 " + blocked + "회 차단에 성공했으나 " + fake + "회는 패치 적용에도 차단하지 못했습니다(무효 패치). " +
       "공격 탐지율은 " + pct(recall) + ", 패치 후 서비스 정상 유지 비율은 " + pct(e.availability) + "입니다. " +
-      "공격자는 최대 " + (e.max_flag_depth || 0) + "단계까지 침투했습니다.";
+      (_tc ? "공격자는 목표 크라운 " + pm.total + "종 중 " + pm.hit + "종에 도달했습니다." : "공격자는 최대 " + (e.max_flag_depth || 0) + "단계까지 침투했습니다.");
 
     var reported = {}; rs.forEach(function (r) { (r.reported_techniques || []).forEach(function (t) { reported[t] = 1; }); });
     var repList = Object.keys(reported);
     var cmp = '<div class="grid cols-2">' +
       '<div class="card flow-card c-atk"><div class="card-h">실제로 일어난 일</div>' +
         reportLine("핵심정보 유출", crowns.length ? crowns.map(crownLabel).join(", ") : "없음") +
-        reportLine("최고 침투 단계", (e.max_flag_depth || 0) + "단계") +
+        reportLine(pm.corp ? pm.label : "최고 침투 단계", pm.value) +
         reportLine("달성 목표", (e.goals_reached || []).length ? e.goals_reached.join(", ") : "없음") + "</div>" +
       '<div class="card flow-card c-def"><div class="card-h">방어자가 파악한 것</div>' +
         reportLine("탐지한 기법", repList.length ? repList.join(", ") : "없음") +
@@ -1465,7 +1518,7 @@
     var vbars = barChart([{ label: "차단", value: vc.blocked || 0, color: C.ok }, { label: "무효 패치", value: fake, color: C.atk }, { label: "판정불가", value: vc.inconclusive || 0, color: C.sys }]);
     var rows = rs.map(function (r) {
       var vv = VERDICT[r.verdict], depth = (r.stages_reached || []).length ? Math.max.apply(null, r.stages_reached) : 0;
-      return "<tr><td class='mono'>R" + r.round + "</td><td>" + (vv ? '<span class="badge ' + vv.cls + '">' + vv.label + "</span>" : esc(r.verdict)) + "</td><td class='mono'>" + ((r.reported_techniques || []).join(", ") || "—") + "</td><td class='mono'>" + depth + "단계</td><td>" + (r.healthcheck_passed ? '<span class="badge b-ok">정상</span>' : '<span class="badge b-atk">중단</span>') + "</td></tr>";
+      return "<tr><td class='mono'>R" + r.round + "</td><td>" + (vv ? '<span class="badge ' + vv.cls + '">' + vv.label + "</span>" : esc(r.verdict)) + "</td><td class='mono'>" + ((r.reported_techniques || []).join(", ") || "—") + "</td><td class='mono'>" + (_tc ? crownHitsAt(r, _tc) + "종" : depth + "단계") + "</td><td>" + (r.healthcheck_passed ? '<span class="badge b-ok">정상</span>' : '<span class="badge b-atk">중단</span>') + "</td></tr>";
     }).join("");
     var detail = '<details class="rep-details"><summary>전문가용 상세 보기</summary>' +
       '<div class="section-label">판정 분포</div><div class="card">' + vbars + "</div>" +
