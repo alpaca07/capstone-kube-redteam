@@ -195,18 +195,25 @@ def run_start(payload: dict = Body(default={})) -> JSONResponse:
     if payload.get("fresh"):
         archived = _archive_run_logs()      # 지운다 아님 — 지난 실행을 runs_archive/ 로 보관 후 라이브 비움
 
+    om = payload.get("objective_mode") or None               # asset|free (없으면 config 기본)
+    ta = (payload.get("target_assets") or "").strip() or None  # 크라운 id CSV(예: crown-pii,crown-ops)
     cmd = [sys.executable, "-u", "-m", "orchestrator.main",
            "--episodes", str(eps), "--max-rounds", str(mr),
            "--time-limit", str(tl)]
     if mt is not None:                      # None = 무제한(--max-tokens 생략 → config.dgx.max_tokens 기본)
         cmd += ["--max-tokens", str(mt)]
+    if om:                                   # 대시보드 타깃 선택 → orchestrator 목표 전달
+        cmd += ["--objective-mode", str(om)]
+    if ta:
+        cmd += ["--target-assets", str(ta)]
     logf = open(_RUN_LOG, "w", encoding="utf-8")
     proc = subprocess.Popen(cmd, cwd=str(_ROOT), stdout=logf,
                             stderr=subprocess.STDOUT, env=os.environ.copy())
     run_id = "run-" + time.strftime("%m%d-%H%M%S")
     started = time.time()
     _run.update(proc=proc, started=started, id=run_id,
-                params={"episodes": eps, "max_rounds": mr, "time_limit": tl, "max_tokens": mt})
+                params={"episodes": eps, "max_rounds": mr, "time_limit": tl, "max_tokens": mt,
+                        "objective_mode": om, "target": ta or "(config)"})
     try:
         with (_LOGS / "runs.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps({"id": run_id, "started": started,

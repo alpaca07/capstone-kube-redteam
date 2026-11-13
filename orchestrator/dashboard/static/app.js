@@ -475,6 +475,13 @@
   // ───────── 페이지: 실행 제어 ─────────
   // 모드 = 파라미터 프리셋. 데모=짧은 1회차 시연, 통계=여러 회차 반복 수집.
   var MODES = { demo: { eps: 1, mr: 4, tl: 120, mt: 1024 }, stat: { eps: 10, mr: 10, tl: 180, mt: 1024 } };
+  // 타깃 = 공격 목표(orchestrator --objective-mode/--target-assets). om/ta 가 null 이면 config 기본(ShopFlow).
+  var TARGETS = {
+    "default":  { label: "config 기본(ShopFlow)", om: null,    ta: null },
+    "corp-pii": { label: "corp · 고객 PII",        om: "asset", ta: "crown-pii" },
+    "corp-ops": { label: "corp · 운영 비밀",       om: "asset", ta: "crown-ops" },
+    "corp-all": { label: "corp · 전체(PII+운영)",  om: "asset", ta: "crown-pii,crown-ops" }
+  };
   function pageControl() {
     var running = !!(S.status && S.status.running);
     var runsRows = S.runs.length ? S.runs.map(function (r) {
@@ -488,8 +495,9 @@
       field("회차 수", "f-eps", "number", 1) + field("회차당 최대 라운드", "f-mr", "number", 4) +
       field("턴 제한시간(초)", "f-tl", "number", 120) +
       '<div class="field"><label for="f-mt">생성 토큰 상한</label><div class="mt-wrap"><input id="f-mt" type="number" value="1024"><label class="toggle mt-unl"><input type="checkbox" id="f-mt-unl"> 무제한</label></div></div>' +
-      '<div class="field"><label>모드</label><select id="f-mode"><option value="demo">데모</option><option value="stat">통계</option></select></div></div>' +
-      '<div class="tile-sub" style="margin:-4px 0 12px">모드 = 파라미터 프리셋 · 데모(1회차 빠른 시연) / 통계(10회차 반복 수집) · 선택 후 값 직접 수정 가능</div>' +
+      '<div class="field"><label>모드</label><select id="f-mode"><option value="demo">데모</option><option value="stat">통계</option></select></div>' +
+      '<div class="field"><label>타깃</label><select id="f-target">' + Object.keys(TARGETS).map(function (k) { return '<option value="' + k + '">' + esc(TARGETS[k].label) + '</option>'; }).join("") + '</select></div></div>' +
+      '<div class="tile-sub" style="margin:-4px 0 12px">모드 = 파라미터 프리셋(데모/통계) · 타깃 = 공격 목표(ShopFlow 기본 / corp 크라운) · 선택 후 값 직접 수정 가능</div>' +
       '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">' +
       '<label class="toggle"><input type="checkbox" id="f-fresh"> 이전 실행 보관 후 새로 시작</label>' +
       '<button class="btn btn-primary" id="btn-start"' + (running ? " disabled" : "") + '>▶ 시작</button>' +
@@ -516,8 +524,10 @@
     };
     if (start) start.onclick = async function () {
       msg.textContent = "시작 요청…";
+      var _tg = TARGETS[(($("#f-target") || {}).value)] || {};
       var body = { episodes: +$("#f-eps").value, max_rounds: +$("#f-mr").value, time_limit: +$("#f-tl").value,
-        max_tokens: ($("#f-mt-unl") && $("#f-mt-unl").checked) ? null : +$("#f-mt").value, mode: $("#f-mode").value, fresh: $("#f-fresh").checked };
+        max_tokens: ($("#f-mt-unl") && $("#f-mt-unl").checked) ? null : +$("#f-mt").value, mode: $("#f-mode").value,
+        objective_mode: _tg.om || null, target_assets: _tg.ta || null, fresh: $("#f-fresh").checked };
       var r = await fetch("/api/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then(function (x) { return x.json(); }).catch(function () { return { ok: false, error: "서버 연결 실패(데모 모드)" }; });
       msg.textContent = r.ok ? ("시작됨: " + r.id + (r.archived ? " · 이전 실행 보관됨" : "")) : "실패: " + (r.error || "");
       refreshRunStatus();
