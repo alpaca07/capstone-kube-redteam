@@ -23,7 +23,7 @@ from typing import Any, Optional
 
 from common.app_signals import (
     CROWN_CONTAINER_DEPLOY, CROWN_CUSTOMERS_PII,
-    CROWN_INTERNAL_SECRETS, CROWN_RESOURCE_HIJACK,
+    CROWN_INTERNAL_SECRETS, CROWN_OPS_SECRETS, CROWN_RESOURCE_HIJACK,
 )
 
 # 관측 타입: 관측축(channel) → 항목(field) → 관측된 값 집합.
@@ -121,6 +121,11 @@ def default_objectives() -> ObjectiveRegistry:
             objective_id="crown-pii", mitre="T1213", goal="db_exfil",
             description="고객 PII(이름·이메일·전화·주소·주민번호) 반출",
             conditions=(Condition("crown", "asset", "eq", CROWN_CUSTOMERS_PII),),
+        ),
+        ObjectiveSpec(
+            objective_id="crown-ops", mitre="T1213", goal="db_exfil",
+            description="corp 운영 비밀(ops_secrets: 백업 DSN·메일 릴레이·객체저장소 키) 반출",
+            conditions=(Condition("crown", "asset", "eq", CROWN_OPS_SECRETS),),
         ),
         # ── K8s 사후 크라운 2종(런타임·API 통로, 감사/Falco 이벤트로 판정) ──
         ObjectiveSpec(

@@ -97,7 +97,8 @@ def map_app_event(ev: dict) -> Optional[str]:
 # 기법(web_*)과 '별개 축' — 기법=시도, 크라운=실제 침해 달성.
 CROWN_INTERNAL_SECRETS = "internal_secrets"   # ④ 목표물(과거 값기반 FLAG 자리)
 CROWN_CUSTOMERS_PII = "customers_pii"          # 고객 PII(이름·이메일·전화·주소·주민번호)
-CROWN_TARGETS = (CROWN_INTERNAL_SECRETS, CROWN_CUSTOMERS_PII)
+CROWN_OPS_SECRETS = "ops_secrets"              # corp 운영 비밀(백업 DSN·메일 릴레이·객체저장소 키)
+CROWN_TARGETS = (CROWN_INTERNAL_SECRETS, CROWN_CUSTOMERS_PII, CROWN_OPS_SECRETS)
 
 # ── 사후 크라운(런타임·API 통로) — app·db 반출과 별개 축. 감사/Falco 로그로 판정(이벤트라 시간창에 묶임). ──
 CROWN_RESOURCE_HIJACK = "resource_hijack"     # T1496 — 마이너 프로세스 실행(Falco)
@@ -134,6 +135,8 @@ def crown_of_sql(sql: str) -> Optional[str]:
         return None
     if "internal_secrets" in q:             # 정상 앱은 이 테이블 미접근 → 조회=④ 반출
         return CROWN_INTERNAL_SECRETS
+    if "ops_secrets" in q:                  # corp 운영 비밀 테이블 — 정상 접근자 없음 → 조회=반출
+        return CROWN_OPS_SECRETS
     if "customers" in q and ("*" in q or any(c in q for c in _PII_COLS)):
         return CROWN_CUSTOMERS_PII          # 고객 PII 조회(SELECT * 또는 민감 컬럼)
     return None
@@ -143,7 +146,7 @@ __all__ = [
     "WEB_SQLI", "WEB_SSRF", "WEB_CMDI", "WEB_CREDLEAK",
     "WEB_BOLA", "WEB_MASSASSIGN", "WEB_AUTHN", "WEB_TECHNIQUES",
     "is_internal_or_file", "classify", "map_app_event",
-    "CROWN_INTERNAL_SECRETS", "CROWN_CUSTOMERS_PII", "CROWN_TARGETS",
+    "CROWN_INTERNAL_SECRETS", "CROWN_CUSTOMERS_PII", "CROWN_OPS_SECRETS", "CROWN_TARGETS",
     "CROWN_RESOURCE_HIJACK", "CROWN_CONTAINER_DEPLOY", "POSTEX_CROWNS",
     "crown_target", "crown_of_sql",
 ]
