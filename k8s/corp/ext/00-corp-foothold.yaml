@@ -96,6 +96,7 @@ spec:
     metadata:
       labels: { app: corp-attacker-foothold, zone: ext }   # zone:ext — WAF ingress(allow-from-ext) 매칭
     spec:
+      serviceAccountName: corp-foothold-sa   # 파드 in-pod 토큰이 corp-foothold-sa(열거 권한 보유) — 기본 SA 아님
       containers:
         - name: toolkit
           image: postgres:16-alpine          # wget·psql·nc 내장 — ShopFlow 발판과 동일 재사용
