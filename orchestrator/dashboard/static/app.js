@@ -40,7 +40,7 @@
   // 핵심 자산 식별자 → 쉬운 말
   // 크라운 라벨 — 알려진 2종만 친화명, 그 외는 실제 크라운 id(대상)를 그대로 노출(목표는 설정 주도).
   function crownLabel(c) {
-    return ({ "crown-secrets": "내부 비밀 유출", "crown-pii": "고객정보 유출" })[c] ||
+    return ({ "crown-secrets": "내부 비밀 유출", "crown-pii": "고객정보 유출", "crown-ops": "운영 비밀 유출" })[c] ||
       (c ? String(c).replace(/^crown[-_]?/i, "") + " 유출" : "핵심정보 유출");
   }
   // 턴 종료 사유(enum) → 쉬운 말
@@ -487,7 +487,7 @@
     var runsRows = S.runs.length ? S.runs.map(function (r) {
       var p = r.params || {};
       return "<tr><td class='mono'>" + esc(r.id) + "</td><td>" + (r.status === "running" ? '<span class="badge b-ok">진행 중</span>' : '<span class="chip">완료</span>') +
-        "</td><td class='mono'>" + (p.episodes || "?") + "회차 · " + (p.max_rounds || "?") + "라운드 · " + (p.time_limit || "?") + "s</td><td class='mono'>" + esc(({ demo: "데모", stat: "통계" })[r.mode] || r.mode || "") + "</td></tr>";
+        "</td><td class='mono'>" + (p.episodes || "?") + "회차 · " + (p.max_rounds || "?") + "라운드 · " + (p.time_limit || "?") + "s" + (p.target && p.target !== "(config)" ? " · " + esc(p.target) : "") + "</td><td class='mono'>" + esc(({ demo: "데모", stat: "통계" })[r.mode] || r.mode || "") + "</td></tr>";
     }).join("") : "<tr><td colspan='4' class='tile-sub'>아직 실행 기록이 없습니다.</td></tr>";
 
     return '<div class="card"><div class="card-h">새 실행 시작</div>' +
@@ -594,7 +594,7 @@
     return (topo && topo.namespaces && topo.namespaces.length) ? topo : demoTopology();
   }
   function pageArch(topo) {
-    var crownNs = { database: 1, internal: 1 };
+    var crownNs = { database: 1, internal: 1, "corp-crown": 1 };
     var nss = topo.namespaces || [];
     var zones = nss.map(function (ns) {
       var exposed = !ns.has_network_policy, crown = crownNs[ns.name];
