@@ -314,7 +314,8 @@ def _build_author(args) -> authoring.Author:
 
 def _run_ingest(args) -> None:
     """주기 수집 1회(개발 모드, 인터넷 ON): 변경분 → 허용목록 필터 → 1단 적재 + 2단 저작 적재."""
-    feed = ingest.UrllibNvdFeed()
+    logger = lambda m: print(m, flush=True)   # 실시간 진행 출력(페이지 수신·저작 건별)
+    feed = ingest.UrllibNvdFeed(log=logger)
     author = _build_author(args)
     session = graph_writer.DryRunSession() if args.dry_run else connect(args)
     allowlist = args.nvd_cpe_filter or load_products._DEFAULT_ALLOWLIST
@@ -322,7 +323,8 @@ def _run_ingest(args) -> None:
         feed=feed, author=author, session=session,
         allowlist_path=allowlist, state_path=args.state, out_dir=args.out_dir,
         window_days=args.window_days, since_override=args.since,
-        load_cpe_nodes=args.nvd_cpe_nodes, dry_run=args.dry_run)
+        cve_ids=(args.nvd_cve or None),
+        load_cpe_nodes=args.nvd_cpe_nodes, dry_run=args.dry_run, log=logger)
     print(report.summary())
 
 
@@ -374,7 +376,7 @@ def main() -> None:
     ap.add_argument("--password", default=None)
     # nvd 타깃(VM-B 에 심은 취약점 기준) — 쉼표구분. targets 파일로도 줄 수 있음.
     _csv = lambda s: [x.strip() for x in s.split(",") if x.strip()]
-    ap.add_argument("--nvd-cve", default=[], type=_csv, help="NVD 타깃 CVE id (예: CVE-2021-44228,CVE-2021-45046)")
+    ap.add_argument("--nvd-cve", default=[], type=_csv, help="NVD 타깃 CVE id (예: CVE-2021-44228,CVE-2021-45046). --ingest 와 함께면 창·키·허용목록 없이 그 CVE만 콕 집어 2단까지")
     ap.add_argument("--nvd-cpe", default=[], type=_csv, help="NVD 타깃 제품 CPE/virtualMatchString (예: cpe:2.3:a:apache:log4j)")
     ap.add_argument("--nvd-targets", default=None, help="타깃 JSON 파일 경로({\"cve_ids\":[...],\"cpe_matches\":[...]})")
     ap.add_argument("--nvd-cpe-nodes", action="store_true", help="NVD CPE 열거도 적재(기본 꺼짐 — 벤더 제품 노이즈 차단). 바닥층 Product↔CVE 조인(load_products --link)하려면 켜야 함")

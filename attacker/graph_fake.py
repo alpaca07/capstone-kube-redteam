@@ -36,15 +36,21 @@ class InMemoryGraph(ExplorationGraph):
         self._nodes: dict[int, Node] = {}
         self._edges: list[Edge] = []
         self._seq = 0                        # 노드 id 발급(단조 증가)
+        self._cur_round = 0                  # 현재 라운드 — 새 노드에 '생성 라운드'로 스탬프(라운드별 추가 표시)
         self._finding_by_key: dict[str, int] = {}   # dedup_key → finding 노드 id(중복 병합)
+
+    def set_round(self, round: int) -> None:
+        """현재 라운드 설정 — 이후 추가되는 노드에 생성 라운드로 찍힌다(대시보드 라운드별 강조용)."""
+        self._cur_round = int(round or 0)
 
     # ── 내부 헬퍼(락 안에서만 호출) ──
     def _new_node(self, kind: NodeKind, payload: dict, state: str,
                   priority: int, anchors: Optional[list[int]], owner: str = "") -> int:
         self._seq += 1
         nid = self._seq
+        pl = dict(payload); pl["_round"] = self._cur_round   # 생성 라운드 스탬프
         self._nodes[nid] = Node(
-            id=nid, kind=kind, payload=dict(payload), state=state, owner=owner,
+            id=nid, kind=kind, payload=pl, state=state, owner=owner,
             priority=priority, episode=self._episode, anchors=list(anchors or []))
         return nid
 
@@ -224,6 +230,7 @@ class InMemoryGraph(ExplorationGraph):
                     "loot": p.get("loot"),                # 실제 탈취/확보한 값(표시 전용) — 워커가 채우면 그대로 노출
                     "severity": p.get("severity", ""), "confidence": p.get("confidence"),
                     "occurrences": p.get("occurrences"), "anchors": list(n.anchors),
+                    "round": p.get("_round"),             # 생성 라운드(대시보드 라운드별 추가 강조)
                 })
             edges = [{"src": e.src_id,
                       "rel": e.rel.value if hasattr(e.rel, "value") else str(e.rel),

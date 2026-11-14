@@ -450,6 +450,10 @@ button { font-family: inherit; }
 /* 회차 보고서 */
 .rep-head { font-weight: 700; font-size: 15.5px; letter-spacing: -.01em; }
 .rep-narr { font-size: 13.5px; line-height: 1.75; color: var(--text); margin-top: 14px; }
+.rep-jmps { display: flex; gap: 6px; flex-wrap: wrap; }
+.rep-jmp { font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; color: var(--teal-600);
+  background: var(--teal-soft); border: 1px solid transparent; border-radius: 6px; padding: 3px 8px; cursor: pointer; white-space: nowrap; }
+.rep-jmp:hover { background: var(--teal); color: #fff; }
 .rep-line { display: flex; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--surface-3); font-size: 13px; }
 .rep-line:last-child { border-bottom: none; }
 .rep-k { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); width: 112px; flex: none; }
@@ -477,7 +481,23 @@ button { font-family: inherit; }
 .ag-ph { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; margin: 2px 0 9px; }
 .ag-sum { font-size: 14.5px; font-weight: 700; margin-bottom: 4px; line-height: 1.45; letter-spacing: -.01em; }
 .ag-desc { font-size: 12.5px; color: var(--text); line-height: 1.65; margin: 8px 0 2px; }
+.ag-desc-main { font-size: 13.5px; font-weight: 500; margin: 2px 0 8px; }   /* 한국어 큐레이션 우선 표시 */
+.ag-raw-t { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3); background: none; border: none; cursor: pointer; padding: 2px 0; }
+.ag-raw-t:hover { color: var(--teal-600); }
+.ag-raw { border-left: 2px solid var(--border); padding-left: 10px; margin: 2px 0 4px; }
+.ag-raw-k { font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text-3); margin-top: 6px; }
+.ag-raw .ag-sum { font-size: 12.5px; font-weight: 500; color: var(--text-2); }
 .ag-ev-sm { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-top: 9px; line-height: 1.5; word-break: break-word; }
+/* 카테고리(종류) 표시 필터 */
+.agfilter { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin: 2px 0 10px; }
+.agf-k { font-family: var(--font-mono); font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--text-3); }
+.agf { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-3); cursor: pointer; opacity: .55; }
+.agf.on { opacity: 1; background: var(--surface-2); }
+.agf-dot { width: 7px; height: 7px; border-radius: 50%; }
+.agf:not(.on) .agf-dot { background: var(--text-3) !important; }
+.agf-n { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); }
+.agl-focus { font-size: 11px; color: var(--teal-600); }
 .ag-loot { margin-top: 11px; border: 1px solid #f4c9ca; border-radius: var(--r-sm); overflow: hidden; }
 .ag-loot-h { font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--atk); background: var(--atk-soft); padding: 6px 10px; }
 .ag-loot-v { font-family: var(--font-mono); font-size: 11.5px; color: #8a2a2e; margin: 0; padding: 9px 11px; white-space: pre-wrap; word-break: break-word; line-height: 1.55; background: #fff6f6; }
@@ -488,7 +508,9 @@ button { font-family: inherit; }
 .ag-node.ag-new.ag-find { animation: agpop .6s cubic-bezier(.34,1.7,.64,1) backwards, agflash 2.8s ease-out backwards; }
 .ag-edge.ag-new { stroke-dasharray: 680; animation: agdraw .7s ease-out backwards; }
 .ag-node.ag-run { animation: agglow 1.7s ease-in-out infinite; }
-.ag-node.ag-find rect { filter: drop-shadow(0 0 3px rgba(180,48,58,.4)); }   /* 발견 노드 상시 강조 */
+.ag-node.ag-find rect { filter: drop-shadow(0 1px 4px rgba(138,15,24,.5)); }   /* 발견(솔리드 빨강) 상시 강조 */
+.ag-rtag text { font-family: var(--font-mono); }                                /* 라운드 태그(생성 라운드) */
+.ag-node.ag-rcur:not(.ag-find) rect { filter: drop-shadow(0 0 5px rgba(13,148,136,.55)); }   /* 현재 라운드 추가 강조 */
 @keyframes agpop { from { opacity: 0; transform: scale(.32) translateY(12px); } to { opacity: 1; transform: scale(1); } }
 @keyframes agdraw { from { stroke-dashoffset: 680; } to { stroke-dashoffset: 0; } }
 @keyframes agglow { 0%, 100% { filter: drop-shadow(0 0 0 rgba(13,148,136,0)); } 50% { filter: drop-shadow(0 0 7px rgba(13,148,136,.75)); } }
@@ -549,3 +571,156 @@ button { font-family: inherit; }
   .nav-toggle { display: inline-flex; align-items: center; justify-content: center; }
   .sidebar-close { display: inline-flex; }
 }
+
+/* ───────── 분석 보고서 · 노드 기반 ───────── */
+.grpt { margin-top: 14px; display: flex; flex-direction: column; gap: 14px; }
+.grpt-h { font-size: 12px; font-weight: 700; letter-spacing: .01em; color: var(--text-2); margin: 0 0 6px; }
+.grpt-h2 { font-size: 12.5px; font-weight: 700; color: var(--text); margin: 4px 0 2px; padding-top: 12px; border-top: 1px solid var(--border); }
+.grpt-sum { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 13px 15px; }
+.grpt-sum p { margin: 0; font-size: 13px; line-height: 1.6; color: var(--text); }
+.grpt-sum .grpt-sub { margin-top: 7px; font-size: 12px; color: var(--text-2); }
+
+/* 침해 블록 — 심각도 좌측 띠 */
+.grpt-find { border: 1px solid var(--border); border-left: 3px solid var(--text-3); border-radius: var(--r-sm);
+  padding: 11px 13px; background: var(--surface); }
+.grpt-find.sev-critical { border-left-color: #b11722; }
+.grpt-find.sev-high { border-left-color: var(--atk); }
+.grpt-find.sev-medium { border-left-color: var(--crown); }
+.grpt-find.sev-low { border-left-color: var(--text-3); }
+.grpt-fh { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-bottom: 7px; }
+.grpt-sev { font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 999px; color: #fff; background: var(--text-3); }
+.sev-critical .grpt-sev { background: #b11722; }
+.sev-high .grpt-sev { background: var(--atk); }
+.sev-medium .grpt-sev { background: var(--crown); }
+.sev-low .grpt-sev { background: var(--sys); }
+.grpt-tgt { font-size: 11.5px; color: var(--text-2); }
+.grpt-rnd { font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; color: var(--text-3); margin-left: auto; }
+.grpt-cur { font-size: 12.5px; line-height: 1.6; color: var(--text); }
+.grpt-path { margin-top: 8px; padding: 7px 9px; background: var(--surface-2); border-radius: 6px;
+  font-size: 11px; line-height: 1.7; color: var(--text-2); }
+.grpt-path .grpt-k { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--text-3); margin-right: 6px; }
+.grpt-path b { color: #b11722; }
+.grpt-arr { color: var(--text-3); margin: 0 1px; }
+.grpt-loot { margin-top: 7px; font-size: 11.5px; color: var(--text-2); }
+.grpt-loot .mono { color: var(--atk); font-size: 11px; }
+
+/* 의도별 탐색 요약 */
+.grpt-ints { display: flex; flex-direction: column; gap: 5px; }
+.grpt-int { display: flex; align-items: center; gap: 9px; padding: 7px 10px; background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 6px; font-size: 12px; }
+.grpt-int.dead { opacity: .62; }
+.grpt-it { font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; color: var(--text-2);
+  flex: none; min-width: 72px; }
+.grpt-is { color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grpt-im { font-size: 11px; color: var(--text-3); flex: none; }
+.grpt-int.dead .grpt-im { color: var(--atk); }
+
+/* ───────── 공격 브리핑(큐레이션 — 전체 흐름 종합) ───────── */
+.brief-head { font-size: 13px; font-weight: 700; color: var(--text); margin: 2px 0 10px; letter-spacing: -.01em; }
+
+/* 자산별 침해 — 좌측 침투 단계 띠 */
+.brief-assets { display: flex; flex-direction: column; gap: 10px; }
+.brief-asset { border: 1px solid var(--border); border-left: 3px solid var(--text-3); border-radius: var(--r-sm);
+  padding: 12px 14px; background: var(--surface); box-shadow: var(--shadow); }
+.brief-asset.stg-4 { border-left-color: #b11722; }
+.brief-asset.stg-3 { border-left-color: var(--atk); }
+.brief-asset.stg-2 { border-left-color: var(--crown); }
+.brief-asset.stg-1 { border-left-color: var(--teal); }
+.brief-asset.stg-0 { border-left-color: var(--text-3); }
+.brief-ah { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 7px; }
+.brief-stage { font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; letter-spacing: .03em;
+  padding: 2px 8px; border-radius: 999px; color: #fff; background: var(--text-3); }
+.brief-stage.s4 { background: #b11722; }
+.brief-stage.s3 { background: var(--atk); }
+.brief-stage.s2 { background: var(--crown); }
+.brief-stage.s1 { background: var(--teal); }
+.brief-stage.s0 { background: var(--sys); }
+.brief-at { font-size: 12.5px; font-weight: 700; color: var(--text); }
+.sev-badge { font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 999px; color: #fff; background: var(--text-3); }
+.sev-badge.sev-critical { background: #b11722; }
+.sev-badge.sev-high { background: var(--atk); }
+.sev-badge.sev-medium { background: var(--crown); }
+.sev-badge.sev-low { background: var(--sys); }
+.brief-anarr { font-size: 12.5px; line-height: 1.6; color: var(--text); }
+
+/* 라운드별 공진화 — 공격·방어·검증 3열 */
+.brief-tl { padding: 4px 0; }
+.brief-tl-row { display: flex; align-items: stretch; gap: 10px; padding: 9px 16px; border-top: 1px solid var(--border); }
+.brief-tl-row:first-child { border-top: none; }
+.brief-tl-r { flex: none; width: 34px; font-weight: 700; color: var(--text-2); display: flex; align-items: center; }
+.brief-tl-cols { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; flex: 1; min-width: 0; }
+.brief-tl-c { font-size: 11.5px; line-height: 1.5; color: var(--text); padding: 7px 9px; border-radius: 6px;
+  background: var(--surface-2); min-width: 0; overflow-wrap: anywhere; }
+.brief-tl-c.c-atk { border-left: 2px solid var(--atk); }
+.brief-tl-c.c-def { border-left: 2px solid var(--def); }
+.brief-tl-c.c-jdg { border-left: 2px solid var(--sys); }
+.brief-tl-k { display: block; font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--text-3); margin-bottom: 3px; }
+.brief-tl-b { display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; margin-left: 4px; white-space: nowrap; }
+.brief-tl-b.b-atk { background: var(--atk-soft); color: var(--atk); }
+.brief-tl-b.b-def { background: var(--def-soft); color: var(--def); }
+.brief-tl-b.b-crown { background: var(--crown-soft); color: var(--crown); }
+@media (max-width: 760px) { .brief-tl-cols { grid-template-columns: 1fr; } }
+
+/* 기법별 전술·탐지 */
+.brief-techs { padding: 4px 16px 14px; }
+.brief-tech { display: grid; grid-template-columns: 96px 1fr 128px 74px; gap: 10px; align-items: center;
+  padding: 8px 0; border-top: 1px solid var(--border); font-size: 12px; }
+.brief-tech-h { color: var(--text-3); font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em;
+  text-transform: uppercase; border-top: none; }
+.brief-tc-tg { color: var(--text-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brief-tc-f { color: var(--text); }
+.brief-tc-d { font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; text-align: center; padding: 2px 8px; border-radius: 999px; }
+.brief-tc-d.on { background: var(--ok-soft); color: var(--ok); }
+.brief-tc-d.off { background: var(--atk-soft); color: var(--atk); }
+@media (max-width: 760px) { .brief-tech { grid-template-columns: 1fr auto; } .brief-tech-h { display: none; } .brief-tc-f { display: none; } }
+
+/* ───────── 공인 위험도(CVSS v3.1 · 심판 god-view 산정) ───────── */
+.cvss-card { display: flex; flex-direction: column; gap: 10px; }
+.cvss-row { display: flex; gap: 13px; align-items: flex-start; padding: 11px 13px; border: 1px solid var(--border);
+  border-left: 3px solid var(--text-3); border-radius: var(--r-sm); background: var(--surface-2); }
+.cvss-row.sev-critical { border-left-color: #b11722; }
+.cvss-row.sev-high { border-left-color: var(--atk); }
+.cvss-row.sev-medium { border-left-color: var(--crown); }
+.cvss-row.sev-low { border-left-color: var(--sys); }
+.cvss-score { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 50px; }
+.cvss-num { font-family: var(--font-mono); font-size: 22px; font-weight: 700; letter-spacing: -.02em; line-height: 1; color: var(--text); }
+.cvss-score.sev-critical .cvss-num { color: #b11722; }
+.cvss-score.sev-high .cvss-num { color: var(--atk); }
+.cvss-score.sev-medium .cvss-num { color: var(--crown); }
+.cvss-score.sev-low .cvss-num { color: var(--sys); }
+.cvss-main { min-width: 0; flex: 1; }
+.cvss-asset { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
+.cvss-basis { font-size: 12px; color: var(--text-2); line-height: 1.5; }
+.cvss-vec { font-size: 10.5px; color: var(--text-3); margin-top: 4px; overflow-wrap: anywhere; }
+
+/* ───────── 공격 추적 그래프 — 그래프(좌) · 노드 상세(우) 2열 ───────── */
+.ag-layout { display: flex; gap: 14px; align-items: flex-start; margin-top: 10px; }
+.ag-main { flex: 1; min-width: 0; }
+.ag-side { flex: none; width: 344px; }
+.ag-side-empty { padding: 22px 16px; color: var(--text-3); font-size: 12.5px; text-align: center;
+  border: 1px dashed var(--border-strong); border-radius: var(--r); background: var(--surface-2); }
+@media (max-width: 1000px) { .ag-layout { flex-direction: column; } .ag-side { width: 100%; } }
+
+/* 발견 노드 CVSS 블록(노드 상세 — 전술·확보 데이터 추정, 신뢰도 표기) */
+.ag-cvss { margin: 10px 0; padding: 11px 12px; border-radius: var(--r-sm); background: var(--surface-2); border-left: 3px solid var(--text-3); }
+.ag-cvss.sev-critical { border-left-color: #b11722; }
+.ag-cvss.sev-high { border-left-color: var(--atk); }
+.ag-cvss.sev-medium { border-left-color: var(--crown); }
+.ag-cvss.sev-low { border-left-color: var(--sys); }
+.ag-cvss-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ag-cvss-score { font-family: var(--font-mono); font-size: 20px; font-weight: 700; letter-spacing: -.02em; line-height: 1; color: var(--text); }
+.ag-cvss-score.sev-critical { color: #b11722; }
+.ag-cvss-score.sev-high { color: var(--atk); }
+.ag-cvss-score.sev-medium { color: var(--crown); }
+.ag-cvss-score.sev-low { color: var(--sys); }
+.ag-cvss-conf { font-family: var(--font-mono); font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 999px; margin-left: auto; }
+.ag-cvss-conf.cf-ok { background: var(--ok-soft); color: var(--ok); }
+.ag-cvss-conf.cf-def { background: var(--def-soft); color: var(--def); }
+.ag-cvss-conf.cf-sys { background: var(--sys-soft); color: var(--sys); }
+.ag-cvss-basis { font-size: 11.5px; color: var(--text-2); line-height: 1.5; margin-top: 7px; }
+.ag-cvss-vec { font-size: 10px; color: var(--text-3); margin-top: 5px; overflow-wrap: anywhere; }
+.ag-cvss-claim { font-size: 10.5px; color: var(--text-3); margin-top: 5px; }

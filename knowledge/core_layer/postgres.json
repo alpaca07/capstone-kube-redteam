@@ -4,6 +4,12 @@
   "env": "postgres",
   "technique": "T1059",
   "cve": "CVE-2019-9193",
+  "advisory": {
+    "id": "ADV-postgres-2019-9193",
+    "name": "PostgreSQL COPY FROM PROGRAM (분쟁 CVE — 기능 악용)",
+    "affected_versions": "9.3–11.2 (슈퍼유저 또는 pg_execute_server_program 권한 필요)",
+    "url": "https://www.postgresql.org/about/news/cve-2019-9193-not-a-security-vulnerability-1935/"
+  },
 
   "procedure": {
     "id": "PROC-postgres-copy-program",
@@ -39,6 +45,14 @@
       "conditions": [
         {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1059"}
       ]
+    }
+  ],
+
+  "cleanup_actions": [
+    {
+      "id": "CLN-postgres-copy-program",
+      "name": "명령 실행 흔적 축소",
+      "description": "COPY FROM PROGRAM 에 쓴 임시 테이블을 DROP 하고 발판 셸·psql 히스토리(~/.bash_history·~/.psql_history)를 지워 컨테이너 내 명령 실행 흔적을 줄인다(T1070 흔적 제거)."
     }
   ]
 }

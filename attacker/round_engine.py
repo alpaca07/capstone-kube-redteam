@@ -149,6 +149,8 @@ class AttackRound:
         t0 = self.clock()
         deadline = t0 + float(start.time_limit_sec)
         graph = graph if graph is not None else InMemoryGraph(episode=episode)
+        if hasattr(graph, "set_round"):      # 이 라운드에 추가되는 노드에 생성 라운드 스탬프(대시보드 강조)
+            graph.set_round(round)
 
         # 대본은 라운드당 하나(레인). 그래프는 회차 스코프(주입).
         lane = ExecutionLane(

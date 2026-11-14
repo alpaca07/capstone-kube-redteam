@@ -8,7 +8,7 @@
   "procedure": {
     "id": "PROC-tokenreuse-bearer-apiaccess",
     "name": "수집한 Bearer·서비스계정 토큰 재사용",
-    "description": "선행 단계에서 확보한 평문 Bearer 토큰이나 마운트된 서비스계정 토큰을 admin-dashboard 내부 엔드포인트·k8s API 서버에 재사용해 인증을 우회하고 민감 자산을 읽는다.",
+    "description": "선행 단계에서 확보한 평문 Bearer 토큰이나 마운트된 서비스계정 토큰을 admin-dashboard 내부 엔드포인트·k8s API 서버에 재사용해 인증을 우회하고 DB 접속 자격증명(postgres-credentials 등)을 획득한다. ★이 단계는 자격증명 확보가 목적이다 — 크라운(internal_secrets·customers 반출)은 그 자격증명으로 postgres(postgres.database.svc.cluster.local:5432/customerdb)에 직접 접속해 SELECT 할 때만 성립한다(T1213). k8s Secret·admin-dashboard secret 엔드포인트 read 자체는 크라운이 아니다.",
     "status": "AUTHORED"
   },
 

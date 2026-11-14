@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import time
@@ -72,8 +73,9 @@ def save_state(path: str, last_mod: str) -> None:
 
 # ─────────────────────────── 수집 이음새 ───────────────────────────
 class NvdFeed(Protocol):
-    """지정 기간에 '변경된' CVE 를 NVD 모양({"vulnerabilities":[{"cve":{...}}]})으로 돌려준다."""
+    """변경분(fetch_modified) 또는 지정 id(fetch_ids)의 CVE 를 NVD 모양({"vulnerabilities":[{"cve":{...}}]})으로."""
     def fetch_modified(self, since_iso: str, until_iso: str) -> dict: ...
+    def fetch_ids(self, cve_ids: list[str]) -> dict: ...
 
 
 class UrllibNvdFeed:
@@ -82,12 +84,13 @@ class UrllibNvdFeed:
     API = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 
     def __init__(self, *, api_key: str | None = None, sleep: float | None = None,
-                 page: int = 2000, timeout: float = 120.0) -> None:
+                 page: int = 2000, timeout: float = 120.0, log=None) -> None:
         self.api_key = api_key or os.environ.get("NVD_API_KEY")
         # 키 없으면 5req/30s 제한 → 넉넉히(기존 __main__ 과 같은 기준)
         self.sleep = sleep if sleep is not None else (0.7 if self.api_key else 6.5)
         self.page = page
         self.timeout = timeout
+        self._log = log or (lambda m: None)   # 진행 로그 이음새(CLI만 출력, 기본 조용)
 
     def _get(self, params: dict, *, retries: int = 6) -> dict:
         headers = {"apiKey": self.api_key} if self.api_key else {}
@@ -98,17 +101,23 @@ class UrllibNvdFeed:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                     return json.loads(resp.read())
             except urllib.error.HTTPError as e:
-                if e.code == 429 and attempt < retries:
+                # 429(레이트리밋)·5xx(일시 장애)는 백오프 재시도. NVD 는 키 없으면 자주 503/429 를 돌려준다.
+                if e.code in (429, 500, 502, 503, 504) and attempt < retries:
                     wait = int((e.headers or {}).get("Retry-After") or 0) or min(45, 8 * (attempt + 1))
-                    print(f"  [ingest/nvd] 429 — {wait}s 후 재시도 ({attempt + 1}/{retries})", flush=True)
+                    self._log(f"[nvd] {e.code} — {wait}s 후 재시도 ({attempt + 1}/{retries})"
+                              + ("" if self.api_key else " · 키 없이는 자주 막힘(NVD_API_KEY 권장)"))
                     time.sleep(wait)
                     continue
+                if e.code == 404:   # NVD 는 유효하지 않거나 미활성인 apiKey 에 404 를 돌려준다
+                    self._log("[nvd] 404 — apiKey 가 유효하지 않거나 미활성일 수 있음(활성화/재발급). "
+                              "키 없이 돌리려면 NVD_API_KEY 해제")
                 raise
-            except (urllib.error.URLError, TimeoutError) as e:
+            except (http.client.HTTPException, OSError) as e:
+                # 끊긴 읽기(IncompleteRead)·연결 리셋·타임아웃 등 일시 네트워크 오류 → 재시도.
+                # urllib.error.URLError·TimeoutError·ConnectionError 는 전부 OSError 하위라 함께 잡힌다.
                 if attempt < retries:
                     wait = min(45, 8 * (attempt + 1))
-                    print(f"  [ingest/nvd] {type(e).__name__} — {wait}s 후 재시도 "
-                          f"({attempt + 1}/{retries})", flush=True)
+                    self._log(f"[nvd] {type(e).__name__} — {wait}s 후 재시도 ({attempt + 1}/{retries})")
                     time.sleep(wait)
                     continue
                 raise
@@ -117,15 +126,29 @@ class UrllibNvdFeed:
     def fetch_modified(self, since_iso: str, until_iso: str) -> dict:
         out: list = []
         start = 0
+        self._log(f"[nvd] 수집 시작 {since_iso} ~ {until_iso}"
+                  + ("" if self.api_key else " (키 없음 — 페이지당 대기 길다)"))
         while True:
             d = self._get({"lastModStartDate": since_iso, "lastModEndDate": until_iso,
                            "startIndex": start, "resultsPerPage": self.page})
             got = d.get("vulnerabilities", [])
             out.extend(got)
+            total = d.get("totalResults", 0)
             start += d.get("resultsPerPage", 0) or len(got)
-            if not got or start >= d.get("totalResults", 0):
+            self._log(f"[nvd] {len(out)}/{total} 수신")
+            if not got or start >= total:
                 break
             time.sleep(self.sleep)
+        return {"vulnerabilities": out}
+
+    def fetch_ids(self, cve_ids: list[str]) -> dict:
+        """지정 CVE id 만 콕 집어 수집(cveId 질의). 창·워터마크·허용목록 무관 — 데모·강제 1건에 빠르다."""
+        out: list = []
+        for i, cid in enumerate(cve_ids, 1):
+            self._log(f"[nvd] 타깃 {i}/{len(cve_ids)} {cid}")
+            out.extend(self._get({"cveId": cid}).get("vulnerabilities", []))
+            if i < len(cve_ids):
+                time.sleep(self.sleep)
         return {"vulnerabilities": out}
 
 
@@ -140,6 +163,13 @@ class FakeNvdFeed:
     def fetch_modified(self, since_iso: str, until_iso: str) -> dict:
         self.calls.append((since_iso, until_iso))
         return self.fn(since_iso, until_iso) if self.fn else self.response
+
+    def fetch_ids(self, cve_ids: list[str]) -> dict:
+        self.calls.append(("ids", tuple(cve_ids)))
+        want = set(cve_ids)
+        resp = self.fn(cve_ids) if callable(self.fn) else self.response
+        return {"vulnerabilities": [e for e in resp.get("vulnerabilities", [])
+                                    if e.get("cve", {}).get("id") in want]}
 
 
 # ─────────────────────────── 허용목록 필터 ───────────────────────────
@@ -215,27 +245,38 @@ def run_ingest(*, feed: NvdFeed, author: authoring.Author, session,
                allowlist_path: str | None = None, prefixes: frozenset[str] | None = None,
                state_path: str, out_dir: str | None = None,
                window_days: int = NVD_WINDOW_MAX_DAYS, now_iso: str | None = None,
-               since_override: str | None = None, load_cpe_nodes: bool = False,
-               dry_run: bool = False) -> IngestReport:
+               since_override: str | None = None, cve_ids: list[str] | None = None,
+               load_cpe_nodes: bool = False,
+               dry_run: bool = False, log=None) -> IngestReport:
     """한 회차 수집: 변경분 받기 → 허용목록 필터 → 1단 적재 + 2단 저작(게이트) 적재 → 워터마크 전진.
 
     session: graph_writer.Session(실전=neo4j / 테스트·점검=graph_writer.DryRunSession).
              적재는 항상 session 으로 흘려 Cypher·스키마 검사를 태운다. dry_run 은 '워터마크 전진'만 막는다.
     prefixes/allowlist_path: 허용목록 접두사를 직접 주거나(테스트·캐시) 경로에서 읽는다(실전). 둘 다 없으면 에러.
     """
-    if prefixes is None:
-        if not allowlist_path:
-            raise ValueError("prefixes 또는 allowlist_path 중 하나는 필요하다")
-        prefixes = allowlist_prefixes(allowlist_path)
-
+    _log = log or (lambda m: None)   # 진행 로그 이음새(CLI만 출력, 기본 조용)
     now_iso = now_iso or _utcnow_iso()
-    state = load_state(state_path)
-    raw_since = since_override or state.get("last_mod") or _shift_iso(now_iso, -window_days)
-    since, clamped = _clamp_window(raw_since, now_iso, window_days)
 
-    raw = feed.fetch_modified(since, now_iso)
-    entries = raw.get("vulnerabilities", [])
-    matched = [e for e in entries if cve_hits_allowlist(e, prefixes)]
+    if cve_ids:
+        # 타깃 모드: 창·워터마크·허용목록 필터 없이 지정 CVE 만 콕 집어 2단까지(데모·강제 1건).
+        since, clamped = f"(타깃 CVE {len(cve_ids)}건)", False
+        raw = feed.fetch_ids(cve_ids)
+        entries = raw.get("vulnerabilities", [])
+        matched = entries
+        _log(f"[ingest] 타깃 {len(cve_ids)} → 수집 {len(entries)} · 전부 2단 저작 대상")
+    else:
+        if prefixes is None:
+            if not allowlist_path:
+                raise ValueError("prefixes 또는 allowlist_path 중 하나는 필요하다")
+            prefixes = allowlist_prefixes(allowlist_path)
+        state = load_state(state_path)
+        raw_since = since_override or state.get("last_mod") or _shift_iso(now_iso, -window_days)
+        since, clamped = _clamp_window(raw_since, now_iso, window_days)
+        raw = feed.fetch_modified(since, now_iso)
+        entries = raw.get("vulnerabilities", [])
+        matched = [e for e in entries if cve_hits_allowlist(e, prefixes)]
+        _log(f"[ingest] 수집 {len(entries)} · 허용목록 매칭 {len(matched)}"
+             + (f" · 2단 저작 시작({len(matched)}건)" if matched else " · 저작할 것 없음"))
 
     # 1단 — 표준 사실(CVE·CWE·CLASSIFIED_AS). CPE 열거 적재는 토글(기본 off, 노이즈 차단).
     prev_cpe = sources.LOAD_NVD_CPE
@@ -250,15 +291,18 @@ def run_ingest(*, feed: NvdFeed, author: authoring.Author, session,
     mappings: list[dict] = []
     rejected: list[tuple[str, list[str]]] = []
     warnings: list[tuple[str, list[str]]] = []
-    for e in matched:
+    for i, e in enumerate(matched, 1):
         ctx = cve_context(e)
+        _log(f"  [저작 {i}/{len(matched)}] {ctx.get('cve')} …")
         env, problems = authoring.author_env(ctx, author)
         if env is None:
             rejected.append((ctx.get("cve") or "?", problems))
+            _log(f"    거절: {problems[0] if problems else '?'}")
             continue
         if problems:
             warnings.append((ctx.get("cve") or "?", problems))
         envs.append(env)
+        _log(f"    통과 → THEORETICAL ({env.get('technique') or '기법없음'})")
         if env.get("technique"):
             mappings.append({"cve": ctx["cve"], "technique": env["technique"],
                              "category": "exploitation_technique", "source": "llm"})
@@ -271,6 +315,7 @@ def run_ingest(*, feed: NvdFeed, author: authoring.Author, session,
     mnodes, mrels = sources.parse_cve_attack({"mappings": mappings}) if mappings else ([], [])
 
     # 적재 — 항상 session 으로(DryRunSession 이면 집계만). 순서: 바닥층 → 핵심층 → 매핑.
+    _log("[ingest] KG 반영…")
     graph_writer.merge_nodes(session, bnodes)
     graph_writer.merge_rels(session, brels)
     graph_writer.merge_nodes(session, cnodes)
@@ -279,7 +324,7 @@ def run_ingest(*, feed: NvdFeed, author: authoring.Author, session,
     graph_writer.merge_rels(session, mrels)
 
     advanced = None
-    if not dry_run:
+    if not dry_run and not cve_ids:   # 타깃 모드는 시간 스윕이 아니라 워터마크 안 건드림
         save_state(state_path, now_iso)
         advanced = now_iso
 

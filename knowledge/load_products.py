@@ -24,6 +24,7 @@ from . import graph_writer
 from . import schema
 
 _DEFAULT_ALLOWLIST = os.path.join(os.path.dirname(__file__), "kg-cpe-allowlist.yaml")
+_DEFAULT_TECH = os.path.join(os.path.dirname(__file__), "kg-technologies.yaml")
 
 
 def load_allowlist(path: str = _DEFAULT_ALLOWLIST) -> list[dict]:
@@ -79,6 +80,40 @@ def service_nodes_and_rels(products: Iterable[dict]) -> tuple[list[dict], list[d
     return st_nodes, rels
 
 
+def load_technologies(path: str = _DEFAULT_TECH) -> list[dict]:
+    """기술 매핑 YAML → [{id, name, products:[vendor:product]}, ...]."""
+    import yaml  # 지연 import
+    data = yaml.safe_load(open(path, encoding="utf-8")) or {}
+    out: list[dict] = []
+    for t in data.get("technologies", []):
+        tid = (t.get("id") or "").strip()
+        if not tid:
+            continue
+        out.append({"id": tid, "name": (t.get("name") or tid).strip(),
+                    "products": [str(p).strip() for p in (t.get("products") or []) if str(p).strip()]})
+    return out
+
+
+def technology_nodes_and_rels(technologies: Iterable[dict]) -> tuple[list[dict], list[dict]]:
+    """기술 매핑 → (Technology 노드, Product-USES_TECHNOLOGY->Technology 관계).
+
+    ServiceType(종류)와 직교하는 언어/런타임 축. 관계는 graph_writer 가 양끝 MATCH 라
+    allowlist 에 없는 제품이면 조용히 스킵(Technology 노드는 남아 d01 을 채운다).
+    """
+    t_nodes: list[dict] = []
+    rels: list[dict] = []
+    for t in technologies:
+        node = {"label": "Technology", "id": t["id"], "props": {"name": t.get("name", t["id"])}}
+        schema.check_node(node)
+        t_nodes.append(node)
+        for vp in t.get("products", []):
+            rel = {"type": "USES_TECHNOLOGY", "from_label": "Product", "from_id": vp,
+                   "to_label": "Technology", "to_id": t["id"], "props": {}}
+            schema.check_rel(rel)
+            rels.append(rel)
+    return t_nodes, rels
+
+
 def emit_nvd_targets(products: Iterable[dict]) -> dict:
     """allowlist → nvd 입력 {cve_ids:[], cpe_matches:[cpe:2.3:a:vendor:product, ...]}.
 
@@ -114,12 +149,15 @@ def link_products_to_cpe(session, products: Iterable[dict]) -> None:
 
 
 def load_products(session, products: list[dict]) -> int:
-    """Product 노드 + ServiceType + PROVIDES_SERVICE 적재 + CPE 연결. 적재한 Product 수 반환."""
+    """Product + ServiceType(PROVIDES_SERVICE) + Technology(USES_TECHNOLOGY) 적재 + CPE 연결. Product 수 반환."""
     nodes = product_nodes(products)
     graph_writer.merge_nodes(session, nodes)
     st_nodes, st_rels = service_nodes_and_rels(products)
     graph_writer.merge_nodes(session, st_nodes)
     graph_writer.merge_rels(session, st_rels)
+    tech_nodes, tech_rels = technology_nodes_and_rels(load_technologies())
+    graph_writer.merge_nodes(session, tech_nodes)
+    graph_writer.merge_rels(session, tech_rels)
     link_products_to_cpe(session, products)
     return len(nodes)
 

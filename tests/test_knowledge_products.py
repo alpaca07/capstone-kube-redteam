@@ -12,8 +12,8 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from knowledge.load_products import (  # noqa: E402
-    _link_pairs, emit_nvd_targets, load_allowlist, load_products, product_nodes,
-    service_nodes_and_rels)
+    _link_pairs, emit_nvd_targets, load_allowlist, load_products, load_technologies,
+    product_nodes, service_nodes_and_rels, technology_nodes_and_rels)
 
 
 class FakeSession:
@@ -56,6 +56,25 @@ def test_service_nodes_and_rels():
     assert ("mariadb:mariadb", "database") in pairs and ("f5:nginx", "web_server") in pairs
 
 
+def test_technology_nodes_and_rels():
+    t_nodes, rels = technology_nodes_and_rels([
+        {"id": "java", "name": "Java", "products": ["apache:tomcat", "vmware:spring_framework"]},
+        {"id": "python", "name": "Python", "products": ["palletsprojects:flask"]}])
+    assert sorted(n["id"] for n in t_nodes) == ["java", "python"]        # 기술 노드(언어/런타임 축)
+    assert all(n["label"] == "Technology" for n in t_nodes)
+    pairs = {(r["from_id"], r["to_id"]) for r in rels if r["type"] == "USES_TECHNOLOGY"}
+    assert ("apache:tomcat", "java") in pairs                           # Product(vendor:product) → Technology
+    assert ("vmware:spring_framework", "java") in pairs and ("palletsprojects:flask", "python") in pairs
+
+
+def test_load_technologies_real_file():
+    techs = load_technologies()                 # 기본 경로 = knowledge/kg-technologies.yaml
+    ids = {t["id"] for t in techs}
+    assert {"java", "python", "c"} <= ids
+    java = next(t for t in techs if t["id"] == "java")
+    assert "apache:tomcat" in java["products"] and "vmware:spring_framework" in java["products"]
+
+
 def test_emit_nvd_targets():
     tgt = emit_nvd_targets([{"vendor": "gitlab", "product": "gitlab"},
                             {"vendor": "oracle", "product": "mysql"}])
@@ -79,6 +98,8 @@ def test_load_products_merges_and_links():
     # ServiceType + PROVIDES_SERVICE 도 적재됐나(병합: load_products 로 통합)
     assert any("ServiceType" in q for q, _ in sess.calls)
     assert any("PROVIDES_SERVICE" in q for q, _ in sess.calls)
+    # Technology + USES_TECHNOLOGY 도 적재(언어/런타임 축, 실파일 기반)
+    assert any("USES_TECHNOLOGY" in q for q, _ in sess.calls)
 
 
 def test_load_allowlist_dedup():

@@ -8,7 +8,7 @@
   "procedure": {
     "id": "PROC-kc4-db-exfil",
     "name": "PostgreSQL 로그인 후 민감 데이터 read",
-    "description": "①에서 얻은 평문 자격증명(configmap DATABASE_URL 의 legacy_admin)으로 발판 파드의 psql 로 postgres.database.svc.cluster.local:5432 의 customerdb 에 직접 접속해 민감 테이블을 조회·반출한다. 실제 명령: psql \"postgresql://legacy_admin:L3gacyAdm1n!2019@postgres.database.svc.cluster.local:5432/customerdb\" -c \"SELECT * FROM customers\" 와 -c \"SELECT * FROM internal_secrets\". 주의: SA 토큰·k8s secrets API 는 DB 테이블 데이터(customers·internal_secrets)를 대체하지 못한다 — 크라운은 postgres 직접 SELECT 로만 선다.",
+    "description": "①에서 얻은 평문 자격증명(configmap DATABASE_URL 의 legacy_admin)으로 발판 파드의 psql 로 postgres.database.svc.cluster.local:5432 의 customerdb 에 직접 접속해 민감 테이블을 조회·반출한다. 실제 명령: psql \"postgresql://legacy_admin:L3gacyAdm1n!2019@postgres.database.svc.cluster.local:5432/customerdb\" -c \"SELECT * FROM customers\" 와 -c \"SELECT * FROM internal_secrets\". 주의: SA 토큰·k8s secrets API 는 DB 테이블 데이터(customers·internal_secrets)를 대체하지 못한다 — 크라운은 postgres 직접 SELECT 로만 선다. 접속은 서비스 DNS 이름(postgres.database.svc.cluster.local, raw ClusterIP 아님)으로 하고, legacy_admin 외에 postgres-credentials 엔드포인트의 appuser 자격증명도 동일하게 동작한다 — postgres 슈퍼유저 비밀번호 추측엔 스텝을 쓰지 마라.",
     "status": "AUTHORED"
   },
 
@@ -29,6 +29,14 @@
       "conditions": [
         {"channel": "crown", "field": "asset", "operator": "in", "expected": ["internal_secrets", "customers_pii"]}
       ]
+    }
+  ],
+
+  "cleanup_actions": [
+    {
+      "id": "CLN-kc4-db-exfil",
+      "name": "DB 반출 흔적 축소",
+      "description": "발판에서 psql 히스토리(~/.psql_history)·셸 히스토리(~/.bash_history)를 지우고 반출 결과를 받아둔 임시 파일을 제거해 자격증명 조회·반출 흔적을 줄인다(T1070 흔적 제거)."
     }
   ]
 }

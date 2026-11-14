@@ -159,6 +159,22 @@ def techniques_for_product(session: Session, term: str) -> list[dict]:
             for r in bridge]
 
 
+def products_for_technology(session: Session, term: str) -> list[str]:
+    """용어가 기술(언어/런타임) 이름이면 그 기술로 구현된 제품명들(USES_TECHNOLOGY 역방향).
+
+    1차에서 제품 직접매칭이 빗나간 언어/런타임 용어(java·python…)를 제품군으로 펴, 각 제품을
+    techniques_for_product 로 돌려 후보 기법을 넓힌다(pre-CPE 자산의 배너/이미지 언어 식별 대응).
+    """
+    t = (term or "").strip().lower()
+    if not t:
+        return []
+    rows = _rows(session.run(
+        "MATCH (tech:Technology) WHERE toLower(tech.id) = $t OR toLower(tech.name) = $t "
+        "MATCH (tech)<-[:USES_TECHNOLOGY]-(p:Product) "
+        "RETURN DISTINCT p.name AS name", t=t))
+    return [r["name"] for r in rows if r.get("name")]
+
+
 def knowledge_for_terms(session: Session, terms: Iterable[str]) -> dict:
     """여러 관측 용어 → 후보 기법 집계(플래너 situation 공급, LLM 바인딩용).
 
@@ -196,7 +212,17 @@ def knowledge_for_terms(session: Session, terms: Iterable[str]) -> dict:
             for tech in techs:
                 _accum(tech, t)
             continue
-        # ② description 텍스트 검색 폴백(거침): CVE 설명에 용어가 든 것
+        # ② 기술(언어/런타임) 경로 — 제품 직접매칭 실패 시, 그 기술로 구현된 제품군으로 확장
+        tech_products = products_for_technology(session, t)
+        if tech_products:
+            cves_acc: set = set()
+            for pname in tech_products:
+                for tech in techniques_for_product(session, pname):
+                    _accum(tech, t)
+                    cves_acc.update(tech.get("cves") or [])
+            by_term[t] = sorted(cves_acc)
+            continue
+        # ③ description 텍스트 검색 폴백(거침): CVE 설명에 용어가 든 것
         cids = cves_for_term(session, t)
         by_term[t] = cids
         for cve in cids:
@@ -227,6 +253,18 @@ def render_kg_candidates(knowledge: dict, *, limit: int = 12) -> str:
     return "\n".join(lines)
 
 
+def _advisories_for_cve(session: Session, cve: str) -> list[dict]:
+    """CVE id → 연결된 Advisory(영향버전·URL). 파라미터 앵커 질의라 null/빈 cve 는 안전히 빈 결과."""
+    c = (cve or "").strip()
+    if not c:
+        return []
+    rows = _rows(session.run(
+        "MATCH (c:CVE {id: $cve})-[:DOCUMENTED_IN]->(a:Advisory) "
+        "RETURN a.affected_versions AS affected_versions, a.url AS url", cve=c))
+    return [{"affected_versions": r.get("affected_versions"), "url": r.get("url")}
+            for r in rows if r.get("affected_versions") or r.get("url")]
+
+
 def procedure_for_technique(session: Session, tech_id: str) -> list[dict]:
     """기법/하위기법 → 그 기법을 실현하는 Procedure(들) + 전제·예상결과(핵심층 ④⑤ 질의).
 
@@ -249,11 +287,13 @@ def procedure_for_technique(session: Session, tech_id: str) -> list[dict]:
         "OPTIONAL MATCH (p)-[:REQUIRES]->(pre:Precondition) "
         "OPTIONAL MATCH (pre)-[rc:REQUIRES_CONFIGURATION]->(cfg:Configuration) "
         "OPTIONAL MATCH (p)-[:PRODUCES]->(er:ExpectedResult) "
+        "OPTIONAL MATCH (p)-[:REVERSED_BY]->(cl:CleanupAction) "
         "RETURN p.id AS procedure, p.name AS name, p.description AS description, "
         "p.env AS env, p.cve AS cve, p.cwe AS cwe, p.status AS status, "
         "collect(DISTINCT {name: pre.name, description: pre.description, "
         "config_key: cfg.config_key, expected_value: rc.expected_value}) AS preconditions, "
-        "collect(DISTINCT {id: er.id, name: er.name, kind: er.kind}) AS expected_results",
+        "collect(DISTINCT {id: er.id, name: er.name, kind: er.kind}) AS expected_results, "
+        "collect(DISTINCT {name: cl.name, description: cl.description}) AS cleanup",
         id=t))
     out = []
     for r in rows:
@@ -261,10 +301,15 @@ def procedure_for_technique(session: Session, tech_id: str) -> list[dict]:
             continue
         pres = [pp for pp in (r.get("preconditions") or []) if pp.get("name")]       # null 전제 제거
         ers = [ee for ee in (r.get("expected_results") or []) if ee.get("id")]
+        cleans = [cc for cc in (r.get("cleanup") or []) if cc.get("name")]   # null 정리 제거
+        # advisory 는 별도 anchored 질의 — mega 쿼리에 p.cve WHERE 를 끼우면 cve 없는 절차(킬체인 등)의
+        # 다른 collect(cleanup)까지 비는 Neo4j OPTIONAL MATCH+WHERE 상호작용을 피한다.
+        advs = _advisories_for_cve(session, r.get("cve"))
         out.append({"procedure": r["procedure"], "name": r.get("name"),
                     "description": r.get("description"), "env": r.get("env"),
                     "cve": r.get("cve"), "cwe": r.get("cwe"), "status": r.get("status"),
-                    "preconditions": pres, "expected_results": ers})
+                    "preconditions": pres, "expected_results": ers, "cleanup": cleans,
+                    "advisory": advs})
     return out
 
 
@@ -288,6 +333,14 @@ def render_procedures(procedures: list[dict], *, limit: int = 6) -> str:
         goals = [e.get("name") for e in (p.get("expected_results") or []) if e.get("kind") == "crown"]
         if goals:
             lines.append(f"    goal: {', '.join(g for g in goals if g)}")
+        cleans = [c.get("name") for c in (p.get("cleanup") or []) if c.get("name")]
+        if cleans:
+            lines.append(f"    cleanup: {', '.join(cleans)}")
+        advs = p.get("advisory") or []
+        if advs and (advs[0].get("affected_versions") or advs[0].get("url")):
+            a = advs[0]
+            tail = f" — {a['url']}" if a.get("url") else ""
+            lines.append(f"    advisory: {a.get('affected_versions', '')}{tail}")
     return "\n".join(lines)
 
 
