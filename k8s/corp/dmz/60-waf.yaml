@@ -52,6 +52,9 @@ spec:
           env:
             - { name: MODSEC_RULE_ENGINE, value: "On" }   # 엔진 On — 취약 룰(3.3.0)로 검사
             - { name: PORT, value: "8080" }
+            # CRS 911100(메서드 enforcement) 허용목록에 PUT 추가 — 메서드 자체는 통과시키되
+            # 바디 검사 룰(932/933/944)은 그대로 둔다(= 우회는 공격자 자율 과제). 라이브 패치를 매니페스트에 고정.
+            - { name: ALLOWED_METHODS, value: "GET HEAD POST OPTIONS PUT" }
           ports:
             - { containerPort: 8080 }
           volumeMounts:
