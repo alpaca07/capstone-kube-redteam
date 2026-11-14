@@ -280,7 +280,74 @@
     }).join("");
     return '<div class="section-label">핵심 자산 침해 · 공인 위험도(CVSS v3.1 · 심판 산정)</div>' +
       '<div class="card cvss-card">' + rows +
-      '<div class="tile-sub" style="margin-top:4px">god-view 관측 기반 공인 등급 — 그래프 노드의 등급은 공격자 자체 평가로 별개입니다.</div></div>';
+      '<div class="tile-sub" style="margin-top:4px">심판 god-view 로 확정된 핵심 자산 침해입니다. 개별 발견은 전술·확보 데이터로 추정하며 신뢰도를 함께 표기합니다.</div></div>';
+  }
+  // ── CVSS v3.1 Base 산식(프론트) — orchestrator/cvss.py 와 동일. 비크라운 발견을 공인 등급으로 매기기 위함 ──
+  var _CVW = { AV: { N: .85, A: .62, L: .55, P: .2 }, AC: { L: .77, H: .44 },
+    PRU: { N: .85, L: .62, H: .27 }, PRC: { N: .85, L: .68, H: .5 }, UI: { N: .85, R: .62 }, CIA: { N: 0, L: .22, H: .56 } };
+  function _cvRound(x) { var i = Math.round(x * 100000); return (i % 10000 === 0) ? i / 100000 : (Math.floor(i / 10000) + 1) / 10; }
+  function _cvSev(s) { if (s <= 0) return "none"; if (s < 4) return "low"; if (s < 7) return "medium"; if (s < 9) return "high"; return "critical"; }
+  function cvssJs(m) {
+    var c = _CVW.CIA[m.c], i = _CVW.CIA[m.i], a = _CVW.CIA[m.a];
+    var iss = 1 - (1 - c) * (1 - i) * (1 - a);
+    var impact = (m.s === "C") ? 7.52 * (iss - 0.029) - 3.25 * Math.pow(iss - 0.02, 15) : 6.42 * iss;
+    var prw = (m.s === "C" ? _CVW.PRC : _CVW.PRU)[m.pr];
+    var expl = 8.22 * _CVW.AV[m.av] * _CVW.AC[m.ac] * prw * _CVW.UI[m.ui];
+    var sc = impact <= 0 ? 0 : (m.s === "C" ? _cvRound(Math.min(1.08 * (impact + expl), 10)) : _cvRound(Math.min(impact + expl, 10)));
+    return { score: sc, severity: _cvSev(sc),
+      vector: "CVSS:3.1/AV:" + m.av + "/AC:" + m.ac + "/PR:" + m.pr + "/UI:" + m.ui + "/S:" + m.s + "/C:" + m.c + "/I:" + m.i + "/A:" + m.a };
+  }
+  // ATT&CK 전술 → 영향축(기밀 C·무결 I·가용 A·범위 S). 하위기법은 상위로 접어 매핑.
+  var _TECH_IMPACT = {
+    T1213: { c: "H" }, T1005: { c: "H" }, T1530: { c: "H" }, T1040: { c: "H" },     // 수집·탈취 → 기밀
+    T1552: { c: "H", s: "C" }, T1555: { c: "H", s: "C" }, T1078: { c: "H", s: "C" }, // 자격증명·유효계정 → 기밀+범위
+    T1496: { a: "H", s: "C" }, T1486: { a: "H" }, T1490: { a: "H" }, T1489: { a: "H" }, T1485: { i: "H" }, // 자원·파괴
+    T1610: { i: "H", s: "C" }, T1609: { i: "H", s: "C" }, T1611: { i: "H", s: "C" }, // 컨테이너·실행 → 무결+범위
+    T1059: { i: "H" }, T1053: { i: "H" }, T1068: { i: "H", s: "C" }, T1548: { s: "C" }, // 실행·권한상승
+    T1046: { c: "L" }, T1018: { c: "L" }, T1083: { c: "L" }, T1087: { c: "L" }, T1082: { c: "L" }, // 정찰 → 정보 노출
+  };
+  var _CROWN_BY_MITRE = { T1213: ["crown-pii", "crown-secrets"], T1496: ["crown-resource-hijack"], T1610: ["crown-container-deploy"] };
+  function _axisKo(vec) {
+    var ax = [];
+    if (vec.c === "H") ax.push("기밀성 High"); else if (vec.c === "L") ax.push("기밀성 Low");
+    if (vec.i === "H") ax.push("무결성 High"); else if (vec.i === "L") ax.push("무결성 Low");
+    if (vec.a === "H") ax.push("가용성 High"); else if (vec.a === "L") ax.push("가용성 Low");
+    if (vec.s === "C") ax.push("권한 범위 확대");
+    return ax.join(", ") || "영향 미상";
+  }
+  // 발견 노드 위험도 — 하이브리드: 크라운 확정(심판 god-view) > loot 입증 > 공격자 주장.
+  function findingCvss(node) {
+    var bt = _baseTech(node.technique), cc = crownCvss();
+    var crowns = (_CROWN_BY_MITRE[bt] || []).filter(function (c) { return cc[c]; });
+    if (crowns.length) {                           // 크라운 확정 — 심판 god-view 등급 사용
+      crowns.sort(function (a, b) { return cc[b].score - cc[a].score; });
+      var jv = cc[crowns[0]];
+      return { score: jv.score, severity: jv.severity, vector: jv.vector, confidence: "확정",
+        basis: "심판 god-view 로 확정된 핵심 자산 침해 — " + (jv.basis || "") };
+    }
+    var imp = _TECH_IMPACT[bt];
+    var hasLoot = (node.loot != null && String(node.loot) !== "");
+    if (!imp) imp = hasLoot ? { c: "H" } : { c: "L" };    // 전술 미상 — loot 있으면 기밀, 없으면 정보 노출
+    var vec = { s: imp.s || "U", c: imp.c || "N", i: imp.i || "N", a: imp.a || "N" };
+    var conf;
+    if (hasLoot) { conf = "입증"; }                 // 확보 데이터 — 관측 기반
+    else { conf = "주장"; if (vec.c === "H") vec.c = "L"; }  // 공격자 보고만 — 기밀성축 하향
+    var r = cvssJs({ av: "N", ac: "L", pr: "N", ui: "N", s: vec.s, c: vec.c, i: vec.i, a: vec.a });
+    var src = hasLoot ? "확보 데이터로 입증" : "공격자 보고 기반(미입증)";
+    return { score: r.score, severity: r.severity, vector: r.vector, confidence: conf,
+      basis: (bt ? bt + " 전술 — " : "") + _axisKo(vec) + " · " + src };
+  }
+  function _confCls(c) { return c === "확정" ? "ok" : c === "입증" ? "def" : "sys"; }
+  // 발견 노드 CVSS 공인 등급 블록(노드 상세 패널용)
+  function agCvssBlock(fc, n) {
+    var sev = String(fc.severity).toLowerCase();
+    return '<div class="ag-cvss sev-' + sev + '">' +
+      '<div class="ag-cvss-top"><span class="ag-cvss-score sev-' + sev + '">' + fc.score + "</span>" +
+      '<span class="sev-badge sev-' + sev + '">CVSS ' + sevKo(fc.severity) + "</span>" +
+      '<span class="ag-cvss-conf cf-' + _confCls(fc.confidence) + '">' + fc.confidence + "</span></div>" +
+      '<div class="ag-cvss-basis">' + esc(fc.basis) + "</div>" +
+      '<div class="ag-cvss-vec mono">' + esc(fc.vector) + "</div>" +
+      ((n.severity && fc.confidence !== "확정") ? '<div class="ag-cvss-claim">공격자 주장 등급: ' + esc(n.severity) + "</div>" : "") + "</div>";
   }
   // 노드 그래프 기반 자산별 침해 단계 — target 으로 자산을 묶고 도달 깊이를 매긴다.
   // 단계는 타깃마다 독립(0 미접근·1 정찰접근·2 정보확보·3 침해확인·4 데이터반출) → 자산 수만큼 병렬.
@@ -1354,14 +1421,15 @@
   }
   function agPanel(nodes) {
     var n = nodes.filter(function (x) { return x.id === agSel; })[0];
-    if (!n) return "";
+    if (!n) return '<div class="ag-side-empty">노드를 클릭하면 상세가 여기 표시됩니다.</div>';
     var col = kindColor(n.kind);
     var tabs = '<div class="tabs"><button class="tab' + (agTab === "overview" ? " active" : "") + '" data-agtab="overview">개요</button>' +
       '<button class="tab' + (agTab === "knowledge" ? " active" : "") + '" data-agtab="knowledge">지식</button></div>';
+    var _fc = (n.kind === "finding") ? findingCvss(n) : null;
     var head = '<div class="ag-ph"><span class="badge" style="background:' + col.bg + ";color:" + col.line + '">' + kindLabelFull(n.kind) + "</span>" +
       (n.technique ? '<span class="badge b-atk">' + esc(n.technique) + "</span>" : "") +
-      (n.state && n.state !== "exhausted" ? '<span class="chip ag-state" style="color:' + stateColor(n.state) + ';border-color:' + stateColor(n.state) + '33">' + esc(stateKo(n.state)) + "</span>" : "") +
-      (n.severity ? '<span class="chip">심각도 ' + esc(n.severity) + "</span>" : "") + "</div>" +
+      (n.state && n.state !== "exhausted" ? '<span class="chip ag-state" style="color:' + stateColor(n.state) + ';border-color:' + stateColor(n.state) + '33">' + esc(stateKo(n.state)) + "</span>" : "") + "</div>" +
+      (_fc ? agCvssBlock(_fc, n) : "") +
       (function () { var c = agCuration(n); return c ? '<div class="ag-desc ag-desc-main">' + esc(c) + "</div>" : ""; })() +
       ((n.summary || n.detail) ? '<button class="ag-raw-t" data-agraw>' + (agRaw ? "원문 접기 ▴" : "원문(원본 산출) 보기 ▾") + "</button>" +
         (agRaw ? '<div class="ag-raw">' +
@@ -1509,7 +1577,9 @@
     var ctx = aggEp ? aggEp + "회차 종합 · 누적 그래프" : (rec ? (rec.episode || 1) + "회차 R" + rec.round : "예시");
     return (S.demo ? demoBanner() : "") + chips +
       '<div class="section-label">' + ctx + " · 공격 추론 그래프 (목표 → 의도 → 사실 → 발견)</div>" +
-      agKindFilter(g.nodes || []) + svg + legend + agPanel(g.nodes || []);
+      agKindFilter(g.nodes || []) +
+      '<div class="ag-layout"><div class="ag-main">' + svg + legend + "</div>" +
+      '<div class="ag-side">' + agPanel(g.nodes || []) + "</div></div>";
   }
   // 카테고리(종류) 표시 토글 — 노드 많을 때 종류별로 조회. 켜진 종류만 그래프에 표시.
   function agKindFilter(allNodes) {

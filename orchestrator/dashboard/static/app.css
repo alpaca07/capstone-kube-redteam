@@ -696,3 +696,31 @@ button { font-family: inherit; }
 .cvss-asset { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
 .cvss-basis { font-size: 12px; color: var(--text-2); line-height: 1.5; }
 .cvss-vec { font-size: 10.5px; color: var(--text-3); margin-top: 4px; overflow-wrap: anywhere; }
+
+/* ───────── 공격 추적 그래프 — 그래프(좌) · 노드 상세(우) 2열 ───────── */
+.ag-layout { display: flex; gap: 14px; align-items: flex-start; margin-top: 10px; }
+.ag-main { flex: 1; min-width: 0; }
+.ag-side { flex: none; width: 344px; }
+.ag-side-empty { padding: 22px 16px; color: var(--text-3); font-size: 12.5px; text-align: center;
+  border: 1px dashed var(--border-strong); border-radius: var(--r); background: var(--surface-2); }
+@media (max-width: 1000px) { .ag-layout { flex-direction: column; } .ag-side { width: 100%; } }
+
+/* 발견 노드 CVSS 블록(노드 상세 — 전술·확보 데이터 추정, 신뢰도 표기) */
+.ag-cvss { margin: 10px 0; padding: 11px 12px; border-radius: var(--r-sm); background: var(--surface-2); border-left: 3px solid var(--text-3); }
+.ag-cvss.sev-critical { border-left-color: #b11722; }
+.ag-cvss.sev-high { border-left-color: var(--atk); }
+.ag-cvss.sev-medium { border-left-color: var(--crown); }
+.ag-cvss.sev-low { border-left-color: var(--sys); }
+.ag-cvss-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ag-cvss-score { font-family: var(--font-mono); font-size: 20px; font-weight: 700; letter-spacing: -.02em; line-height: 1; color: var(--text); }
+.ag-cvss-score.sev-critical { color: #b11722; }
+.ag-cvss-score.sev-high { color: var(--atk); }
+.ag-cvss-score.sev-medium { color: var(--crown); }
+.ag-cvss-score.sev-low { color: var(--sys); }
+.ag-cvss-conf { font-family: var(--font-mono); font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 999px; margin-left: auto; }
+.ag-cvss-conf.cf-ok { background: var(--ok-soft); color: var(--ok); }
+.ag-cvss-conf.cf-def { background: var(--def-soft); color: var(--def); }
+.ag-cvss-conf.cf-sys { background: var(--sys-soft); color: var(--sys); }
+.ag-cvss-basis { font-size: 11.5px; color: var(--text-2); line-height: 1.5; margin-top: 7px; }
+.ag-cvss-vec { font-size: 10px; color: var(--text-3); margin-top: 5px; overflow-wrap: anywhere; }
+.ag-cvss-claim { font-size: 10.5px; color: var(--text-3); margin-top: 5px; }
