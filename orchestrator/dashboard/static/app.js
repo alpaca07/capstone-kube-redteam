@@ -1314,6 +1314,72 @@
     }
     return '<div class="section-label">노드 상세</div><div class="card ag-panel" style="border-top:3px solid ' + col.line + '">' + tabs + head + '<div class="ag-body">' + body + "</div></div>";
   }
+  // 그래프 노드 기반 분석 보고서 — 목표→침해 경로, 발견별 심각도·확보 데이터, 의도별 탐색을 자동 서술.
+  function graphReport(nodes, edges) {
+    if (!nodes || !nodes.length) return "";
+    var byId = {}, parents = {}, children = {};
+    nodes.forEach(function (n) { byId[n.id] = n; parents[n.id] = []; children[n.id] = []; });
+    (edges || []).forEach(function (e) { if (byId[e.src] && byId[e.dst]) { parents[e.dst].push(e.src); children[e.src].push(e.dst); } });
+    var K = { goal: [], intent: [], fact: [], finding: [] };
+    nodes.forEach(function (n) { if (K[n.kind]) K[n.kind].push(n); });
+    var goal = K.goal[0], DO = { goal: 0, intent: 1, fact: 2, finding: 3 };
+    function traceToGoal(id) {                 // 발견→목표 조상 체인(얕은 부모 우선)
+      var chain = [], seen = {}, cur = id, g = 0;
+      while (cur != null && !seen[cur] && g++ < 60) {
+        seen[cur] = 1; chain.unshift(byId[cur]);
+        var ps = (parents[cur] || []).filter(function (p) { return byId[p] && !seen[p]; });
+        ps.sort(function (a, b) { return (DO[byId[a].kind] || 9) - (DO[byId[b].kind] || 9); });
+        cur = ps.length ? ps[0] : null;
+      }
+      return chain;
+    }
+    function nlabel(n) { return kindLabelKo(n.kind) + (n.technique ? "·" + esc(n.technique) : "") + " " + esc(truncate(n.summary || "", 34)); }
+    var SR = { critical: 4, high: 3, medium: 2, low: 1 };
+    var findings = K.finding.slice().sort(function (a, b) { return (SR[String(b.severity).toLowerCase()] || 0) - (SR[String(a.severity).toLowerCase()] || 0); });
+    var sevC = { critical: 0, high: 0, medium: 0, low: 0 };
+    findings.forEach(function (f) { var s = String(f.severity).toLowerCase(); if (sevC[s] != null) sevC[s]++; });
+    var loots = findings.filter(function (f) { return f.loot != null && String(f.loot) !== ""; });
+    var deadIntents = K.intent.filter(function (n) { return !children[n.id].some(function (c) { return byId[c] && (byId[c].kind === "fact" || byId[c].kind === "finding"); }); });
+    var yielded = K.intent.length - deadIntents.length;
+
+    var sline = [];
+    [["critical", "치명적"], ["high", "높음"], ["medium", "중간"], ["low", "낮음"]].forEach(function (s) { if (sevC[s[0]]) sline.push(s[1] + " " + sevC[s[0]] + "건"); });
+    var verdict = findings.length
+      ? (loots.length ? "공격자가 실제 데이터를 반출한 침해가 " + loots.length + "건 확인됩니다. " : "")
+        + "총 " + findings.length + "건의 침해(" + (sline.join(", ") || "등급 미상") + ")가 그래프에 기록됐습니다."
+      : "확정된 침해(발견)는 없습니다 — 탐색은 진행됐으나 핵심 자산 반출까지 이어진 경로는 확인되지 않았습니다.";
+    var scan = "의도 " + K.intent.length + "개 중 " + yielded + "개가 사실·발견을 산출, " + deadIntents.length + "개는 소득 없이 종료. 확인된 사실 " + K.fact.length + "건.";
+    var summaryCard = '<div class="grpt-sum"><div class="grpt-h">종합 판단</div>' +
+      "<p>" + (goal ? "목표: " + esc(truncate(goal.summary || "", 90)) + ". " : "") + verdict + "</p>" +
+      '<p class="grpt-sub">' + scan + "</p></div>";
+
+    var findHtml = findings.length ? findings.map(function (f) {
+      var sev = String(f.severity || "").toLowerCase();
+      var chain = traceToGoal(f.id).filter(function (n) { return n.id !== f.id; });
+      var pathHtml = chain.length ? '<div class="grpt-path"><span class="grpt-k">경로</span>' + chain.map(nlabel).join(' <span class="grpt-arr">→</span> ') + ' <span class="grpt-arr">→</span> <b>' + kindLabelKo("finding") + "</b></div>" : "";
+      var loot = (f.loot != null && String(f.loot) !== "") ? '<div class="grpt-loot">확보 데이터: <span class="mono">' + esc(truncate(typeof f.loot === "object" ? JSON.stringify(f.loot) : String(f.loot), 120)) + "</span></div>" : "";
+      return '<div class="grpt-find sev-' + (sev || "na") + '">' +
+        '<div class="grpt-fh"><span class="grpt-sev">' + (f.severity ? esc(f.severity) : "등급?") + "</span>" +
+        (f.technique ? '<span class="badge b-atk">' + esc(f.technique) + "</span>" : "") +
+        (f.target ? '<span class="grpt-tgt mono">' + esc(f.target) + "</span>" : "") +
+        (f.round ? '<span class="grpt-rnd">R' + f.round + "</span>" : "") + "</div>" +
+        '<div class="grpt-cur">' + esc(agCuration(f)) + "</div>" + pathHtml + loot + "</div>";
+    }).join("") : '<div class="tile-sub" style="padding:10px 2px">기록된 침해 없음</div>';
+
+    var intentHtml = K.intent.length ? K.intent.map(function (n) {
+      var ch = children[n.id].map(function (c) { return byId[c]; }).filter(Boolean);
+      var nf = ch.filter(function (c) { return c.kind === "fact"; }).length;
+      var nfd = ch.filter(function (c) { return c.kind === "finding"; }).length;
+      var dead = deadIntents.indexOf(n) >= 0;
+      return '<div class="grpt-int' + (dead ? " dead" : "") + '"><span class="grpt-it">' + kindLabelKo("intent") + (n.technique ? "·" + esc(n.technique) : "") + (n.round ? " R" + n.round : "") + "</span>" +
+        '<span class="grpt-is">' + esc(truncate(n.summary || "", 48)) + "</span>" +
+        '<span class="grpt-im">' + (nfd ? "발견 " + nfd + " · " : "") + "사실 " + nf + (dead ? " · 소득 없음" : "") + "</span></div>";
+    }).join("") : "";
+
+    return '<div class="section-label">분석 보고서 · 노드 기반</div><div class="card grpt">' + summaryCard +
+      '<div class="grpt-h2">침해 분석 (' + findings.length + "건)</div>" + findHtml +
+      (intentHtml ? '<div class="grpt-h2">탐색 경로 · 의도 ' + K.intent.length + "개</div><div class=\"grpt-ints\">" + intentHtml + "</div>" : "") + "</div>";
+  }
   function pageAttackGraph(g, rounds, rec, aggEp, selKey) {
     var nodes = g.nodes || [], edges = g.edges || [];
     if (!nodes.length) {
@@ -1438,7 +1504,8 @@
     var ctx = aggEp ? aggEp + "회차 종합 · 누적 그래프" : (rec ? (rec.episode || 1) + "회차 R" + rec.round : "예시");
     return (S.demo ? demoBanner() : "") + chips +
       '<div class="section-label">' + ctx + " · 공격 추론 그래프 (목표 → 의도 → 사실 → 발견)</div>" +
-      agKindFilter(g.nodes || []) + svg + legend + agPanel(g.nodes || []);
+      agKindFilter(g.nodes || []) + svg + legend + agPanel(g.nodes || []) +
+      graphReport(g.nodes || [], g.edges || []);
   }
   // 카테고리(종류) 표시 토글 — 노드 많을 때 종류별로 조회. 켜진 종류만 그래프에 표시.
   function agKindFilter(allNodes) {
