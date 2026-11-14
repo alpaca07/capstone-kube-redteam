@@ -228,23 +228,31 @@ def test_map_postex_technique_and_crown():
     assert map_falco_event({"rule": "Cryptocurrency mining in container"}) == "T1496"
     assert map_falco_crown({"rule": "Cryptocurrency mining in container"}) == CROWN_RESOURCE_HIJACK
     assert map_falco_crown({"rule": "Terminal shell in container"}) is None
-    # 감사 공격자-SA pods create → 기법 T1610 + 크라운 container_deploy(같은 이벤트, 별개 축)
+    # 감사 공격자-SA pods create 성공(2xx) → 기법 T1610 + 크라운 container_deploy(같은 이벤트, 별개 축)
     sa = "system:serviceaccount:internal:admin-sa"
+    ok = {"code": 201}
     create_pod = {"verb": "create", "user": {"username": sa},
-                  "objectRef": {"resource": "pods"}}
+                  "objectRef": {"resource": "pods"}, "responseStatus": ok}
     assert map_audit_event(create_pod) == "T1610"
     assert map_audit_crown(create_pod) == CROWN_CONTAINER_DEPLOY
+    # --as 점검처럼 actor 가 impersonatedUser 에 있어도 포착(user 는 관리자)
+    assert map_audit_crown({"verb": "create", "user": {"username": "system:admin"},
+                            "impersonatedUser": {"username": sa},
+                            "objectRef": {"resource": "pods"}, "responseStatus": ok}) == CROWN_CONTAINER_DEPLOY
+    # 거부(4xx)는 크라운 아님 — 방어자 RBAC 차단을 재생검증서 FAKE_PATCH 로 오판 방지
+    assert map_audit_crown({"verb": "create", "user": {"username": sa},
+                            "objectRef": {"resource": "pods"}, "responseStatus": {"code": 403}}) is None
     # 비-공격자 SA·조회(get)는 크라운 아님
     assert map_audit_crown({"verb": "create", "user": {"username": "kubernetes-admin"},
-                            "objectRef": {"resource": "pods"}}) is None
+                            "objectRef": {"resource": "pods"}, "responseStatus": ok}) is None
     assert map_audit_crown({"verb": "get", "user": {"username": sa},
-                            "objectRef": {"resource": "pods"}}) is None
+                            "objectRef": {"resource": "pods"}, "responseStatus": ok}) is None
 
 
 def test_log_source_postex_crowns_window():
     sa = "system:serviceaccount:internal:admin-sa"
     audit = {"verb": "create", "user": {"username": sa},
-             "objectRef": {"resource": "pods"},
+             "objectRef": {"resource": "pods"}, "responseStatus": {"code": 201},
              "requestReceivedTimestamp": "2026-10-11T14:56:03.100000Z"}
     falco = {"rule": "Cryptocurrency mining in container",
              "time": "2026-10-11T14:56:04.000000000Z"}

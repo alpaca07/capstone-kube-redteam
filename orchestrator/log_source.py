@@ -90,15 +90,22 @@ def map_falco_crown(ev: dict) -> Optional[str]:
 
 
 def map_audit_crown(ev: dict) -> Optional[str]:
-    """감사 이벤트 → 사후 크라운 자산. 공격자 SA 의 파드 배포 = 악성 컨테이너 배포(T1610).
+    """감사 이벤트 → 사후 크라운 자산. 공격자 SA 의 파드 '생성 성공' = 악성 컨테이너 배포(T1610).
 
     베이스라인에선 admin-sa 가 파드를 생성하지 않으므로(admin-dashboard 는 Secret 만 조회)
     공격자-SA pods create = 악성 배포로 결정적. 감사 이벤트라 시간창에 묶인다(재생 검증 호환).
+      - 성공(2xx)만 크라운: 방어자가 RBAC 로 생성을 막으면 거부(4xx)도 create 로 찍히므로,
+        거부를 가짜 FAKE_PATCH 로 오판 않게 responseStatus 2xx 를 요구.
+      - actor 는 user·impersonatedUser 양쪽: 실공격은 토큰 직접 인증(user=admin-sa),
+        --as 점검은 impersonatedUser 에 들어감 — 둘 다 포착.
     """
-    user = (ev.get("user") or {}).get("username", "")
-    verb = ev.get("verb", "")
+    code = (ev.get("responseStatus") or {}).get("code") or 0
+    if not 200 <= code < 300:
+        return None
+    actors = {(ev.get("user") or {}).get("username", ""),
+              (ev.get("impersonatedUser") or {}).get("username", "")}
     resource = (ev.get("objectRef") or {}).get("resource", "")
-    if user == _ADMIN_SA and resource == "pods" and verb == "create":
+    if _ADMIN_SA in actors and resource == "pods" and ev.get("verb") == "create":
         return CROWN_CONTAINER_DEPLOY
     return None
 
