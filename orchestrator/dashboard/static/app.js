@@ -1389,6 +1389,7 @@
       return '<path class="ag-edge' + (isNew ? " ag-new" : "") + (hot ? " ag-hot" : "") + '" d="' + d +
         '" fill="none" stroke="' + relColor(e.rel) + '" stroke-width="' + (hot ? 2.2 : 1.3) + '" opacity="' + op + '"' + (isNew ? ' style="animation-delay:200ms"' : "") + "/>";
     }).join("");
+    var curRound = (rec && rec.round != null) ? rec.round : null;   // 지금 보는 라운드 — 이 라운드 추가 노드 강조
     var nIdx = 0;
     var nodeSvg = nodes.map(function (n) {
       var p = pos[n.id]; if (!p) return "";
@@ -1405,10 +1406,17 @@
       var showSt = n.kind === "intent" && n.state && n.state !== "open" && n.state !== "done" && n.state !== "exhausted";
       var stBadge = showSt ? '<text x="' + (p.x + NW - 11) + '" y="' + (p.y + 21) + '" text-anchor="end" font-size="8.5" font-weight="700" fill="' + stateColor(n.state) + '">' + esc(stateKo(n.state)) + "</text>" : "";
       var op = dim ? 0.2 : (dead ? 0.9 : 1);
-      return '<g class="' + cls + '" data-nid="' + n.id + '"' + (delay ? ' style="animation-delay:' + delay + 'ms"' : "") + ' opacity="' + op + '">' +
+      // 라운드 태그 — 노드가 생성된 라운드. 지금 보는 라운드에 추가된 노드는 강조색(그 외 회색).
+      var rnd = (n.round != null && isFinite(n.round) && n.round > 0) ? n.round : null;
+      var rcur = (rnd != null && curRound != null && rnd === curRound);
+      var rtw = (rnd != null && rnd >= 10) ? 25 : 21;
+      var rTag = rnd != null ? '<g class="ag-rtag' + (rcur ? " cur" : "") + '"><rect x="' + (p.x + 8) + '" y="' + (p.y - 8) +
+        '" width="' + rtw + '" height="15" rx="7.5" fill="' + (rcur ? "#0d9488" : "#9aa6b6") + '"/>' +
+        '<text x="' + (p.x + 8 + rtw / 2) + '" y="' + (p.y + 3) + '" text-anchor="middle" font-size="9" font-weight="700" fill="#fff">R' + rnd + "</text></g>" : "";
+      return '<g class="' + cls + (rcur ? " ag-rcur" : "") + '" data-nid="' + n.id + '"' + (delay ? ' style="animation-delay:' + delay + 'ms"' : "") + ' opacity="' + op + '">' +
         '<rect x="' + p.x + '" y="' + p.y + '" width="' + NW + '" height="' + NH + '" rx="10" fill="' + col.bg + '" stroke="' + col.line + '" stroke-width="' + (sel ? 2.8 : (col.solid ? 1.6 : 1.2)) + '"' + (dead ? ' stroke-dasharray="5 3"' : "") + "/>" +
         '<text class="agk" x="' + (p.x + 13) + '" y="' + (p.y + 21) + '" font-size="9.5" font-weight="700" fill="' + l1col + '">' + l1 + "</text>" + stBadge +
-        '<text x="' + (p.x + 13) + '" y="' + (p.y + 39) + '" font-size="11.5" fill="' + l2col + '">' + l2 + "</text></g>";
+        '<text x="' + (p.x + 13) + '" y="' + (p.y + 39) + '" font-size="11.5" fill="' + l2col + '">' + l2 + "</text>" + rTag + "</g>";
     }).join("");
     var vb = agView || { x: 0, y: 0, w: W, h: H };     // agView=수동 조작(확대·이동) 지속, null=자동 맞춤(라이브 성장 추적)
     var tools = '<div class="ag-tools">' +
@@ -1424,6 +1432,7 @@
       '<div class="legend ag-legend-st"><span class="agl-k">상태</span>' +
       '<span><span class="agls agls-run"></span>실행 중(맥동)</span>' +
       '<span><span class="agls agls-dead"></span>차단·중단(점선·흐림)</span>' +
+      '<span><span class="agls" style="background:#0d9488;border:none"></span>R# 생성 라운드(강조=현재 라운드 추가)</span>' +
       (focus ? '<span class="agl-focus">· 선택 노드 계보만 선명 (노드 다시 클릭 → 해제)</span>' : "") + "</div></div>";
     var chips = (rounds && rounds.length) ? roundChipsHtml(rounds, selKey || "", "data-agrk") : "";
     var ctx = aggEp ? aggEp + "회차 종합 · 누적 그래프" : (rec ? (rec.episode || 1) + "회차 R" + rec.round : "예시");

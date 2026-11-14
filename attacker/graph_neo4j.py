@@ -116,6 +116,11 @@ class Neo4jGraph(ExplorationGraph):
         self._driver = driver
         self._episode = episode
         self._db = database
+        self._cur_round = 0                  # 현재 라운드 — 새 노드에 생성 라운드로 스탬프
+
+    def set_round(self, round: int) -> None:
+        """현재 라운드 설정 — 이후 추가 노드에 생성 라운드로 찍힌다(대시보드 라운드별 강조용)."""
+        self._cur_round = int(round or 0)
 
     # ── 세션 헬퍼 ──
     def _run(self, query: str, **params) -> list:
@@ -144,6 +149,7 @@ class Neo4jGraph(ExplorationGraph):
 
     def _create(self, label: str, kind: NodeKind, payload: dict, state: str,
                 priority: int, anchors: Optional[list[int]]) -> int:
+        payload = dict(payload); payload["_round"] = self._cur_round   # 생성 라운드 스탬프
         p = _base_props(kind, payload, state, priority, anchors)
         rows = self._run(_CREATE.replace(_LABEL, label), kind=p["kind"], state=p["state"],
                          owner=p["owner"], priority=p["priority"],
@@ -324,6 +330,7 @@ class Neo4jGraph(ExplorationGraph):
                 "loot": p.get("loot"),                # 실제 탈취/확보한 값(표시 전용)
                 "severity": p.get("severity", ""), "confidence": p.get("confidence"),
                 "occurrences": p.get("occurrences"), "anchors": list(n.anchors),
+                "round": p.get("_round"),             # 생성 라운드(대시보드 라운드별 추가 강조)
             })
         edges = [{"src": int(r["src"]), "rel": str(r["rel"]).lower(), "dst": int(r["dst"])}
                  for r in self._run(_SNAP_EDGES)]

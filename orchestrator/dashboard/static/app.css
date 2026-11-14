@@ -505,6 +505,8 @@ button { font-family: inherit; }
 .ag-edge.ag-new { stroke-dasharray: 680; animation: agdraw .7s ease-out backwards; }
 .ag-node.ag-run { animation: agglow 1.7s ease-in-out infinite; }
 .ag-node.ag-find rect { filter: drop-shadow(0 1px 4px rgba(138,15,24,.5)); }   /* 발견(솔리드 빨강) 상시 강조 */
+.ag-rtag text { font-family: var(--font-mono); }                                /* 라운드 태그(생성 라운드) */
+.ag-node.ag-rcur:not(.ag-find) rect { filter: drop-shadow(0 0 5px rgba(13,148,136,.55)); }   /* 현재 라운드 추가 강조 */
 @keyframes agpop { from { opacity: 0; transform: scale(.32) translateY(12px); } to { opacity: 1; transform: scale(1); } }
 @keyframes agdraw { from { stroke-dashoffset: 680; } to { stroke-dashoffset: 0; } }
 @keyframes agglow { 0%, 100% { filter: drop-shadow(0 0 0 rgba(13,148,136,0)); } 50% { filter: drop-shadow(0 0 7px rgba(13,148,136,.75)); } }
