@@ -99,17 +99,21 @@ class UrllibNvdFeed:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                     return json.loads(resp.read())
             except urllib.error.HTTPError as e:
-                if e.code == 429 and attempt < retries:
+                # 429(레이트리밋)·5xx(일시 장애)는 백오프 재시도. NVD 는 키 없으면 자주 503/429 를 돌려준다.
+                if e.code in (429, 500, 502, 503, 504) and attempt < retries:
                     wait = int((e.headers or {}).get("Retry-After") or 0) or min(45, 8 * (attempt + 1))
-                    print(f"  [ingest/nvd] 429 — {wait}s 후 재시도 ({attempt + 1}/{retries})", flush=True)
+                    self._log(f"[nvd] {e.code} — {wait}s 후 재시도 ({attempt + 1}/{retries})"
+                              + ("" if self.api_key else " · 키 없이는 자주 막힘(NVD_API_KEY 권장)"))
                     time.sleep(wait)
                     continue
+                if e.code == 404:   # NVD 는 유효하지 않거나 미활성인 apiKey 에 404 를 돌려준다
+                    self._log("[nvd] 404 — apiKey 가 유효하지 않거나 미활성일 수 있음(활성화/재발급). "
+                              "키 없이 돌리려면 NVD_API_KEY 해제")
                 raise
             except (urllib.error.URLError, TimeoutError) as e:
                 if attempt < retries:
                     wait = min(45, 8 * (attempt + 1))
-                    print(f"  [ingest/nvd] {type(e).__name__} — {wait}s 후 재시도 "
-                          f"({attempt + 1}/{retries})", flush=True)
+                    self._log(f"[nvd] {type(e).__name__} — {wait}s 후 재시도 ({attempt + 1}/{retries})")
                     time.sleep(wait)
                     continue
                 raise
