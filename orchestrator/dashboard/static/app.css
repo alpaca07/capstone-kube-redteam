@@ -616,3 +616,64 @@ button { font-family: inherit; }
 .grpt-is { color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .grpt-im { font-size: 11px; color: var(--text-3); flex: none; }
 .grpt-int.dead .grpt-im { color: var(--atk); }
+
+/* ───────── 공격 브리핑(큐레이션 — 전체 흐름 종합) ───────── */
+.brief-head { font-size: 13px; font-weight: 700; color: var(--text); margin: 2px 0 10px; letter-spacing: -.01em; }
+
+/* 자산별 침해 — 좌측 침투 단계 띠 */
+.brief-assets { display: flex; flex-direction: column; gap: 10px; }
+.brief-asset { border: 1px solid var(--border); border-left: 3px solid var(--text-3); border-radius: var(--r-sm);
+  padding: 12px 14px; background: var(--surface); box-shadow: var(--shadow); }
+.brief-asset.stg-4 { border-left-color: #b11722; }
+.brief-asset.stg-3 { border-left-color: var(--atk); }
+.brief-asset.stg-2 { border-left-color: var(--crown); }
+.brief-asset.stg-1 { border-left-color: var(--teal); }
+.brief-asset.stg-0 { border-left-color: var(--text-3); }
+.brief-ah { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 7px; }
+.brief-stage { font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; letter-spacing: .03em;
+  padding: 2px 8px; border-radius: 999px; color: #fff; background: var(--text-3); }
+.brief-stage.s4 { background: #b11722; }
+.brief-stage.s3 { background: var(--atk); }
+.brief-stage.s2 { background: var(--crown); }
+.brief-stage.s1 { background: var(--teal); }
+.brief-stage.s0 { background: var(--sys); }
+.brief-at { font-size: 12.5px; font-weight: 700; color: var(--text); }
+.sev-badge { font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 999px; color: #fff; background: var(--text-3); }
+.sev-badge.sev-critical { background: #b11722; }
+.sev-badge.sev-high { background: var(--atk); }
+.sev-badge.sev-medium { background: var(--crown); }
+.sev-badge.sev-low { background: var(--sys); }
+.brief-anarr { font-size: 12.5px; line-height: 1.6; color: var(--text); }
+
+/* 라운드별 공진화 — 공격·방어·검증 3열 */
+.brief-tl { padding: 4px 0; }
+.brief-tl-row { display: flex; align-items: stretch; gap: 10px; padding: 9px 16px; border-top: 1px solid var(--border); }
+.brief-tl-row:first-child { border-top: none; }
+.brief-tl-r { flex: none; width: 34px; font-weight: 700; color: var(--text-2); display: flex; align-items: center; }
+.brief-tl-cols { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; flex: 1; min-width: 0; }
+.brief-tl-c { font-size: 11.5px; line-height: 1.5; color: var(--text); padding: 7px 9px; border-radius: 6px;
+  background: var(--surface-2); min-width: 0; overflow-wrap: anywhere; }
+.brief-tl-c.c-atk { border-left: 2px solid var(--atk); }
+.brief-tl-c.c-def { border-left: 2px solid var(--def); }
+.brief-tl-c.c-jdg { border-left: 2px solid var(--sys); }
+.brief-tl-k { display: block; font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--text-3); margin-bottom: 3px; }
+.brief-tl-b { display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; margin-left: 4px; white-space: nowrap; }
+.brief-tl-b.b-atk { background: var(--atk-soft); color: var(--atk); }
+.brief-tl-b.b-def { background: var(--def-soft); color: var(--def); }
+.brief-tl-b.b-crown { background: var(--crown-soft); color: var(--crown); }
+@media (max-width: 760px) { .brief-tl-cols { grid-template-columns: 1fr; } }
+
+/* 기법별 전술·탐지 */
+.brief-techs { padding: 4px 16px 14px; }
+.brief-tech { display: grid; grid-template-columns: 96px 1fr 128px 74px; gap: 10px; align-items: center;
+  padding: 8px 0; border-top: 1px solid var(--border); font-size: 12px; }
+.brief-tech-h { color: var(--text-3); font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em;
+  text-transform: uppercase; border-top: none; }
+.brief-tc-tg { color: var(--text-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brief-tc-f { color: var(--text); }
+.brief-tc-d { font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; text-align: center; padding: 2px 8px; border-radius: 999px; }
+.brief-tc-d.on { background: var(--ok-soft); color: var(--ok); }
+.brief-tc-d.off { background: var(--atk-soft); color: var(--atk); }
+@media (max-width: 760px) { .brief-tech { grid-template-columns: 1fr auto; } .brief-tech-h { display: none; } .brief-tc-f { display: none; } }
