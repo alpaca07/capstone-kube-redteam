@@ -314,7 +314,8 @@ def _build_author(args) -> authoring.Author:
 
 def _run_ingest(args) -> None:
     """주기 수집 1회(개발 모드, 인터넷 ON): 변경분 → 허용목록 필터 → 1단 적재 + 2단 저작 적재."""
-    feed = ingest.UrllibNvdFeed()
+    logger = lambda m: print(m, flush=True)   # 실시간 진행 출력(페이지 수신·저작 건별)
+    feed = ingest.UrllibNvdFeed(log=logger)
     author = _build_author(args)
     session = graph_writer.DryRunSession() if args.dry_run else connect(args)
     allowlist = args.nvd_cpe_filter or load_products._DEFAULT_ALLOWLIST
@@ -322,7 +323,7 @@ def _run_ingest(args) -> None:
         feed=feed, author=author, session=session,
         allowlist_path=allowlist, state_path=args.state, out_dir=args.out_dir,
         window_days=args.window_days, since_override=args.since,
-        load_cpe_nodes=args.nvd_cpe_nodes, dry_run=args.dry_run)
+        load_cpe_nodes=args.nvd_cpe_nodes, dry_run=args.dry_run, log=logger)
     print(report.summary())
 
 

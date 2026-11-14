@@ -82,12 +82,13 @@ class UrllibNvdFeed:
     API = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 
     def __init__(self, *, api_key: str | None = None, sleep: float | None = None,
-                 page: int = 2000, timeout: float = 120.0) -> None:
+                 page: int = 2000, timeout: float = 120.0, log=None) -> None:
         self.api_key = api_key or os.environ.get("NVD_API_KEY")
         # 키 없으면 5req/30s 제한 → 넉넉히(기존 __main__ 과 같은 기준)
         self.sleep = sleep if sleep is not None else (0.7 if self.api_key else 6.5)
         self.page = page
         self.timeout = timeout
+        self._log = log or (lambda m: None)   # 진행 로그 이음새(CLI만 출력, 기본 조용)
 
     def _get(self, params: dict, *, retries: int = 6) -> dict:
         headers = {"apiKey": self.api_key} if self.api_key else {}
@@ -117,13 +118,17 @@ class UrllibNvdFeed:
     def fetch_modified(self, since_iso: str, until_iso: str) -> dict:
         out: list = []
         start = 0
+        self._log(f"[nvd] 수집 시작 {since_iso} ~ {until_iso}"
+                  + ("" if self.api_key else " (키 없음 — 페이지당 대기 길다)"))
         while True:
             d = self._get({"lastModStartDate": since_iso, "lastModEndDate": until_iso,
                            "startIndex": start, "resultsPerPage": self.page})
             got = d.get("vulnerabilities", [])
             out.extend(got)
+            total = d.get("totalResults", 0)
             start += d.get("resultsPerPage", 0) or len(got)
-            if not got or start >= d.get("totalResults", 0):
+            self._log(f"[nvd] {len(out)}/{total} 수신")
+            if not got or start >= total:
                 break
             time.sleep(self.sleep)
         return {"vulnerabilities": out}
@@ -216,7 +221,7 @@ def run_ingest(*, feed: NvdFeed, author: authoring.Author, session,
                state_path: str, out_dir: str | None = None,
                window_days: int = NVD_WINDOW_MAX_DAYS, now_iso: str | None = None,
                since_override: str | None = None, load_cpe_nodes: bool = False,
-               dry_run: bool = False) -> IngestReport:
+               dry_run: bool = False, log=None) -> IngestReport:
     """한 회차 수집: 변경분 받기 → 허용목록 필터 → 1단 적재 + 2단 저작(게이트) 적재 → 워터마크 전진.
 
     session: graph_writer.Session(실전=neo4j / 테스트·점검=graph_writer.DryRunSession).
@@ -228,6 +233,7 @@ def run_ingest(*, feed: NvdFeed, author: authoring.Author, session,
             raise ValueError("prefixes 또는 allowlist_path 중 하나는 필요하다")
         prefixes = allowlist_prefixes(allowlist_path)
 
+    _log = log or (lambda m: None)   # 진행 로그 이음새(CLI만 출력, 기본 조용)
     now_iso = now_iso or _utcnow_iso()
     state = load_state(state_path)
     raw_since = since_override or state.get("last_mod") or _shift_iso(now_iso, -window_days)
@@ -236,6 +242,8 @@ def run_ingest(*, feed: NvdFeed, author: authoring.Author, session,
     raw = feed.fetch_modified(since, now_iso)
     entries = raw.get("vulnerabilities", [])
     matched = [e for e in entries if cve_hits_allowlist(e, prefixes)]
+    _log(f"[ingest] 수집 {len(entries)} · 허용목록 매칭 {len(matched)}"
+         + (f" · 2단 저작 시작({len(matched)}건)" if matched else " · 저작할 것 없음"))
 
     # 1단 — 표준 사실(CVE·CWE·CLASSIFIED_AS). CPE 열거 적재는 토글(기본 off, 노이즈 차단).
     prev_cpe = sources.LOAD_NVD_CPE
@@ -250,15 +258,18 @@ def run_ingest(*, feed: NvdFeed, author: authoring.Author, session,
     mappings: list[dict] = []
     rejected: list[tuple[str, list[str]]] = []
     warnings: list[tuple[str, list[str]]] = []
-    for e in matched:
+    for i, e in enumerate(matched, 1):
         ctx = cve_context(e)
+        _log(f"  [저작 {i}/{len(matched)}] {ctx.get('cve')} …")
         env, problems = authoring.author_env(ctx, author)
         if env is None:
             rejected.append((ctx.get("cve") or "?", problems))
+            _log(f"    거절: {problems[0] if problems else '?'}")
             continue
         if problems:
             warnings.append((ctx.get("cve") or "?", problems))
         envs.append(env)
+        _log(f"    통과 → THEORETICAL ({env.get('technique') or '기법없음'})")
         if env.get("technique"):
             mappings.append({"cve": ctx["cve"], "technique": env["technique"],
                              "category": "exploitation_technique", "source": "llm"})
@@ -271,6 +282,7 @@ def run_ingest(*, feed: NvdFeed, author: authoring.Author, session,
     mnodes, mrels = sources.parse_cve_attack({"mappings": mappings}) if mappings else ([], [])
 
     # 적재 — 항상 session 으로(DryRunSession 이면 집계만). 순서: 바닥층 → 핵심층 → 매핑.
+    _log("[ingest] KG 반영…")
     graph_writer.merge_nodes(session, bnodes)
     graph_writer.merge_rels(session, brels)
     graph_writer.merge_nodes(session, cnodes)
