@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import time
@@ -111,7 +112,9 @@ class UrllibNvdFeed:
                     self._log("[nvd] 404 — apiKey 가 유효하지 않거나 미활성일 수 있음(활성화/재발급). "
                               "키 없이 돌리려면 NVD_API_KEY 해제")
                 raise
-            except (urllib.error.URLError, TimeoutError) as e:
+            except (http.client.HTTPException, OSError) as e:
+                # 끊긴 읽기(IncompleteRead)·연결 리셋·타임아웃 등 일시 네트워크 오류 → 재시도.
+                # urllib.error.URLError·TimeoutError·ConnectionError 는 전부 OSError 하위라 함께 잡힌다.
                 if attempt < retries:
                     wait = min(45, 8 * (attempt + 1))
                     self._log(f"[nvd] {type(e).__name__} — {wait}s 후 재시도 ({attempt + 1}/{retries})")
