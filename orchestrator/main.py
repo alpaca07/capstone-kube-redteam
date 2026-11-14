@@ -224,6 +224,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                     help="in-cluster exec 발판 네임스페이스 override(대시보드 타깃→발판 자동전환; config.attack 덮음)")
     ap.add_argument("--exec-pod", default=None,
                     help="kubectl exec 대상 override(deploy/… 또는 파드명; config.attack 덮음)")
+    ap.add_argument("--attacker-db-roles", default=None,
+                    help="DB 크라운 역할 스코핑 override(쉼표구분; 빈문자열=스코핑 없음). 대시보드 타깃→자동. config.observability 덮음")
+    ap.add_argument("--db-log-corp", action="store_true",
+                    help="corp 크라운 DB 로그(corp-crown) 파일(-corp)을 읽음 — db_log_path 를 -corp 변형으로. 대시보드 corp 타깃→자동")
     ap.add_argument("--keep-logs", action="store_true",
                     help="지난 런 로그를 아카이브하지 않고 유지(기본: 새 런 시작 시 지난 로그를 "
                          "runs_archive/ 로 이관해 대시보드에 이전 그래프가 남지 않게 함)")
@@ -242,6 +246,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         cfg.attack.exec_namespace = args.exec_namespace
     if args.exec_pod is not None:
         cfg.attack.exec_pod = args.exec_pod
+    # DB 크라운 채점 override(대시보드 타깃→자동): 역할 스코핑 + 읽을 로그 파일(ShopFlow=base / corp=-corp).
+    if args.attacker_db_roles is not None:
+        cfg.observability.attacker_db_roles = [s.strip() for s in args.attacker_db_roles.split(",") if s.strip()]
+    if args.db_log_corp:
+        _p = cfg.observability.db_log_path
+        cfg.observability.db_log_path = (_p[:-4] + "-corp.log") if _p.endswith(".log") else (_p + "-corp")
     params = _params_from_args(cfg, args)
 
     os.makedirs(args.out_dir, exist_ok=True)

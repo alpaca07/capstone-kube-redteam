@@ -199,6 +199,8 @@ def run_start(payload: dict = Body(default={})) -> JSONResponse:
     ta = (payload.get("target_assets") or "").strip() or None  # 크라운 id CSV(예: crown-pii,crown-ops)
     en = (payload.get("exec_namespace") or "").strip() or None  # 발판 네임스페이스(대시보드 타깃→자동전환)
     epod = (payload.get("exec_pod") or "").strip() or None      # kubectl exec 대상(deploy/… 또는 파드명)
+    dr = payload.get("attacker_db_roles")                       # DB 크라운 역할 스코핑(corp=빈값→[] / ShopFlow=appuser,legacy_admin)
+    dlc = bool(payload.get("db_log_corp"))                      # corp 크라운은 corp-crown 로그 파일(-corp)을 읽음
     cmd = [sys.executable, "-u", "-m", "orchestrator.main",
            "--episodes", str(eps), "--max-rounds", str(mr),
            "--time-limit", str(tl)]
@@ -212,6 +214,10 @@ def run_start(payload: dict = Body(default={})) -> JSONResponse:
         cmd += ["--exec-namespace", str(en)]
     if epod:
         cmd += ["--exec-pod", str(epod)]
+    if dr is not None:                       # DB 크라운 채점도 타깃 자동전환 — 역할 스코핑(빈값=스코핑 없음)
+        cmd += ["--attacker-db-roles", str(dr)]
+    if dlc:                                   # corp 크라운은 corp-crown 로그 파일(-corp)을 읽게
+        cmd += ["--db-log-corp"]
     logf = open(_RUN_LOG, "w", encoding="utf-8")
     proc = subprocess.Popen(cmd, cwd=str(_ROOT), stdout=logf,
                             stderr=subprocess.STDOUT, env=os.environ.copy())
@@ -219,7 +225,8 @@ def run_start(payload: dict = Body(default={})) -> JSONResponse:
     started = time.time()
     _run.update(proc=proc, started=started, id=run_id,
                 params={"episodes": eps, "max_rounds": mr, "time_limit": tl, "max_tokens": mt,
-                        "objective_mode": om, "target": ta or "(config)", "foothold": en or "(config)"})
+                        "objective_mode": om, "target": ta or "(config)", "foothold": en or "(config)",
+                        "db_log": ("corp-crown" if dlc else "database"), "db_roles": (dr if dr is not None else "(config)")})
     try:
         with (_LOGS / "runs.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps({"id": run_id, "started": started,

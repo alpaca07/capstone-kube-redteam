@@ -521,11 +521,12 @@
   var MODES = { demo: { eps: 1, mr: 4, tl: 120, mt: 1024 }, stat: { eps: 10, mr: 10, tl: 180, mt: 1024 } };
   // 타깃 = 공격 목표(orchestrator --objective-mode/--target-assets). om/ta 가 null 이면 config 기본(ShopFlow).
   // fn/fp = 발판(네임스페이스/파드) — 타깃 선택 시 발판까지 자동전환. ShopFlow=frontend, corp=corp-ext.
+  // dr = DB 크라운 역할 스코핑(ShopFlow=앱·유출 role 분리 / corp=빈값→스코핑 없음), dlc = corp-crown 로그(-corp) 사용.
   var TARGETS = {
-    "default":  { label: "config 기본(ShopFlow)", om: null,    ta: null,                  fn: "frontend", fp: "deploy/attacker-foothold" },
-    "corp-pii": { label: "corp · 고객 PII",        om: "asset", ta: "crown-pii",           fn: "corp-ext", fp: "deploy/corp-attacker-foothold" },
-    "corp-ops": { label: "corp · 운영 비밀",       om: "asset", ta: "crown-ops",           fn: "corp-ext", fp: "deploy/corp-attacker-foothold" },
-    "corp-all": { label: "corp · 전체(PII+운영)",  om: "asset", ta: "crown-pii,crown-ops", fn: "corp-ext", fp: "deploy/corp-attacker-foothold" }
+    "default":  { label: "config 기본(ShopFlow)", om: null,    ta: null,                  fn: "frontend", fp: "deploy/attacker-foothold",      dr: "appuser,legacy_admin", dlc: false },
+    "corp-pii": { label: "corp · 고객 PII",        om: "asset", ta: "crown-pii",           fn: "corp-ext", fp: "deploy/corp-attacker-foothold", dr: "",                     dlc: true  },
+    "corp-ops": { label: "corp · 운영 비밀",       om: "asset", ta: "crown-ops",           fn: "corp-ext", fp: "deploy/corp-attacker-foothold", dr: "",                     dlc: true  },
+    "corp-all": { label: "corp · 전체(PII+운영)",  om: "asset", ta: "crown-pii,crown-ops", fn: "corp-ext", fp: "deploy/corp-attacker-foothold", dr: "",                     dlc: true  }
   };
   function pageControl() {
     var running = !!(S.status && S.status.running);
@@ -573,7 +574,8 @@
       var body = { episodes: +$("#f-eps").value, max_rounds: +$("#f-mr").value, time_limit: +$("#f-tl").value,
         max_tokens: ($("#f-mt-unl") && $("#f-mt-unl").checked) ? null : +$("#f-mt").value, mode: $("#f-mode").value,
         objective_mode: _tg.om || null, target_assets: _tg.ta || null,
-        exec_namespace: _tg.fn || null, exec_pod: _tg.fp || null, fresh: $("#f-fresh").checked };
+        exec_namespace: _tg.fn || null, exec_pod: _tg.fp || null,
+        attacker_db_roles: (_tg.dr != null ? _tg.dr : null), db_log_corp: !!_tg.dlc, fresh: $("#f-fresh").checked };
       var r = await fetch("/api/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then(function (x) { return x.json(); }).catch(function () { return { ok: false, error: "서버 연결 실패(데모 모드)" }; });
       msg.textContent = r.ok ? ("시작됨: " + r.id + (r.archived ? " · 이전 실행 보관됨" : "")) : "실패: " + (r.error || "");
       refreshRunStatus();
