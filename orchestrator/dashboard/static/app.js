@@ -452,31 +452,6 @@
     if (!t || t === "(config)") return null;
     return String(t).split(",").map(function (s) { return s.trim(); }).filter(Boolean);
   }
-  // 라운드 누적 + 회차 집계에서 도달한 크라운 집합.
-  function reachedCrownSet() {
-    var set = {};
-    S.rounds.forEach(function (r) { (r.crowns_reached_cum || []).forEach(function (c) { set[c] = 1; }); });
-    S.episodes.forEach(function (e) { (e.crowns_reached || []).forEach(function (c) { set[c] = 1; }); });
-    return set;
-  }
-  // 한 라운드까지 도달한 목표 크라운 수(누적).
-  function crownHitsAt(r, tc) {
-    var cum = r.crowns_reached_cum || [];
-    return tc.filter(function (c) { return cum.indexOf(c) >= 0; }).length;
-  }
-  // 침투 진척 지표 — ShopFlow=선형 침투 단계(최대 4), corp=크라운 진행(목표 크라운 중 도달 종수).
-  //   scopeDepth: 이 스코프 최고 단계, scopeReached: 이 스코프 도달 크라운 배열(생략 시 실행 전체).
-  function progressMetric(scopeDepth, scopeReached) {
-    var tc = targetCrowns();
-    if (!tc) return { corp: false, label: "최고 침투", value: scopeDepth ? scopeDepth + "단계" : "—",
-      sub: "최대 4", longLabel: "최대 침투 단계", longSub: "공격자 최대 도달 단계 (최대 4)" };
-    var reached = scopeReached || Object.keys(reachedCrownSet());
-    var hit = tc.filter(function (c) { return reached.indexOf(c) >= 0; }).length;
-    var names = tc.map(crownLabel).join("·");
-    return { corp: true, hit: hit, total: tc.length, label: "크라운 진행",
-      value: hit + " / " + tc.length + "종", sub: names,
-      longLabel: "크라운 진행", longSub: "목표 크라운 " + names + " 중 도달" };
-  }
 
   // ───────── 페이지: 보안 현황 ─────────
   function pagePosture() {
@@ -1664,7 +1639,6 @@
     var det = e.detection || { tp: 0, fp: 0, fn: 0 };
     var recall = det.recall != null ? det.recall : (det.tp + det.fn ? det.tp / (det.tp + det.fn) : null);
     var crowns = e.crowns_reached || [], mttd = e.mttd || {};
-    var _tc = targetCrowns(), pm = progressMetric(e.max_flag_depth, crowns);
 
     var chips = eps.length > 1 ? '<div class="rchips">' + eps.map(function (x, i) {
       var col = (x.crowns_reached && x.crowns_reached.length) ? C.atk : C.ok;
