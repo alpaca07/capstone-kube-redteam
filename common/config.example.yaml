@@ -36,6 +36,8 @@ target:
 attack:
   exec_mode: false
   exec_kubeconfig: "/home/vm-a/foothold.kubeconfig"   # frontend exec 전용(secret-read 없음)
+  # ※ 대시보드 타깃 선택 시 발판(exec_namespace/pod)을 런타임 자동 override(42f67d2).
+  #   아래 값은 CLI 직접 실행(대시보드 없이) 시의 폴백 — 기본 ShopFlow(frontend).
   exec_namespace: "frontend"
   exec_pod: "deploy/attacker-foothold"
   # ── 병렬 워커(ARTEX식) ──
@@ -106,5 +108,7 @@ observability:
   # ShopFlow 는 앱이 민감 테이블을 상시 조회하므로 role 로 가른다. 켤 땐 postgres log_line_prefix 에
   # '%u@%d' 필요(예: '%m [%p] %u@%d '). 비우면 스코핑 없이 쿼리 패턴만(VulHub 단독 postgres 등).
   #   legacy_admin = ① 평문 ConfigMap 유출 / appuser = ②(confused deputy)·B0 로 유출되는 superuser.
+  # ※ 대시보드 타깃 선택 시 db_log_path(corp=-corp)·attacker_db_roles 를 자동 override(d9e1368).
+  #   아래 값은 CLI 직접 실행 폴백 — 기본 ShopFlow(database 로그 + 앱·유출 role 분리).
   attacker_db_roles: ["appuser", "legacy_admin"]
   # 주의: VM C가 이 경로를 읽을 수 있어야 함(관리망 마운트/동기). 공격받는 VM B 안 거침.
