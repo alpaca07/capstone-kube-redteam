@@ -8,7 +8,7 @@
   "procedure": {
     "id": "PROC-kc1-wiki-cred-harvest",
     "name": "internal-wiki 런북 평문 자격증명 수집",
-    "description": "frontend 발판에서 internal-wiki 런북 페이지를 wget/curl 로 읽어 평문 DB 커넥션 문자열(자격증명)을 추출한다.",
+    "description": "frontend 발판에서 internal-wiki 런북 페이지를 wget/curl 로 읽어 평문 DB 커넥션 문자열(자격증명)을 추출한다. ★수집한 자격증명의 최종 용도는 postgres(postgres.database.svc.cluster.local:5432/customerdb)에 직접 접속해 internal_secrets·customers 를 SELECT 하는 것(T1213 크라운)이다 — k8s Secret·SA 토큰 열거는 자격증명 수집일 뿐 크라운이 아니다.",
     "status": "AUTHORED"
   },
 
