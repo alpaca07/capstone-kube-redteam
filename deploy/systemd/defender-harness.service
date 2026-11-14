@@ -1,0 +1,20 @@
+[Unit]
+# VM B 방어 하네스 — 오케스트레이터(VM C)가 매 방어 턴 호출하는 상주 HTTP 서비스.
+# 대상 클러스터와 같은 VM B 에서 돈다(관측·패치).
+Description=Capstone defense harness (VM B)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vm-b
+WorkingDirectory=/home/vm-b/capstone
+ExecStart=/usr/bin/python3 -m defender.server --config config.yaml
+Restart=on-failure
+RestartSec=5
+# 로그: journalctl -u defender-harness -f
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
