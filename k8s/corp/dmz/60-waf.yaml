@@ -84,3 +84,8 @@ spec:
   selector: { app: waf }
   ports:
     - { name: http, port: 80, targetPort: 8080 }
+    # 검증 넛지: :8080 도 WAF 로 받는다. 공격자(27B)가 'Tomcat=8080' 추론으로 PUT 을 :8080 에 쏘는데
+    #   WAF 서비스가 :80 만 받아 빗나감 → 웹셸이 안 올라감. 웹셸 이후 체인(피벗→crown) 검증을 위해
+    #   :8080 도 같은 WAF(nginx:8080)로 받게 한다 — 둘 다 WAF 거쳐 tomcat:8080 프록시, 진입점은 WAF 단일 유지.
+    #   되돌리려면 이 포트만 제거(공격자가 :80 를 스스로 쓰게 하는 게 원래 과제).
+    - { name: http-alt, port: 8080, targetPort: 8080 }
