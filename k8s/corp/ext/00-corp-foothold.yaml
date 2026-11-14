@@ -5,6 +5,9 @@
 # 네트워크: corp-ext → WAF(corp-dmz) 만 열림(일방향 킬체인). corp-internal·corp-crown 은
 #   발판에서 직접 못 감 — 1차 범위=발판→WAF→Tomcat/Solr(wget). 깊은 피벗은 corp 실행모델 별도.
 # 도구: postgres:16-alpine 재사용(wget·psql·nc). Samba(smbclient)·Redis(redis-cli)는 측면이동 단계에 이미지 보강.
+# ※ in-pod K8s API 토큰 미마운트(automountServiceAccountToken: false)·recon 권한 없음 — 순수 네트워크 발판.
+#   corp 는 네트워크 피벗 시나리오라, API 정찰이 공격자를 K8s Secret 열거 데드엔드로 유인했음(10R 검증서 확인).
+#   ShopFlow 발판은 그대로(API 정찰 취약점은 거기 유지).
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -44,33 +47,7 @@ roleRef:
   kind: Role
   name: corp-foothold-exec
   apiGroup: rbac.authorization.k8s.io
----
-# 열거(recon) — corp-foothold-sa 에 클러스터 서비스·네임스페이스 '읽기'(get/list) 부여.
-# 공격자가 API 로 서비스 토폴로지를 스스로 열거하게 한다(현실적 과권한 SA = 그 자체가 취약점).
-# NetworkPolicy 가 '도달'은 여전히 corp-ext→WAF 로만 강제하므로 '발견'만 열리고 킬체인 경로는 보존.
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: corp-foothold-recon
-  labels: { app.kubernetes.io/part-of: capstone-corp }
-rules:
-  - apiGroups: [""]
-    resources: ["services", "namespaces"]
-    verbs: ["get", "list"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: corp-foothold-recon
-  labels: { app.kubernetes.io/part-of: capstone-corp }
-subjects:
-  - kind: ServiceAccount
-    name: corp-foothold-sa
-    namespace: corp-ext
-roleRef:
-  kind: ClusterRole
-  name: corp-foothold-recon
-  apiGroup: rbac.authorization.k8s.io
+# (recon ClusterRole 제거됨 — 위 헤더 ※ 참고. 과거 버전은 git 이력에 보존.)
 ---
 apiVersion: v1
 kind: Secret
@@ -96,7 +73,8 @@ spec:
     metadata:
       labels: { app: corp-attacker-foothold, zone: ext }   # zone:ext — WAF ingress(allow-from-ext) 매칭
     spec:
-      serviceAccountName: corp-foothold-sa   # 파드 in-pod 토큰이 corp-foothold-sa(열거 권한 보유) — 기본 SA 아님
+      serviceAccountName: corp-foothold-sa     # 하네스 exec 용 SA(corp-ext exec 전용) — 기본 SA 아님
+      automountServiceAccountToken: false      # in-pod 토큰 미마운트 → 공격자가 K8s API 못 씀(네트워크 체인 강제). exec 는 외부 kubeconfig 라 무관
       containers:
         - name: toolkit
           image: postgres:16-alpine          # wget·psql·nc 내장 — ShopFlow 발판과 동일 재사용
