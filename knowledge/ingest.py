@@ -72,8 +72,9 @@ def save_state(path: str, last_mod: str) -> None:
 
 # ─────────────────────────── 수집 이음새 ───────────────────────────
 class NvdFeed(Protocol):
-    """지정 기간에 '변경된' CVE 를 NVD 모양({"vulnerabilities":[{"cve":{...}}]})으로 돌려준다."""
+    """변경분(fetch_modified) 또는 지정 id(fetch_ids)의 CVE 를 NVD 모양({"vulnerabilities":[{"cve":{...}}]})으로."""
     def fetch_modified(self, since_iso: str, until_iso: str) -> dict: ...
+    def fetch_ids(self, cve_ids: list[str]) -> dict: ...
 
 
 class UrllibNvdFeed:
@@ -137,6 +138,16 @@ class UrllibNvdFeed:
             time.sleep(self.sleep)
         return {"vulnerabilities": out}
 
+    def fetch_ids(self, cve_ids: list[str]) -> dict:
+        """지정 CVE id 만 콕 집어 수집(cveId 질의). 창·워터마크·허용목록 무관 — 데모·강제 1건에 빠르다."""
+        out: list = []
+        for i, cid in enumerate(cve_ids, 1):
+            self._log(f"[nvd] 타깃 {i}/{len(cve_ids)} {cid}")
+            out.extend(self._get({"cveId": cid}).get("vulnerabilities", []))
+            if i < len(cve_ids):
+                time.sleep(self.sleep)
+        return {"vulnerabilities": out}
+
 
 class FakeNvdFeed:
     """테스트용 — 고정 응답(또는 (since,until)→응답 콜러블)."""
@@ -149,6 +160,13 @@ class FakeNvdFeed:
     def fetch_modified(self, since_iso: str, until_iso: str) -> dict:
         self.calls.append((since_iso, until_iso))
         return self.fn(since_iso, until_iso) if self.fn else self.response
+
+    def fetch_ids(self, cve_ids: list[str]) -> dict:
+        self.calls.append(("ids", tuple(cve_ids)))
+        want = set(cve_ids)
+        resp = self.fn(cve_ids) if callable(self.fn) else self.response
+        return {"vulnerabilities": [e for e in resp.get("vulnerabilities", [])
+                                    if e.get("cve", {}).get("id") in want]}
 
 
 # ─────────────────────────── 허용목록 필터 ───────────────────────────
@@ -224,7 +242,8 @@ def run_ingest(*, feed: NvdFeed, author: authoring.Author, session,
                allowlist_path: str | None = None, prefixes: frozenset[str] | None = None,
                state_path: str, out_dir: str | None = None,
                window_days: int = NVD_WINDOW_MAX_DAYS, now_iso: str | None = None,
-               since_override: str | None = None, load_cpe_nodes: bool = False,
+               since_override: str | None = None, cve_ids: list[str] | None = None,
+               load_cpe_nodes: bool = False,
                dry_run: bool = False, log=None) -> IngestReport:
     """한 회차 수집: 변경분 받기 → 허용목록 필터 → 1단 적재 + 2단 저작(게이트) 적재 → 워터마크 전진.
 
@@ -232,22 +251,29 @@ def run_ingest(*, feed: NvdFeed, author: authoring.Author, session,
              적재는 항상 session 으로 흘려 Cypher·스키마 검사를 태운다. dry_run 은 '워터마크 전진'만 막는다.
     prefixes/allowlist_path: 허용목록 접두사를 직접 주거나(테스트·캐시) 경로에서 읽는다(실전). 둘 다 없으면 에러.
     """
-    if prefixes is None:
-        if not allowlist_path:
-            raise ValueError("prefixes 또는 allowlist_path 중 하나는 필요하다")
-        prefixes = allowlist_prefixes(allowlist_path)
-
     _log = log or (lambda m: None)   # 진행 로그 이음새(CLI만 출력, 기본 조용)
     now_iso = now_iso or _utcnow_iso()
-    state = load_state(state_path)
-    raw_since = since_override or state.get("last_mod") or _shift_iso(now_iso, -window_days)
-    since, clamped = _clamp_window(raw_since, now_iso, window_days)
 
-    raw = feed.fetch_modified(since, now_iso)
-    entries = raw.get("vulnerabilities", [])
-    matched = [e for e in entries if cve_hits_allowlist(e, prefixes)]
-    _log(f"[ingest] 수집 {len(entries)} · 허용목록 매칭 {len(matched)}"
-         + (f" · 2단 저작 시작({len(matched)}건)" if matched else " · 저작할 것 없음"))
+    if cve_ids:
+        # 타깃 모드: 창·워터마크·허용목록 필터 없이 지정 CVE 만 콕 집어 2단까지(데모·강제 1건).
+        since, clamped = f"(타깃 CVE {len(cve_ids)}건)", False
+        raw = feed.fetch_ids(cve_ids)
+        entries = raw.get("vulnerabilities", [])
+        matched = entries
+        _log(f"[ingest] 타깃 {len(cve_ids)} → 수집 {len(entries)} · 전부 2단 저작 대상")
+    else:
+        if prefixes is None:
+            if not allowlist_path:
+                raise ValueError("prefixes 또는 allowlist_path 중 하나는 필요하다")
+            prefixes = allowlist_prefixes(allowlist_path)
+        state = load_state(state_path)
+        raw_since = since_override or state.get("last_mod") or _shift_iso(now_iso, -window_days)
+        since, clamped = _clamp_window(raw_since, now_iso, window_days)
+        raw = feed.fetch_modified(since, now_iso)
+        entries = raw.get("vulnerabilities", [])
+        matched = [e for e in entries if cve_hits_allowlist(e, prefixes)]
+        _log(f"[ingest] 수집 {len(entries)} · 허용목록 매칭 {len(matched)}"
+             + (f" · 2단 저작 시작({len(matched)}건)" if matched else " · 저작할 것 없음"))
 
     # 1단 — 표준 사실(CVE·CWE·CLASSIFIED_AS). CPE 열거 적재는 토글(기본 off, 노이즈 차단).
     prev_cpe = sources.LOAD_NVD_CPE
@@ -295,7 +321,7 @@ def run_ingest(*, feed: NvdFeed, author: authoring.Author, session,
     graph_writer.merge_rels(session, mrels)
 
     advanced = None
-    if not dry_run:
+    if not dry_run and not cve_ids:   # 타깃 모드는 시간 스윕이 아니라 워터마크 안 건드림
         save_state(state_path, now_iso)
         advanced = now_iso
 

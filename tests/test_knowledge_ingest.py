@@ -104,6 +104,18 @@ def test_merge_runs_schema_check():
     assert report.authored == 2   # 여기 도달 = merge 중 ValueError(잘못된 라벨) 없었음
 
 
+def test_run_ingest_targeted_cve_bypasses_allowlist():
+    # 타깃 모드: 허용목록에 없는 제품이라도 id 로 콕 집으면 저작까지, 워터마크는 안 건드림.
+    state, out = _tmp_state()
+    report = ingest.run_ingest(
+        feed=_feed(_STRUTS, _WINDOWS), author=authoring.FakeAuthor(),
+        session=graph_writer.DryRunSession(), prefixes=_PREFIXES,
+        state_path=state, out_dir=out, now_iso=_NOW, cve_ids=["CVE-2099-0001"])
+    assert report.matched == 1          # 타깃 1건만(허용목록 필터 건너뜀)
+    assert report.authored == 1
+    assert report.advanced_to is None   # 타깃 모드는 워터마크 미전진
+
+
 # ───────────── 워터마크 ─────────────
 def test_watermark_first_run_uses_window_then_advances():
     state, out = _tmp_state()
