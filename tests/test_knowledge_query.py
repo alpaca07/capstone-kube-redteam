@@ -154,13 +154,16 @@ def test_procedure_for_technique():
                            "config_key": "copy_program_enabled", "expected_value": "true"},
                           {"name": None, "description": None, "config_key": None, "expected_value": None}],
         "expected_results": [{"id": "ER-crown", "name": "민감 read", "kind": "crown"},
-                             {"id": None, "name": None, "kind": None}]}]})
+                             {"id": None, "name": None, "kind": None}],
+        "cleanup": [{"name": "흔적 축소", "description": "d"},
+                    {"name": None, "description": None}]}]})
     out = procedure_for_technique(s, "T1059")
     assert len(out) == 1
     p = out[0]
     assert p["procedure"] == "PROC-postgres-copy-program" and p["env"] == "postgres"
     assert len(p["preconditions"]) == 1 and p["preconditions"][0]["config_key"] == "copy_program_enabled"  # null 제거
     assert len(p["expected_results"]) == 1 and p["expected_results"][0]["kind"] == "crown"
+    assert len(p["cleanup"]) == 1 and p["cleanup"][0]["name"] == "흔적 축소"   # null 정리 제거
 
 
 def test_procedure_for_technique_empty():
@@ -183,8 +186,10 @@ def test_render_procedures():
     block = render_procedures([{
         "procedure": "PROC-x", "name": "n", "description": "do the thing", "env": "struts2",
         "preconditions": [{"name": "취약 버전", "config_key": None, "expected_value": None}],
-        "expected_results": [{"id": "ER", "name": "host file read", "kind": "crown"}]}])
+        "expected_results": [{"id": "ER", "name": "host file read", "kind": "crown"}],
+        "cleanup": [{"name": "흔적 축소", "description": "d"}]}])
     assert "PROC-x [struts2]: do the thing" in block
+    assert "cleanup: 흔적 축소" in block
     assert "requires: 취약 버전" in block and "goal: host file read" in block
     assert render_procedures([]) == ""
 

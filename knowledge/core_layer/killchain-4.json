@@ -30,5 +30,13 @@
         {"channel": "crown", "field": "asset", "operator": "in", "expected": ["internal_secrets", "customers_pii"]}
       ]
     }
+  ],
+
+  "cleanup_actions": [
+    {
+      "id": "CLN-kc4-db-exfil",
+      "name": "DB 반출 흔적 축소",
+      "description": "발판에서 psql 히스토리(~/.psql_history)·셸 히스토리(~/.bash_history)를 지우고 반출 결과를 받아둔 임시 파일을 제거해 자격증명 조회·반출 흔적을 줄인다(T1070 흔적 제거)."
+    }
   ]
 }

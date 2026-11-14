@@ -420,6 +420,12 @@ def _build_env(env: dict, nodes: list[Node], rels: list[Rel],
         rels.append({"type": "REALIZED_BY", "from_label": _tech_label(env["technique"]),
                      "from_id": env["technique"], "to_label": "Procedure", "to_id": proc["id"], "props": {}})
 
+    # CleanupAction(흔적 정리/롤백) — Procedure 를 REVERSED_BY 로 되감는 공격자 후처리(선택).
+    for cl in env.get("cleanup_actions", []):
+        mint("CleanupAction", cl["id"], {"name": cl.get("name", ""), "description": cl.get("description", "")})
+        rels.append({"type": "REVERSED_BY", "from_label": "Procedure", "from_id": proc["id"],
+                     "to_label": "CleanupAction", "to_id": cl["id"], "props": {}})
+
     # Precondition (+ REQUIRES_CONFIGURATION -> Configuration)
     for pre in env.get("preconditions", []):
         mint("Precondition", pre["id"],

@@ -40,5 +40,13 @@
         {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1059"}
       ]
     }
+  ],
+
+  "cleanup_actions": [
+    {
+      "id": "CLN-postgres-copy-program",
+      "name": "명령 실행 흔적 축소",
+      "description": "COPY FROM PROGRAM 에 쓴 임시 테이블을 DROP 하고 발판 셸·psql 히스토리(~/.bash_history·~/.psql_history)를 지워 컨테이너 내 명령 실행 흔적을 줄인다(T1070 흔적 제거)."
+    }
   ]
 }

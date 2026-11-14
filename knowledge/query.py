@@ -249,11 +249,13 @@ def procedure_for_technique(session: Session, tech_id: str) -> list[dict]:
         "OPTIONAL MATCH (p)-[:REQUIRES]->(pre:Precondition) "
         "OPTIONAL MATCH (pre)-[rc:REQUIRES_CONFIGURATION]->(cfg:Configuration) "
         "OPTIONAL MATCH (p)-[:PRODUCES]->(er:ExpectedResult) "
+        "OPTIONAL MATCH (p)-[:REVERSED_BY]->(cl:CleanupAction) "
         "RETURN p.id AS procedure, p.name AS name, p.description AS description, "
         "p.env AS env, p.cve AS cve, p.cwe AS cwe, p.status AS status, "
         "collect(DISTINCT {name: pre.name, description: pre.description, "
         "config_key: cfg.config_key, expected_value: rc.expected_value}) AS preconditions, "
-        "collect(DISTINCT {id: er.id, name: er.name, kind: er.kind}) AS expected_results",
+        "collect(DISTINCT {id: er.id, name: er.name, kind: er.kind}) AS expected_results, "
+        "collect(DISTINCT {name: cl.name, description: cl.description}) AS cleanup",
         id=t))
     out = []
     for r in rows:
@@ -261,10 +263,11 @@ def procedure_for_technique(session: Session, tech_id: str) -> list[dict]:
             continue
         pres = [pp for pp in (r.get("preconditions") or []) if pp.get("name")]       # null 전제 제거
         ers = [ee for ee in (r.get("expected_results") or []) if ee.get("id")]
+        cleans = [cc for cc in (r.get("cleanup") or []) if cc.get("name")]   # null 정리 제거
         out.append({"procedure": r["procedure"], "name": r.get("name"),
                     "description": r.get("description"), "env": r.get("env"),
                     "cve": r.get("cve"), "cwe": r.get("cwe"), "status": r.get("status"),
-                    "preconditions": pres, "expected_results": ers})
+                    "preconditions": pres, "expected_results": ers, "cleanup": cleans})
     return out
 
 
@@ -288,6 +291,9 @@ def render_procedures(procedures: list[dict], *, limit: int = 6) -> str:
         goals = [e.get("name") for e in (p.get("expected_results") or []) if e.get("kind") == "crown"]
         if goals:
             lines.append(f"    goal: {', '.join(g for g in goals if g)}")
+        cleans = [c.get("name") for c in (p.get("cleanup") or []) if c.get("name")]
+        if cleans:
+            lines.append(f"    cleanup: {', '.join(cleans)}")
     return "\n".join(lines)
 
 
