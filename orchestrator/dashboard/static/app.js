@@ -1506,17 +1506,21 @@
     var vbars = barChart([{ label: "차단", value: vc.blocked || 0, color: C.ok }, { label: "무효 패치", value: fake, color: C.atk }, { label: "판정불가", value: vc.inconclusive || 0, color: C.sys }]);
     var rows = rs.map(function (r) {
       var vv = VERDICT[r.verdict], depth = (r.stages_reached || []).length ? Math.max.apply(null, r.stages_reached) : 0;
-      return "<tr><td class='mono'>R" + r.round + "</td><td>" + (vv ? '<span class="badge ' + vv.cls + '">' + vv.label + "</span>" : esc(r.verdict)) + "</td><td class='mono'>" + ((r.reported_techniques || []).join(", ") || "—") + "</td><td class='mono'>" + depth + "단계</td><td>" + (r.healthcheck_passed ? '<span class="badge b-ok">정상</span>' : '<span class="badge b-atk">중단</span>') + "</td></tr>";
+      var key = (r.episode || e.episode) + "-" + r.round;
+      var jmp = '<div class="rep-jmps"><button class="rep-jmp" data-rjag="' + key + '">추적 그래프 ↗</button>' +
+        '<button class="rep-jmp" data-rjdef="' + key + '">탐지·검증 ↗</button></div>';
+      return "<tr><td class='mono'>R" + r.round + "</td><td>" + (vv ? '<span class="badge ' + vv.cls + '">' + vv.label + "</span>" : esc(r.verdict)) + "</td><td class='mono'>" + ((r.reported_techniques || []).join(", ") || "—") + "</td><td class='mono'>" + depth + "단계</td><td>" + (r.healthcheck_passed ? '<span class="badge b-ok">정상</span>' : '<span class="badge b-atk">중단</span>') + "</td><td>" + jmp + "</td></tr>";
     }).join("");
+    var timeline = '<div class="section-label">라운드별 타임라인 · 근거</div>' +
+      '<div class="card" style="padding:0;overflow:hidden"><table class="tbl"><thead><tr><th>라운드</th><th>판정</th><th>탐지 기법</th><th>침투</th><th>서비스</th><th>근거</th></tr></thead><tbody>' + rows + "</tbody></table></div>";
     var detail = '<details class="rep-details"><summary>전문가용 상세 보기</summary>' +
-      '<div class="section-label">판정 분포</div><div class="card">' + vbars + "</div>" +
-      '<div class="section-label">라운드별 타임라인</div><div class="card" style="padding:0;overflow:hidden"><table class="tbl"><thead><tr><th>라운드</th><th>판정</th><th>탐지 기법</th><th>침투</th><th>서비스</th></tr></thead><tbody>' + rows + "</tbody></table></div></details>";
+      '<div class="section-label">판정 분포</div><div class="card">' + vbars + "</div></details>";
 
     return (S.demo ? demoBanner() : "") + chips +
       '<div class="rep-head">' + e.episode + "회차 · " + e.rounds + "라운드 · " + esc(endReasonLabel(e.end_reason)) + "</div>" +
       '<div class="grid cols-6" style="margin:10px 0 2px">' + tiles + "</div>" +
       '<div class="card rep-narr">' + esc(narr) + "</div>" +
-      '<div class="section-label">실제 vs 방어자 추측</div>' + cmp + detail;
+      '<div class="section-label">실제 vs 방어자 추측</div>' + cmp + timeline + detail;
   }
 
   // ───────── 스텁(다음 단계) ─────────
@@ -1549,6 +1553,13 @@
   function bindRepChips() {
     Array.prototype.forEach.call(document.querySelectorAll(".rchip[data-ep]"), function (b) {
       b.onclick = function () { repEp = parseInt(b.getAttribute("data-ep"), 10); $("#view").innerHTML = pageReport(); bindRepChips(); };
+    });
+    // 근거 연결 — 보고서 라운드 → 그 라운드의 공격 추적 그래프 / 탐지·검증 상세로 점프
+    Array.prototype.forEach.call(document.querySelectorAll("[data-rjag]"), function (b) {
+      b.onclick = function () { agRkey = b.getAttribute("data-rjag"); agSel = null; agView = null; S.agSeen = {}; S.agSig = null; location.hash = "attack-graph"; };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-rjdef]"), function (b) {
+      b.onclick = function () { defSel = b.getAttribute("data-rjdef"); S.defJumpSection = "all"; S.defSig = null; location.hash = "defender-graph"; };
     });
   }
   function bindEventTabs() {

@@ -450,6 +450,10 @@ button { font-family: inherit; }
 /* 회차 보고서 */
 .rep-head { font-weight: 700; font-size: 15.5px; letter-spacing: -.01em; }
 .rep-narr { font-size: 13.5px; line-height: 1.75; color: var(--text); margin-top: 14px; }
+.rep-jmps { display: flex; gap: 6px; flex-wrap: wrap; }
+.rep-jmp { font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; color: var(--teal-600);
+  background: var(--teal-soft); border: 1px solid transparent; border-radius: 6px; padding: 3px 8px; cursor: pointer; white-space: nowrap; }
+.rep-jmp:hover { background: var(--teal); color: #fff; }
 .rep-line { display: flex; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--surface-3); font-size: 13px; }
 .rep-line:last-child { border-bottom: none; }
 .rep-k { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); width: 112px; flex: none; }
