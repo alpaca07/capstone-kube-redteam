@@ -159,6 +159,22 @@ def techniques_for_product(session: Session, term: str) -> list[dict]:
             for r in bridge]
 
 
+def products_for_technology(session: Session, term: str) -> list[str]:
+    """용어가 기술(언어/런타임) 이름이면 그 기술로 구현된 제품명들(USES_TECHNOLOGY 역방향).
+
+    1차에서 제품 직접매칭이 빗나간 언어/런타임 용어(java·python…)를 제품군으로 펴, 각 제품을
+    techniques_for_product 로 돌려 후보 기법을 넓힌다(pre-CPE 자산의 배너/이미지 언어 식별 대응).
+    """
+    t = (term or "").strip().lower()
+    if not t:
+        return []
+    rows = _rows(session.run(
+        "MATCH (tech:Technology) WHERE toLower(tech.id) = $t OR toLower(tech.name) = $t "
+        "MATCH (tech)<-[:USES_TECHNOLOGY]-(p:Product) "
+        "RETURN DISTINCT p.name AS name", t=t))
+    return [r["name"] for r in rows if r.get("name")]
+
+
 def knowledge_for_terms(session: Session, terms: Iterable[str]) -> dict:
     """여러 관측 용어 → 후보 기법 집계(플래너 situation 공급, LLM 바인딩용).
 
@@ -196,7 +212,17 @@ def knowledge_for_terms(session: Session, terms: Iterable[str]) -> dict:
             for tech in techs:
                 _accum(tech, t)
             continue
-        # ② description 텍스트 검색 폴백(거침): CVE 설명에 용어가 든 것
+        # ② 기술(언어/런타임) 경로 — 제품 직접매칭 실패 시, 그 기술로 구현된 제품군으로 확장
+        tech_products = products_for_technology(session, t)
+        if tech_products:
+            cves_acc: set = set()
+            for pname in tech_products:
+                for tech in techniques_for_product(session, pname):
+                    _accum(tech, t)
+                    cves_acc.update(tech.get("cves") or [])
+            by_term[t] = sorted(cves_acc)
+            continue
+        # ③ description 텍스트 검색 폴백(거침): CVE 설명에 용어가 든 것
         cids = cves_for_term(session, t)
         by_term[t] = cids
         for cve in cids:

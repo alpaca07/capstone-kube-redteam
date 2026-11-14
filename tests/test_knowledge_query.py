@@ -12,7 +12,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from knowledge.query import (  # noqa: E402
-    cve_facts, cves_for_term, knowledge_for_terms, procedure_for_technique,
+    cve_facts, cves_for_term, knowledge_for_terms, procedure_for_technique, products_for_technology,
     render_kg_candidates, render_procedures, techniques_for_cve, techniques_for_product)
 
 
@@ -22,7 +22,8 @@ class FakeSession:
     분기 순서 주의: Product 경로 쿼리(IDENTIFIED_BY 포함)를 CVE 레벨 분기보다 먼저 본다.
     """
     def __init__(self, *, cve_by_term=None, direct_by_cve=None, bridge_by_cve=None,
-                 facts_by_cve=None, product_direct=None, product_bridge=None, procs_by_tech=None):
+                 facts_by_cve=None, product_direct=None, product_bridge=None, procs_by_tech=None,
+                 tech_products=None):
         self.cve_by_term = cve_by_term or {}        # {term_lower: [cve_id]}
         self.direct_by_cve = direct_by_cve or {}    # {cve_id: [row]}
         self.bridge_by_cve = bridge_by_cve or {}    # {cve_id: [row]}
@@ -30,12 +31,15 @@ class FakeSession:
         self.product_direct = product_direct or {}  # {term: [row(+cves)]}
         self.product_bridge = product_bridge or {}  # {term: [row(+cves)]}
         self.procs_by_tech = procs_by_tech or {}    # {tech_id: [procedure row]}
+        self.tech_products = tech_products or {}    # {term_lower: [{name}]} — products_for_technology
 
     def run(self, q, **p):
         if "IDENTIFIED_BY" in q and "EXPLOITED_BY" in q:        # techniques_for_product (direct)
             return self.product_direct.get(p.get("t"), [])
         if "IDENTIFIED_BY" in q and "HAS_ATTACK_PATTERN" in q:  # techniques_for_product (bridge)
             return self.product_bridge.get(p.get("t"), [])
+        if "USES_TECHNOLOGY" in q:                              # products_for_technology
+            return self.tech_products.get(p.get("t"), [])
         if "CONTAINS" in q:                                     # cves_for_term
             return [{"id": c} for c in self.cve_by_term.get((p.get("t") or "").lower(), [])]
         if "EXPLOITED_BY" in q:                                 # techniques_for_cve (direct)
@@ -127,6 +131,21 @@ def test_knowledge_for_terms_description_fallback():
     assert kn["by_term"]["gitlab"] == ["CVE-2021-22205"]
     assert {a["technique"] for a in kn["aggregate"]} == {"T1190", "T1059"}
     assert kn["aggregate"][0]["terms"] == ["gitlab"]
+
+
+def test_knowledge_for_terms_technology_path():
+    # 제품 직접매칭 실패한 언어 용어(java) → 기술로 구현된 제품군(tomcat)의 기법으로 확장(② 기술 경로)
+    s = FakeSession(tech_products={"java": [{"name": "tomcat"}]},
+                    product_direct={"tomcat": [_prod("T1190", "Exploit", ["CVE-2017-5638"])]})
+    kn = knowledge_for_terms(s, ["java"])
+    assert kn["aggregate"][0]["technique"] == "T1190"          # java → tomcat → T1190
+    assert kn["by_term"]["java"] == ["CVE-2017-5638"]
+
+
+def test_products_for_technology():
+    s = FakeSession(tech_products={"java": [{"name": "tomcat"}, {"name": "jetty"}]})
+    assert products_for_technology(s, "Java") == ["tomcat", "jetty"]   # 대소문자 무시(쿼리 toLower)
+    assert products_for_technology(s, "  ") == []
 
 
 def test_knowledge_for_terms_empty_and_blank():

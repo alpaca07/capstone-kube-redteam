@@ -1,0 +1,14 @@
+# 기술 스택(언어/런타임) → 그 기술로 구현된 allowlist Product(vendor:product).
+#
+# 역할(d01 Technology 라벨): 서비스 종류(ServiceType=web_server·database…)와 '직교'하는 교차축.
+#   하나의 언어/런타임(java)이 여러 종류·제품(tomcat·jetty·spring_framework·jenkins)을 가로지른다.
+# 1차 소비처: pre-CPE 자산을 언어/런타임 배너(예: 이미지 python:3.11, "Apache Tomcat"의 java)로
+#   식별했을 때, 그 기술로 구현된 제품군의 CVE→기법을 후보로 확장(query.products_for_technology).
+#   load_products 가 Technology 노드 + Product-USES_TECHNOLOGY->Technology 로 적재(제품 없으면 관계 스킵).
+technologies:
+  - {id: java,   name: Java,   products: [apache:tomcat, eclipse:jetty, vmware:spring_framework, jenkins:jenkins, sonarsource:sonarqube, sonatype:nexus, apache:kafka, elastic:elasticsearch, redhat:keycloak]}
+  - {id: python, name: Python, products: [palletsprojects:flask, djangoproject:django]}
+  - {id: ruby,   name: Ruby,   products: [gitlab:gitlab, fluentd:fluentd]}
+  - {id: go,     name: Go,     products: [docker:docker, kubernetes:kubernetes, helm:helm, linuxfoundation:containerd, etcd:etcd, prometheus:prometheus, grafana:grafana, gitea:gitea, traefik:traefik]}
+  - {id: php,    name: PHP,    products: [php:php]}
+  - {id: c,      name: C,      products: [postgresql:postgresql, nginx:nginx, f5:nginx, apache:http_server, haproxy:haproxy, redis:redis, memcached:memcached, mariadb:mariadb]}
