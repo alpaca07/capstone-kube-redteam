@@ -342,8 +342,12 @@ class TurnSequencer:
         # 대시보드 계측(보조): 행위 이벤트 스트림 + 라운드 상세 원자료. 생략 라운드도 공격 활동 기록.
         self._record_round(episode, rnd, attack, defense, verification)
 
+        # 방어 성공 = 공격 경로 차단(BLOCKED) AND 서비스 가용성 유지. 서비스를 죽여 얻은
+        # BLOCKED(health=False, 과잉차단·자멸)은 성공으로 치지 않는다 → 게이팅 사다리·집계 제외.
+        # (verdict 표기는 BLOCKED 유지 — 경로는 실제로 닫혔으므로. availability 지표는 scorer 별도.)
         return RoundOutcome(round=rnd, verdict=verification.verdict,
-                            defense_succeeded=verification.defense_succeeded(),
+                            defense_succeeded=(verification.defense_succeeded()
+                                               and defense.healthcheck_passed),
                             flags_reached=verification.flags_still_reachable,
                             flag_found=flag_found)
 

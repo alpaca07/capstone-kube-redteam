@@ -60,11 +60,12 @@ def _defense_result() -> DefenseTurnResult:
 
 def _make(*, post_success: bool, n_consec: int = 2, max_rounds: int = 10,
           episodes: int = 1, kill=None, attacker_override=None, skip_revert: bool = False,
-          crown_sync_grace_sec: float = 0.0, crown_skew_pad_sec: float = 0.0, logs_override=None):
+          crown_sync_grace_sec: float = 0.0, crown_skew_pad_sec: float = 0.0, logs_override=None,
+          defense_result=None):
     attacker = attacker_override or FakeAttackerClient(
         replay_by_phase={PRE: _replay(PRE, True), POST: _replay(POST, post_success)},
         attack_result=_attack_result())
-    defender = FakeDefenderClient(defense_result=_defense_result(),
+    defender = FakeDefenderClient(defense_result=defense_result or _defense_result(),
                                   vulnerable_by_check={"1": False, "2": False, "3": False})
     snaps = FakeBaseline(existing=["clean-baseline"])
     registry = default_registry()
@@ -122,6 +123,21 @@ def test_consecutive_defense_ends_episode():
     s = seq.run_episode(1)
     assert s.end_reason == "consecutive_defense"
     assert s.rounds == 2                                            # 2연속 방어 성공 후 종료
+
+
+def test_overblock_blocked_but_unhealthy_not_defense_success():
+    # 과잉차단(자멸): 공격 경로는 BLOCKED 이나 health=False(서비스를 죽여 얻은 차단)면
+    # 방어 성공으로 안 친다. 게이팅 사다리가 +1 안 해 2연속 조기종료가 아니라 max_rounds 까지 간다.
+    dead = DefenseTurnResult(
+        patch_applied=True, end_reason=DefenseEndReason.PATCHED,
+        detected=[Detection(technique="T1078", evidence="over-block")],
+        healthcheck_passed=False, elapsed_sec=1.0)
+    seq, _ = _make(post_success=False, n_consec=2, max_rounds=3, defense_result=dead)
+    s = seq.run_episode(1)
+    assert s.end_reason == "max_rounds"              # 자멸이 성공으로 안 세져 2연속 미달
+    assert s.rounds == 3
+    assert s.verdict_counts.get("blocked") == 3      # verdict 표기는 BLOCKED 유지(경로는 닫힘)
+    assert s.availability == 0.0                     # 가용성 지표엔 자멸이 0 으로 잡힘
 
 
 def test_max_rounds_ends_episode():
