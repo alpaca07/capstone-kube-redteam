@@ -50,10 +50,15 @@ spec:
           image: localhost/corp-waf:vuln     # waf-vuln/Dockerfile 로 로컬 빌드 후 k3s ctr import
           imagePullPolicy: Never             # 로컬 이미지만 사용(레지스트리 조회 안 함)
           env:
-            - { name: MODSEC_RULE_ENGINE, value: "On" }   # 엔진 On — 취약 룰(3.3.0)로 검사
+            # ── 검증 모드(일시) ──────────────────────────────────────────────
+            # DetectionOnly: 취약 룰(3.3.0)을 전부 검사·로깅하되 '차단은 안 함'.
+            #   목적: 핑거프린트→KG→Tomcat exploit 체인이 corp-crown 까지 실제로
+            #         닫히는지 end-to-end 로 확인(바디룰 932/933/944 가 가로막던 지점 개방).
+            #   로그는 그대로 남으므로 무엇이 '차단될 뻔했는지'는 다 보인다(리포트 근거).
+            #   ★ WAF 우회를 다시 '공격자 자율 과제'로 돌리려면 이 값만 "On" 으로. ★
+            - { name: MODSEC_RULE_ENGINE, value: "DetectionOnly" }
             - { name: PORT, value: "8080" }
-            # CRS 911100(메서드 enforcement) 허용목록에 PUT 추가 — 메서드 자체는 통과시키되
-            # 바디 검사 룰(932/933/944)은 그대로 둔다(= 우회는 공격자 자율 과제). 라이브 패치를 매니페스트에 고정.
+            # CRS 911100(메서드 enforcement) 허용목록에 PUT 추가(On 복귀 시에도 메서드는 통과).
             - { name: ALLOWED_METHODS, value: "GET HEAD POST OPTIONS PUT" }
           ports:
             - { containerPort: 8080 }
