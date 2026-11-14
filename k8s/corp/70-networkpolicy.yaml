@@ -1,7 +1,8 @@
 # corp 존 격리 — NetworkPolicy default-deny 후 한 방향만 개방.
 # 킬체인을 강제한다: 외부 → DMZ → 내부 → 크라운. 역방향·건너뛰기는 막힌다.
 # k3s 기본 CNI가 NetworkPolicy 를 집행한다(기존 킬체인의 '③ NetworkPolicy 부재'와 반대로, 여기선 건다).
-# ingress 만 통제한다(egress 자유) → DNS·외부 조회는 되고, '들어오는 방향'의 존 경계만 강제된다.
+# 존 경계는 ingress 로 강제한다(아래 1~3블록). egress 는 본래 자유였으나, 맨 아래 '교차 시나리오
+# 격리' 블록이 '클러스터 내부=corp 만' 으로 좁힌다 — corp→ShopFlow 샘 차단(외부 콜백·DNS 는 유지).
 #
 # ※ 지금은 WAF 가 없어 ext → dmz 를 직접 연다. 4b(WAF) 추가 시 allow-from-ext 를
 #   'WAF 파드로만' 좁혀 WAF 를 유일 진입점으로 만든다.
@@ -91,3 +92,113 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels: { zone: internal }
+---
+# ════════════════ 교차 시나리오 격리(egress) — corp ↔ ShopFlow 차단 ════════════════
+# 위 ingress 존 경계와 별개 축. 같은 클러스터의 ShopFlow(frontend/backend/database/internal)는
+# '③ NetworkPolicy 부재'가 의도된 취약이라 어디서든 받는다 → corp 발판이 그리로 샌다(공격자 산만).
+# 해법: 'egress 전부 차단'이 아니라 '클러스터 밖은 열고, 클러스터 안은 corp 만' 허용.
+#   ① 외부(0.0.0.0/0 − 클러스터CIDR): 공격서버 VM A 콜백(Log4Shell JNDI·웹셸 리버스)·발판 apk 유지
+#   ② corp 네임스페이스(part-of=capstone-corp): 킬체인 피벗(ext→dmz→internal→crown) 유지
+#   ③ kube-system:53: DNS(.svc 이름해석) 유지
+#   → ShopFlow(클러스터 내부 비-corp)만 '도달 불가'. ShopFlow 매니페스트는 無수정(의도된 취약 보존).
+# ※ 클러스터 CIDR 은 k3s 기본값(파드 10.42.0.0/16 · 서비스 10.43.0.0/16) 기준.
+#   확인:  kubectl -n corp-ext get pod -o wide → 발판 IP 가 10.42.x 면 그대로 OK.
+# ※ 리셋 비대상: baseline target_namespaces=(frontend/backend/database/internal)뿐 → corp NP 는
+#   수동 적용 후 영구 지속(에피소드마다 안 지워짐).
+# 발판(ext)·웹(dmz)·측면(internal)·크라운(crown) 모든 발판 지점에 동일 적용(공격자가 쉘 얻는 어디서든 차단).
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: egress-isolate-shopflow
+  namespace: corp-ext
+  labels: { app.kubernetes.io/part-of: capstone-corp }
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:                                  # ① 클러스터 밖(외부)만 — VM A 콜백·apk
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.42.0.0/16, 10.43.0.0/16]
+    - to:                                  # ② corp 내부(킬체인 피벗)
+        - namespaceSelector:
+            matchLabels: { app.kubernetes.io/part-of: capstone-corp }
+    - to:                                  # ③ DNS
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: egress-isolate-shopflow
+  namespace: corp-dmz
+  labels: { app.kubernetes.io/part-of: capstone-corp }
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.42.0.0/16, 10.43.0.0/16]
+    - to:
+        - namespaceSelector:
+            matchLabels: { app.kubernetes.io/part-of: capstone-corp }
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: egress-isolate-shopflow
+  namespace: corp-internal
+  labels: { app.kubernetes.io/part-of: capstone-corp }
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.42.0.0/16, 10.43.0.0/16]
+    - to:
+        - namespaceSelector:
+            matchLabels: { app.kubernetes.io/part-of: capstone-corp }
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: egress-isolate-shopflow
+  namespace: corp-crown
+  labels: { app.kubernetes.io/part-of: capstone-corp }
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.42.0.0/16, 10.43.0.0/16]
+    - to:
+        - namespaceSelector:
+            matchLabels: { app.kubernetes.io/part-of: capstone-corp }
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
