@@ -4,6 +4,12 @@
   "env": "struts2",
   "technique": "T1190",
   "cve": "CVE-2017-5638",
+  "advisory": {
+    "id": "ADV-struts2-2017-5638",
+    "name": "Apache Struts2 S2-045 (Jakarta Multipart OGNL)",
+    "affected_versions": "2.3.5–2.3.31, 2.5–2.5.10",
+    "url": "https://cwiki.apache.org/confluence/display/WW/S2-045"
+  },
 
   "procedure": {
     "id": "PROC-struts2-ognl-cmdi",

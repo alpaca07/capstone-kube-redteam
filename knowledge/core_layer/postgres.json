@@ -4,6 +4,12 @@
   "env": "postgres",
   "technique": "T1059",
   "cve": "CVE-2019-9193",
+  "advisory": {
+    "id": "ADV-postgres-2019-9193",
+    "name": "PostgreSQL COPY FROM PROGRAM (분쟁 CVE — 기능 악용)",
+    "affected_versions": "9.3–11.2 (슈퍼유저 또는 pg_execute_server_program 권한 필요)",
+    "url": "https://www.postgresql.org/about/news/cve-2019-9193-not-a-security-vulnerability-1935/"
+  },
 
   "procedure": {
     "id": "PROC-postgres-copy-program",

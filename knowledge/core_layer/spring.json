@@ -4,6 +4,12 @@
   "env": "spring",
   "technique": "T1190",
   "cve": "CVE-2022-22965",
+  "advisory": {
+    "id": "ADV-spring-2022-22965",
+    "name": "Spring Framework RCE (Spring4Shell)",
+    "affected_versions": "5.3.0–5.3.17, 5.2.0–5.2.19 (JDK 9+ · 톰캣 WAR)",
+    "url": "https://spring.io/security/cve-2022-22965"
+  },
 
   "procedure": {
     "id": "PROC-spring-classloader-webshell",

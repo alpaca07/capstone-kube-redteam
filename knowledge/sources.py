@@ -426,6 +426,17 @@ def _build_env(env: dict, nodes: list[Node], rels: list[Rel],
         rels.append({"type": "REVERSED_BY", "from_label": "Procedure", "from_id": proc["id"],
                      "to_label": "CleanupAction", "to_id": cl["id"], "props": {}})
 
+    # Advisory(d02) — CVE 의 공식 권고(영향 버전·출처 URL). CVE-DOCUMENTED_IN->Advisory.
+    adv = env.get("advisory")
+    if adv and env.get("cve"):
+        mint("Advisory", adv["id"], {"name": adv.get("name", ""),
+                                     "affected_versions": adv.get("affected_versions", ""),
+                                     "url": adv.get("url", "")})
+        # CVE 노드 보장(바텀층 선적재 전이어도 관계가 붙게; MERGE SET 이라 NVD 의 기존 props 안 덮음)
+        nodes.append({"label": "CVE", "id": env["cve"], "props": {}})
+        rels.append({"type": "DOCUMENTED_IN", "from_label": "CVE", "from_id": env["cve"],
+                     "to_label": "Advisory", "to_id": adv["id"], "props": {}})
+
     # Precondition (+ REQUIRES_CONFIGURATION -> Configuration)
     for pre in env.get("preconditions", []):
         mint("Precondition", pre["id"],

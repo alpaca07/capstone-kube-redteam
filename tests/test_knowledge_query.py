@@ -156,7 +156,9 @@ def test_procedure_for_technique():
         "expected_results": [{"id": "ER-crown", "name": "민감 read", "kind": "crown"},
                              {"id": None, "name": None, "kind": None}],
         "cleanup": [{"name": "흔적 축소", "description": "d"},
-                    {"name": None, "description": None}]}]})
+                    {"name": None, "description": None}],
+        "advisories": [{"affected_versions": "9.3–11.2", "url": "https://x"},
+                       {"affected_versions": None, "url": None}]}]})
     out = procedure_for_technique(s, "T1059")
     assert len(out) == 1
     p = out[0]
@@ -164,6 +166,7 @@ def test_procedure_for_technique():
     assert len(p["preconditions"]) == 1 and p["preconditions"][0]["config_key"] == "copy_program_enabled"  # null 제거
     assert len(p["expected_results"]) == 1 and p["expected_results"][0]["kind"] == "crown"
     assert len(p["cleanup"]) == 1 and p["cleanup"][0]["name"] == "흔적 축소"   # null 정리 제거
+    assert len(p["advisory"]) == 1 and p["advisory"][0]["affected_versions"] == "9.3–11.2"   # null 권고 제거
 
 
 def test_procedure_for_technique_empty():
@@ -187,9 +190,11 @@ def test_render_procedures():
         "procedure": "PROC-x", "name": "n", "description": "do the thing", "env": "struts2",
         "preconditions": [{"name": "취약 버전", "config_key": None, "expected_value": None}],
         "expected_results": [{"id": "ER", "name": "host file read", "kind": "crown"}],
-        "cleanup": [{"name": "흔적 축소", "description": "d"}]}])
+        "cleanup": [{"name": "흔적 축소", "description": "d"}],
+        "advisory": [{"affected_versions": "2.3.5–2.3.31", "url": "https://x"}]}])
     assert "PROC-x [struts2]: do the thing" in block
     assert "cleanup: 흔적 축소" in block
+    assert "advisory: 2.3.5–2.3.31 — https://x" in block
     assert "requires: 취약 버전" in block and "goal: host file read" in block
     assert render_procedures([]) == ""
 
