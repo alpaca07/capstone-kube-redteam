@@ -677,3 +677,22 @@ button { font-family: inherit; }
 .brief-tc-d.on { background: var(--ok-soft); color: var(--ok); }
 .brief-tc-d.off { background: var(--atk-soft); color: var(--atk); }
 @media (max-width: 760px) { .brief-tech { grid-template-columns: 1fr auto; } .brief-tech-h { display: none; } .brief-tc-f { display: none; } }
+
+/* ───────── 공인 위험도(CVSS v3.1 · 심판 god-view 산정) ───────── */
+.cvss-card { display: flex; flex-direction: column; gap: 10px; }
+.cvss-row { display: flex; gap: 13px; align-items: flex-start; padding: 11px 13px; border: 1px solid var(--border);
+  border-left: 3px solid var(--text-3); border-radius: var(--r-sm); background: var(--surface-2); }
+.cvss-row.sev-critical { border-left-color: #b11722; }
+.cvss-row.sev-high { border-left-color: var(--atk); }
+.cvss-row.sev-medium { border-left-color: var(--crown); }
+.cvss-row.sev-low { border-left-color: var(--sys); }
+.cvss-score { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 50px; }
+.cvss-num { font-family: var(--font-mono); font-size: 22px; font-weight: 700; letter-spacing: -.02em; line-height: 1; color: var(--text); }
+.cvss-score.sev-critical .cvss-num { color: #b11722; }
+.cvss-score.sev-high .cvss-num { color: var(--atk); }
+.cvss-score.sev-medium .cvss-num { color: var(--crown); }
+.cvss-score.sev-low .cvss-num { color: var(--sys); }
+.cvss-main { min-width: 0; flex: 1; }
+.cvss-asset { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
+.cvss-basis { font-size: 12px; color: var(--text-2); line-height: 1.5; }
+.cvss-vec { font-size: 10.5px; color: var(--text-3); margin-top: 4px; overflow-wrap: anywhere; }

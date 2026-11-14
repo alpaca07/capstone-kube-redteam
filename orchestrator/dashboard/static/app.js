@@ -251,6 +251,37 @@
     return { crowns: Object.keys(seen), goals: Object.keys(goalsSet), series: series,
       crownRounds: crownRounds, firstCrownRound: firstCrownRound, nrounds: S.rounds.length };
   }
+  // 심판 god-view CVSS(공인 등급) — 크라운별 {score,severity,vector,basis}. 회차 확정값 우선, 없으면 라운드 최신.
+  function crownCvss() {
+    var out = {};
+    S.rounds.forEach(function (r) { var bc = r.breach_cvss || {}; Object.keys(bc).forEach(function (c) { out[c] = bc[c]; }); });
+    S.episodes.forEach(function (e) { var bc = e.breach_cvss || {}; Object.keys(bc).forEach(function (c) { out[c] = bc[c]; }); });
+    return out;
+  }
+  function sevKo(s) { return ({ none: "없음", low: "낮음", medium: "중간", high: "높음", critical: "치명적" })[String(s).toLowerCase()] || s; }
+  // 크라운 집합의 최고 CVSS(보안 현황 타일용)
+  function maxCrownCvss(crowns) {
+    var cc = crownCvss(), top = null;
+    (crowns || []).forEach(function (c) { var v = cc[c]; if (v && (!top || v.score > top.score)) top = v; });
+    return top;
+  }
+  // 핵심 자산 침해 공인 등급 카드(CVSS v3.1 심판 산정) — 브리핑·보고서 공용.
+  function cvssCard(crowns) {
+    var cc = crownCvss();
+    var list = (crowns || []).filter(function (c) { return cc[c]; }).sort(function (a, b) { return cc[b].score - cc[a].score; });
+    if (!list.length) return "";
+    var rows = list.map(function (c) {
+      var v = cc[c], sev = String(v.severity).toLowerCase();
+      return '<div class="cvss-row sev-' + sev + '">' +
+        '<div class="cvss-score sev-' + sev + '"><span class="cvss-num">' + v.score + '</span><span class="sev-badge sev-' + sev + '">' + sevKo(sev) + "</span></div>" +
+        '<div class="cvss-main"><div class="cvss-asset">' + esc(crownLabel(c)) + "</div>" +
+        '<div class="cvss-basis">' + esc(v.basis || "") + "</div>" +
+        '<div class="cvss-vec mono">' + esc(v.vector || "") + "</div></div></div>";
+    }).join("");
+    return '<div class="section-label">핵심 자산 침해 · 공인 위험도(CVSS v3.1 · 심판 산정)</div>' +
+      '<div class="card cvss-card">' + rows +
+      '<div class="tile-sub" style="margin-top:4px">god-view 관측 기반 공인 등급 — 그래프 노드의 등급은 공격자 자체 평가로 별개입니다.</div></div>';
+  }
   // 노드 그래프 기반 자산별 침해 단계 — target 으로 자산을 묶고 도달 깊이를 매긴다.
   // 단계는 타깃마다 독립(0 미접근·1 정찰접근·2 정보확보·3 침해확인·4 데이터반출) → 자산 수만큼 병렬.
   var BREACH_STAGE = { 0: "미접근", 1: "정찰·접근", 2: "정보 확보", 3: "침해 확인", 4: "데이터 반출" };
@@ -347,9 +378,9 @@
 
   // ───────── 페이지: 보안 현황 ─────────
   function pagePosture() {
-    var a = agg(), ga = goalAgg();
+    var a = agg(), ga = goalAgg(), _topCv = maxCrownCvss(ga.crowns);
     var tiles = [
-      { k: "핵심 자산 침해", v: ga.crowns.length + "종", sub: ga.crowns.length ? ga.crowns.map(crownLabel).join(", ") : "반출된 핵심 자산 없음", cls: ga.crowns.length ? "accent-atk" : "accent-ok", dot: ga.crowns.length ? C.atk : C.ok },
+      { k: "핵심 자산 침해", v: ga.crowns.length + "종", sub: ga.crowns.length ? (ga.crowns.map(crownLabel).join(", ") + (_topCv ? " · CVSS " + _topCv.score + " " + sevKo(_topCv.severity) : "")) : "반출된 핵심 자산 없음", cls: ga.crowns.length ? "accent-atk" : "accent-ok", dot: ga.crowns.length ? C.atk : C.ok },
       { k: "공격 차단율", v: pct(a.blockRate), sub: "검증상 차단된 비율 (검증 " + a.decided + "건)", cls: "accent-ok", dot: C.ok },
       { k: "무효 패치율", v: pct(a.fakeRate), sub: "패치 적용에도 미차단 " + a.fake + "건", cls: a.fake ? "accent-atk" : "accent-ok", dot: C.atk },
       { k: "서비스 정상", v: pct(a.avail), sub: "패치 후 서비스 정상 비율", cls: "accent-def", dot: C.def },
@@ -1561,6 +1592,7 @@
       '<div class="rep-head">' + e.episode + "회차 · " + e.rounds + "라운드 · " + esc(endReasonLabel(e.end_reason)) + "</div>" +
       '<div class="grid cols-6" style="margin:10px 0 2px">' + tiles + "</div>" +
       '<div class="card rep-narr">' + esc(narr) + "</div>" +
+      cvssCard(crowns) +
       '<div class="section-label">실제 vs 방어자 추측</div>' + cmp + timeline + detail;
   }
 
@@ -1617,8 +1649,9 @@
     }).join("") + "</div>" : "";
     if (!nodes.length && !rs.length)
       return (S.demo ? demoBanner() : "") + emptyState("📄", "아직 공격 기록이 없습니다", "실행이 진행되면 자산별 침해·라운드별 공진화·기법별 전술이 여기 종합됩니다.", []);
+    var crowns = (e && e.crowns_reached) ? e.crowns_reached : (function () { var s = {}; rs.forEach(function (r) { (r.crowns_reached_cum || []).forEach(function (c) { s[c] = 1; }); }); return Object.keys(s); })();
     return (S.demo ? demoBanner() : "") + chips +
-      briefSummary(e, rs, nodes) + briefAssets(nodes, edges) + briefTimeline(rs, nodes) + briefTechniques(nodes, rs);
+      briefSummary(e, rs, nodes) + cvssCard(crowns) + briefAssets(nodes, edges) + briefTimeline(rs, nodes) + briefTechniques(nodes, rs);
   }
   // 1) 핵심 수치 요약 헤더
   function briefSummary(e, rs, nodes) {
