@@ -112,6 +112,7 @@ class TurnSequencer:
                  off_kg_sink: Optional[OffKgSink] = None,
                  progress: Optional[Callable[[dict], None]] = None,
                  events: Optional[EventSink] = None, detail_dir: Optional[str] = None,
+                 episode_sink: Optional[Callable[[dict], None]] = None,
                  kill_switch: Optional[Callable[[], bool]] = None,
                  sleeper: Callable[[float], None] = time.sleep) -> None:
         self.attacker = attacker
@@ -128,6 +129,7 @@ class TurnSequencer:
         self.progress = progress          # 실시간 진행 sink(/api/status 소스) — 없으면 무시
         self.events = events              # 행위 이벤트 sink(events.jsonl) — 없으면 무시
         self.detail_dir = detail_dir      # 라운드 상세 출력 디렉토리(round_detail/) — 없으면 무시
+        self.episode_sink = episode_sink  # 회차 요약 sink(episodes.jsonl) — 회차 종료 즉시 기록, 없으면 무시
         self.kill_switch = kill_switch
         self._sleep = sleeper              # 테스트에서 주입 가능(실제론 time.sleep)
 
@@ -137,7 +139,15 @@ class TurnSequencer:
         self._emit(status="running", total_episodes=self.params.episodes,
                    max_rounds=self.params.max_rounds,
                    time_limit_sec=self.params.time_limit_sec)
-        summaries = [self.run_episode(e) for e in range(1, self.params.episodes + 1)]
+        summaries = []
+        for _ep in range(1, self.params.episodes + 1):
+            s = self.run_episode(_ep)
+            summaries.append(s)
+            if self.episode_sink is not None:   # 회차 종료 즉시 기록 — run 미완·중단에도 끝난 회차 보존
+                try:
+                    self.episode_sink(s.to_dict())
+                except Exception:  # noqa: BLE001 — 기록 실패가 다음 회차를 막지 않음
+                    pass
         self._emit(status="done", phase=5, active=None, turn_started=None)
         return summaries
 

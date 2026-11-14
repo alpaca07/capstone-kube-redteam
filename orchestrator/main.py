@@ -68,7 +68,7 @@ def _build_snapshots(cfg: Config):
 
 
 def build_sequencer(cfg: Config, *, sink=None, progress=None, events=None,
-                    detail_dir=None, off_kg_sink=None,
+                    detail_dir=None, off_kg_sink=None, episode_sink=None,
                     params: Optional[RunParams] = None) -> TurnSequencer:
     """config + 실 어댑터로 턴 시퀀서 조립(I/O 없음 — 실제 연결은 run_experiment에서)."""
     attacker = HttpAttackerClient(cfg.network.attacker_url, token=cfg.network.shared_token)
@@ -113,7 +113,8 @@ def build_sequencer(cfg: Config, *, sink=None, progress=None, events=None,
                          verifier=verifier, logs=logs, registry=registry,
                          objectives=objectives, truth=truth,
                          params=params, sink=sink, off_kg_sink=off_kg_sink,
-                         progress=progress, events=events, detail_dir=detail_dir)
+                         progress=progress, events=events, detail_dir=detail_dir,
+                         episode_sink=episode_sink)
 
 
 def _params_from_args(cfg: Config, args: argparse.Namespace) -> RunParams:
@@ -241,6 +242,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     events_path = os.path.join(args.out_dir, "events.jsonl")
     off_kg_path = os.path.join(args.out_dir, "off_kg.jsonl")
     sink = jsonl_file_sink(rounds_path)
+    episode_sink = jsonl_file_sink(episodes_path)  # 회차 종료 즉시 기록 — run 미완·중단에도 끝난 회차 보존
     off_kg_sink = off_kg_file_sink(off_kg_path)   # off-KG 포획 저널(승격은 개발기 knowledge/promote.py)
     progress = ProgressSink(progress_path)       # 실시간 진행 상태(/api/status 소스)
     events = EventSink(jsonl_event_sink(events_path), run_id=params.run_id)  # 행위 이벤트(이벤트 로그·타임라인 소스)
@@ -249,7 +251,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     seq = build_sequencer(cfg, sink=sink, progress=progress,
                           events=events, detail_dir=detail_dir,
-                          off_kg_sink=off_kg_sink, params=params)
+                          off_kg_sink=off_kg_sink, episode_sink=episode_sink, params=params)
 
     print(f"[*] 실험 시작: episodes={params.episodes} max_rounds={params.max_rounds} "
           f"time_limit={params.time_limit_sec}s "
@@ -267,12 +269,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     _g = params.goal
     print(f"    공격자 목표={_g[:70] + ('…' if len(_g) > 70 else '')}")
 
-    summaries = seq.run_experiment()
-
-    import json
-    with open(episodes_path, "w", encoding="utf-8") as f:
-        for s in summaries:
-            f.write(json.dumps(s.to_dict(), ensure_ascii=False) + "\n")
+    summaries = seq.run_experiment()   # 회차 요약은 episode_sink 가 매 회차 즉시 episodes.jsonl 에 기록(위)
 
     print("\n[✓] 완료. 회차 요약:")
     for s in summaries:
