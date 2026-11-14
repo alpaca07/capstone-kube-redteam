@@ -6,6 +6,10 @@
 
 반환은 {kind, name, attrs} 리스트 — kind는 유동(자산 그래프 설계대로 거친 분류만).
 name은 자산 그래프 dedup 키라 정규화(소문자·공백제거).
+
+추가(corp 검증용): WAF·LB 가 가리는 백엔드 제품(tomcat·solr 등)을 응답·경로 배너로
+핑거프린트해 'software' 자산으로 포집한다 — 자산명이 KG 조회 용어가 되어 제품 CVE 절차가
+플래너에 떠오르게 한다('미식별→2단계 식별' 설계의 식별 보강). _SW_SIGNS 표로 제품 추가.
 """
 from __future__ import annotations
 
@@ -22,6 +26,16 @@ _IP = re.compile(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b")
 # DB 접속 꼴: -h <host> ... -p <port> (psql/mysql/redis-cli 등, 포트가 콜론 아님)
 _DB_HOST = re.compile(r"-h\s+([a-z0-9][a-z0-9.\-]*)", re.I)
 _DB_PORT = re.compile(r"-p\s+(\d+)")
+
+# 백엔드 SW 핑거프린트(강신호만) — WAF·LB 가 가리는 실제 제품(tomcat·solr 등)을 응답·경로·배너에서
+# 식별해 'software' 자산으로 포집한다. 자산명이 KG 조회 용어가 되어(knowledge_for_terms) 해당
+# 제품 CVE 절차가 플래너에 떠오른다. 서비스명(waf)만으론 KG 매칭이 안 되던 공백을 메움.
+# 오탐 방지로 제품 전용 경로·배너만 넣는다. 표는 확장 가능(제품별 강신호 1줄 추가).
+_SW_SIGNS = (
+    ("tomcat",  re.compile(r"apache[ -]?tomcat|\bcoyote\b|/manager/(?:html|status|text)", re.I)),
+    ("solr",    re.compile(r"\bsolr\b|/solr/", re.I)),
+    ("jenkins", re.compile(r"\bjenkins\b|x-jenkins|\bhudson\b", re.I)),
+)
 
 
 def _norm(name: str) -> str:
@@ -76,6 +90,11 @@ def extract_assets(texts, *, intent_target: str = "") -> list[dict]:
 
     for raw in texts:
         s = str(raw or "")
+        # 백엔드 SW 핑거프린트 — 응답·경로에서 제품 식별 → 'software' 자산(KG 조회 용어화).
+        #   WAF 뒤 tomcat/solr 처럼 서비스명에 안 드러나는 제품을 포집해 CVE 절차가 떠오르게 함.
+        for _sw, _pat in _SW_SIGNS:
+            if _pat.search(s):
+                add("software", _sw, source="fingerprint")
         # K8s 서비스 DNS (평면 — 네임스페이스 계층 추론은 섣부르니 안 함)
         for m in _SVC_DNS.finditer(s):
             add("service", m.group(1))
