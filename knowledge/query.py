@@ -253,6 +253,18 @@ def render_kg_candidates(knowledge: dict, *, limit: int = 12) -> str:
     return "\n".join(lines)
 
 
+def _advisories_for_cve(session: Session, cve: str) -> list[dict]:
+    """CVE id → 연결된 Advisory(영향버전·URL). 파라미터 앵커 질의라 null/빈 cve 는 안전히 빈 결과."""
+    c = (cve or "").strip()
+    if not c:
+        return []
+    rows = _rows(session.run(
+        "MATCH (c:CVE {id: $cve})-[:DOCUMENTED_IN]->(a:Advisory) "
+        "RETURN a.affected_versions AS affected_versions, a.url AS url", cve=c))
+    return [{"affected_versions": r.get("affected_versions"), "url": r.get("url")}
+            for r in rows if r.get("affected_versions") or r.get("url")]
+
+
 def procedure_for_technique(session: Session, tech_id: str) -> list[dict]:
     """기법/하위기법 → 그 기법을 실현하는 Procedure(들) + 전제·예상결과(핵심층 ④⑤ 질의).
 
@@ -276,14 +288,12 @@ def procedure_for_technique(session: Session, tech_id: str) -> list[dict]:
         "OPTIONAL MATCH (pre)-[rc:REQUIRES_CONFIGURATION]->(cfg:Configuration) "
         "OPTIONAL MATCH (p)-[:PRODUCES]->(er:ExpectedResult) "
         "OPTIONAL MATCH (p)-[:REVERSED_BY]->(cl:CleanupAction) "
-        "OPTIONAL MATCH (acve:CVE)-[:DOCUMENTED_IN]->(adv:Advisory) WHERE acve.id = p.cve "
         "RETURN p.id AS procedure, p.name AS name, p.description AS description, "
         "p.env AS env, p.cve AS cve, p.cwe AS cwe, p.status AS status, "
         "collect(DISTINCT {name: pre.name, description: pre.description, "
         "config_key: cfg.config_key, expected_value: rc.expected_value}) AS preconditions, "
         "collect(DISTINCT {id: er.id, name: er.name, kind: er.kind}) AS expected_results, "
-        "collect(DISTINCT {name: cl.name, description: cl.description}) AS cleanup, "
-        "collect(DISTINCT {affected_versions: adv.affected_versions, url: adv.url}) AS advisories",
+        "collect(DISTINCT {name: cl.name, description: cl.description}) AS cleanup",
         id=t))
     out = []
     for r in rows:
@@ -292,7 +302,9 @@ def procedure_for_technique(session: Session, tech_id: str) -> list[dict]:
         pres = [pp for pp in (r.get("preconditions") or []) if pp.get("name")]       # null 전제 제거
         ers = [ee for ee in (r.get("expected_results") or []) if ee.get("id")]
         cleans = [cc for cc in (r.get("cleanup") or []) if cc.get("name")]   # null 정리 제거
-        advs = [aa for aa in (r.get("advisories") or []) if aa.get("affected_versions") or aa.get("url")]
+        # advisory 는 별도 anchored 질의 — mega 쿼리에 p.cve WHERE 를 끼우면 cve 없는 절차(킬체인 등)의
+        # 다른 collect(cleanup)까지 비는 Neo4j OPTIONAL MATCH+WHERE 상호작용을 피한다.
+        advs = _advisories_for_cve(session, r.get("cve"))
         out.append({"procedure": r["procedure"], "name": r.get("name"),
                     "description": r.get("description"), "env": r.get("env"),
                     "cve": r.get("cve"), "cwe": r.get("cwe"), "status": r.get("status"),

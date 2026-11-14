@@ -23,7 +23,7 @@ class FakeSession:
     """
     def __init__(self, *, cve_by_term=None, direct_by_cve=None, bridge_by_cve=None,
                  facts_by_cve=None, product_direct=None, product_bridge=None, procs_by_tech=None,
-                 tech_products=None):
+                 tech_products=None, advisories_by_cve=None):
         self.cve_by_term = cve_by_term or {}        # {term_lower: [cve_id]}
         self.direct_by_cve = direct_by_cve or {}    # {cve_id: [row]}
         self.bridge_by_cve = bridge_by_cve or {}    # {cve_id: [row]}
@@ -32,6 +32,7 @@ class FakeSession:
         self.product_bridge = product_bridge or {}  # {term: [row(+cves)]}
         self.procs_by_tech = procs_by_tech or {}    # {tech_id: [procedure row]}
         self.tech_products = tech_products or {}    # {term_lower: [{name}]} — products_for_technology
+        self.advisories_by_cve = advisories_by_cve or {}   # {cve_id: [{affected_versions, url}]} — _advisories_for_cve
 
     def run(self, q, **p):
         if "IDENTIFIED_BY" in q and "EXPLOITED_BY" in q:        # techniques_for_product (direct)
@@ -56,6 +57,8 @@ class FakeSession:
                 if k == qid or (qid == base and k.startswith(base + ".")):
                     merged += rows
             return merged
+        if "DOCUMENTED_IN" in q:                                # _advisories_for_cve
+            return self.advisories_by_cve.get(p.get("cve"), [])
         return []
 
 
@@ -175,9 +178,9 @@ def test_procedure_for_technique():
         "expected_results": [{"id": "ER-crown", "name": "민감 read", "kind": "crown"},
                              {"id": None, "name": None, "kind": None}],
         "cleanup": [{"name": "흔적 축소", "description": "d"},
-                    {"name": None, "description": None}],
-        "advisories": [{"affected_versions": "9.3–11.2", "url": "https://x"},
-                       {"affected_versions": None, "url": None}]}]})
+                    {"name": None, "description": None}]}]},
+        advisories_by_cve={"CVE-2019-9193": [{"affected_versions": "9.3–11.2", "url": "https://x"},
+                                             {"affected_versions": None, "url": None}]})
     out = procedure_for_technique(s, "T1059")
     assert len(out) == 1
     p = out[0]
@@ -198,8 +201,11 @@ def test_procedure_for_technique_parent_inherits_subtech():
     s = FakeSession(procs_by_tech={"T1552.001": [{
         "procedure": "PROC-kc1-wiki-cred-harvest", "name": "자격증명 수확", "description": "민감파일 수확",
         "env": "killchain-1", "cve": None, "cwe": None, "status": "AUTHORED",
-        "preconditions": [], "expected_results": [{"id": "ER-kc1", "name": "크라운", "kind": "crown"}]}]})
-    assert procedure_for_technique(s, "T1552")[0]["procedure"] == "PROC-kc1-wiki-cred-harvest"   # 부모→하위 상속
+        "preconditions": [], "expected_results": [{"id": "ER-kc1", "name": "크라운", "kind": "crown"}],
+        "cleanup": [{"name": "흔적 축소", "description": "d"}]}]})
+    p = procedure_for_technique(s, "T1552")[0]
+    assert p["procedure"] == "PROC-kc1-wiki-cred-harvest"                                          # 부모→하위 상속
+    assert len(p["cleanup"]) == 1 and p["advisory"] == []   # cve 없는 절차도 cleanup 살고 advisory 는 빔(회귀 잠금)
     assert procedure_for_technique(s, "T1552.001")[0]["env"] == "killchain-1"                      # 하위 자기 자신
     assert procedure_for_technique(s, "T1078") == []                                               # 무관 기법 안 샘
 
