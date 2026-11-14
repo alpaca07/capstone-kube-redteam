@@ -60,9 +60,14 @@ class AttackHarness:
                  mode: str = "single", planner_llm=None, round_cfg=None,
                  graph_backend: str = "memory", neo4j_driver=None,
                  neo4j_database=None,
+                 runner_factory=None,
                  log: Optional[Callable[[str], None]] = None) -> None:
         self.llm = llm
         self.runner = runner
+        # 런타임 발판 전환: StartTurn 의 exec_namespace/pod 가 오면 이 팩토리로 exec 러너를 재조립한다
+        # (대시보드 타깃 선택 → 발판 자동전환). None(발판 미전달)이면 위 runner 그대로(config 기본, 하위호환).
+        self._runner_factory = runner_factory
+        self._exec_key = None                # 현재 exec 발판(ns, pod) — 값이 바뀔 때만 재조립
         self.scope = scope_policy
         self.system_prompt = system_prompt
         # 실시간 저널 — 스텝 로그를 포집해 버퍼에 쌓고(/journal 로 VM C가 증분 폴링), 나머진 그대로 출력.
@@ -163,9 +168,24 @@ class AttackHarness:
         # '자산 0개 → 의도 0개' 붕괴(플래너가 빈 태세를 읽음)를 막는다.
         with self._turn_lock:
             self._journal_reset(round)          # 새 턴 = 새 저널(폴러 since=0 정합)
+            self._maybe_switch_foothold(start)  # 대시보드 타깃 발판 override(런타임 exec 전환)
             if self.mode == "parallel" and self.planner_llm is not None:
                 return self._attack_turn_parallel(start, episode=episode, round=round)
             return self._attack_turn_single(start, episode=episode, round=round)
+
+    def _maybe_switch_foothold(self, start: AttackTurnStart) -> None:
+        """StartTurn 의 exec_namespace/pod 가 오면 exec 러너를 그 발판으로 재조립(값이 바뀔 때만).
+        대시보드 타깃 선택이 발판까지 자동 전환되게 한다. 둘 중 하나라도 없거나 exec_mode 가 아니면
+        (runner_factory=None) 서버 config 기본 발판 유지 — 팀원 기존 동작 그대로(하위호환)."""
+        ns = getattr(start, "exec_namespace", None)
+        pod = getattr(start, "exec_pod", None)
+        if not (ns and pod and self._runner_factory is not None):
+            return
+        key = (ns, pod)
+        if self._exec_key != key:
+            self.runner = self._runner_factory(ns, pod)
+            self._exec_key = key
+            self.log(f"[발판] exec 대상 전환 → {ns}/{pod}")
 
     # ── 병렬 워커 턴(ARTEX식: 플래너+워커 N) ──
     def _new_episode_graph(self, episode: int):
@@ -302,13 +322,15 @@ def create_harness(cfg, *, prompt: Optional[str] = None, runner=None, llm=None) 
     # 가 SYN 을 DROP → 커넥트 대기) 이게 크면 한 스텝이 턴 예산·오케스트레이터 read timeout(=예산+30)을
     # 넘겨 회차를 ABORT 시킨다(2026-10-17 다중회차: nc 5432 가 120s 매달려 E2·E3 중단). → 15s 캡.
     step_to = float(min(cfg.experiment.time_limit_sec, 15))
+    runner_factory = None
     if runner is None:
         if cfg.attack.exec_mode:
-            # ★ 발판 = frontend 파드 '안'(웹 계층 침해). 모든 명령을 kubectl exec 로 투명 래핑 →
+            # ★ 발판 = 클러스터 내부 파드 '안'(웹 계층 침해). 모든 명령을 kubectl exec 로 투명 래핑 →
             #   공격자가 internal-wiki·postgres 등 .svc.cluster.local 내부 서비스에 도달(①③④).
-            runner = KubectlExecRunner(
-                kubeconfig=cfg.attack.exec_kubeconfig, namespace=cfg.attack.exec_namespace,
-                pod_ref=cfg.attack.exec_pod, default_timeout=step_to)
+            #   팩토리로 만들어, StartTurn 이 발판을 override 하면 런타임 재조립(대시보드 타깃 자동전환).
+            def runner_factory(ns, pod, _kc=cfg.attack.exec_kubeconfig, _to=step_to):
+                return KubectlExecRunner(kubeconfig=_kc, namespace=ns, pod_ref=pod, default_timeout=_to)
+            runner = runner_factory(cfg.attack.exec_namespace, cfg.attack.exec_pod)
         else:
             # 로컬 실행(개발·테스트·외부 flat). cwd 를 빈 디렉토리로 격리 — 하네스 소스의
             # FLAG{...} 플레이스홀더를 긁어 가짜 플래그를 줍는 reward-hacking 방지.
@@ -358,7 +380,7 @@ def create_harness(cfg, *, prompt: Optional[str] = None, runner=None, llm=None) 
         step_timeout=step_to,
         mode=mode, planner_llm=planner_llm, round_cfg=round_cfg,
         graph_backend=graph_backend, neo4j_driver=neo4j_driver,
-        neo4j_database=neo4j_database)
+        neo4j_database=neo4j_database, runner_factory=runner_factory)
 
 
 def create_app(harness: AttackHarness):

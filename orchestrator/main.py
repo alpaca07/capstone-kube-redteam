@@ -79,6 +79,8 @@ def build_sequencer(cfg: Config, *, sink=None, progress=None, events=None,
     baseline = BaselineManager(
         runner=kubectl_runner(cfg.target.kubeconfig or None),
         manifest_paths=(str(_ROOT / "k8s" / "killchain"),),
+        # 발판 자동전환: baseline 회차간 재시작도 공격자 exec 와 같은 발판(cfg.attack, CLI override 반영됨)으로.
+        foothold=(cfg.attack.exec_namespace, cfg.attack.exec_pod.split("/")[-1]),
         baseline_name=cfg.vmware.baseline_snapshot)
     registry = default_registry()               # 상태검증·탐지 채점용(①②③·web·esc·disc)
     objectives = resolve_objectives(            # free=빈(채점 끔) / asset=선택(비면 전체)
@@ -108,7 +110,8 @@ def build_sequencer(cfg: Config, *, sink=None, progress=None, events=None,
             crown_sync_grace_sec=cfg.experiment.crown_sync_grace_sec,
             crown_skew_pad_sec=cfg.experiment.crown_skew_pad_sec,
             # exec_mode면 발판은 외부 URL 이 아니라 '클러스터 내부 파드'라 endpoint 를 비운다.
-            attack_endpoint=(None if cfg.attack.exec_mode else cfg.target.attack_endpoint))
+            attack_endpoint=(None if cfg.attack.exec_mode else cfg.target.attack_endpoint),
+            exec_namespace=cfg.attack.exec_namespace, exec_pod=cfg.attack.exec_pod)
     return TurnSequencer(attacker=attacker, defender=defender, snapshots=baseline,
                          verifier=verifier, logs=logs, registry=registry,
                          objectives=objectives, truth=truth,
@@ -133,6 +136,8 @@ def _params_from_args(cfg: Config, args: argparse.Namespace) -> RunParams:
         crown_skew_pad_sec=cfg.experiment.crown_skew_pad_sec,
         # exec_mode면 발판은 외부 URL 이 아니라 '클러스터 내부 파드'라 endpoint 를 비운다.
         attack_endpoint=(None if cfg.attack.exec_mode else cfg.target.attack_endpoint),
+        exec_namespace=cfg.attack.exec_namespace,   # 발판 override 반영(공격자에 StartTurn 으로 전달)
+        exec_pod=cfg.attack.exec_pod,
         skip_revert=args.no_revert,
         force_crown=args.force_crown)
 
@@ -215,6 +220,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                     help="free 모드 목표 문구 — 공격자에게 줄 '무엇을'(어디서·어떻게는 안 줌)")
     ap.add_argument("--target-assets", default=None,
                     help="asset 모드 크라운 자산 id 쉼표구분(예: crown-pii,crown-secrets). 비우면 전체")
+    ap.add_argument("--exec-namespace", default=None,
+                    help="in-cluster exec 발판 네임스페이스 override(대시보드 타깃→발판 자동전환; config.attack 덮음)")
+    ap.add_argument("--exec-pod", default=None,
+                    help="kubectl exec 대상 override(deploy/… 또는 파드명; config.attack 덮음)")
     ap.add_argument("--keep-logs", action="store_true",
                     help="지난 런 로그를 아카이브하지 않고 유지(기본: 새 런 시작 시 지난 로그를 "
                          "runs_archive/ 로 이관해 대시보드에 이전 그래프가 남지 않게 함)")
@@ -228,6 +237,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         cfg.experiment.objective = args.objective
     if args.target_assets is not None:
         cfg.experiment.target_assets = [s.strip() for s in args.target_assets.split(",") if s.strip()]
+    # 발판 override(대시보드 타깃→자동전환) — cfg.attack 에 반영: 공격자엔 StartTurn 으로, baseline 엔 build_sequencer 가 이 값으로 전달.
+    if args.exec_namespace is not None:
+        cfg.attack.exec_namespace = args.exec_namespace
+    if args.exec_pod is not None:
+        cfg.attack.exec_pod = args.exec_pod
     params = _params_from_args(cfg, args)
 
     os.makedirs(args.out_dir, exist_ok=True)

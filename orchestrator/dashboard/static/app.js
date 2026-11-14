@@ -520,11 +520,12 @@
   // 모드 = 파라미터 프리셋. 데모=짧은 1회차 시연, 통계=여러 회차 반복 수집.
   var MODES = { demo: { eps: 1, mr: 4, tl: 120, mt: 1024 }, stat: { eps: 10, mr: 10, tl: 180, mt: 1024 } };
   // 타깃 = 공격 목표(orchestrator --objective-mode/--target-assets). om/ta 가 null 이면 config 기본(ShopFlow).
+  // fn/fp = 발판(네임스페이스/파드) — 타깃 선택 시 발판까지 자동전환. ShopFlow=frontend, corp=corp-ext.
   var TARGETS = {
-    "default":  { label: "config 기본(ShopFlow)", om: null,    ta: null },
-    "corp-pii": { label: "corp · 고객 PII",        om: "asset", ta: "crown-pii" },
-    "corp-ops": { label: "corp · 운영 비밀",       om: "asset", ta: "crown-ops" },
-    "corp-all": { label: "corp · 전체(PII+운영)",  om: "asset", ta: "crown-pii,crown-ops" }
+    "default":  { label: "config 기본(ShopFlow)", om: null,    ta: null,                  fn: "frontend", fp: "deploy/attacker-foothold" },
+    "corp-pii": { label: "corp · 고객 PII",        om: "asset", ta: "crown-pii",           fn: "corp-ext", fp: "deploy/corp-attacker-foothold" },
+    "corp-ops": { label: "corp · 운영 비밀",       om: "asset", ta: "crown-ops",           fn: "corp-ext", fp: "deploy/corp-attacker-foothold" },
+    "corp-all": { label: "corp · 전체(PII+운영)",  om: "asset", ta: "crown-pii,crown-ops", fn: "corp-ext", fp: "deploy/corp-attacker-foothold" }
   };
   function pageControl() {
     var running = !!(S.status && S.status.running);
@@ -571,7 +572,8 @@
       var _tg = TARGETS[(($("#f-target") || {}).value)] || {};
       var body = { episodes: +$("#f-eps").value, max_rounds: +$("#f-mr").value, time_limit: +$("#f-tl").value,
         max_tokens: ($("#f-mt-unl") && $("#f-mt-unl").checked) ? null : +$("#f-mt").value, mode: $("#f-mode").value,
-        objective_mode: _tg.om || null, target_assets: _tg.ta || null, fresh: $("#f-fresh").checked };
+        objective_mode: _tg.om || null, target_assets: _tg.ta || null,
+        exec_namespace: _tg.fn || null, exec_pod: _tg.fp || null, fresh: $("#f-fresh").checked };
       var r = await fetch("/api/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then(function (x) { return x.json(); }).catch(function () { return { ok: false, error: "서버 연결 실패(데모 모드)" }; });
       msg.textContent = r.ok ? ("시작됨: " + r.id + (r.archived ? " · 이전 실행 보관됨" : "")) : "실패: " + (r.error || "");
       refreshRunStatus();

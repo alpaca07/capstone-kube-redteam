@@ -72,6 +72,8 @@ class RunParams:
     max_tokens: Optional[int] = None             # 공격 생성 토큰 상한(실험 파라미터; None=하네스 config 기본)
     baseline_snapshot: str = "clean-baseline"
     attack_endpoint: Optional[str] = None        # 첫 라운드 발판
+    exec_namespace: Optional[str] = None         # in-cluster exec 발판 네임스페이스(대시보드 타깃→자동전환). None=공격자 config 기본
+    exec_pod: Optional[str] = None               # kubectl exec 대상(deploy/… 또는 파드명). None=config 기본
     goal: str = DEFAULT_ASSET_GOAL               # 공격자에게 줄 '무엇을'(asset 전체 선택 시 기본)
     ready_timeout_sec: float = 180.0             # revert 후 VM B 응답 대기 상한(일시정지·재개 지연 흡수)
     ready_interval_sec: float = 3.0              # ready 폴링 간격
@@ -243,7 +245,9 @@ class TurnSequencer:
                     if self.params.attack_endpoint else None)
         start = AttackTurnStart(time_limit_sec=self.params.time_limit_sec,
                                 goal=self.params.goal,
-                                foothold=foothold, max_tokens=self.params.max_tokens)
+                                foothold=foothold, max_tokens=self.params.max_tokens,
+                                exec_namespace=self.params.exec_namespace,
+                                exec_pod=self.params.exec_pod)
         self._emit(round=rnd, phase=1, active="attacker", turn_started=time.time())
         self._log(f"[ep{episode} R{rnd}] 1. 공격 턴…")
         _t = time.time()

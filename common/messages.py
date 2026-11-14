@@ -100,6 +100,9 @@ class AttackTurnStart(Payload):
     goal: str = "대상 클러스터의 지정 중요자산(DB 내부비밀·고객 PII) 반출"
     foothold: Optional[Foothold] = None   # 첫 라운드만 채움
     max_tokens: Optional[int] = None      # 생성 토큰 상한(실험 파라미터; None이면 하네스 config 기본값)
+    # in-cluster exec 발판 override(대시보드 타깃 선택 → 발판 자동전환). None이면 공격자 서버 config.attack 기본 유지(하위호환).
+    exec_namespace: Optional[str] = None  # 발판 파드 네임스페이스(예: frontend / corp-ext)
+    exec_pod: Optional[str] = None        # kubectl exec 대상(deploy/… 또는 파드명)
 
 
 # ───────────────── ② attack_turn_result (A→C) ─────────────────

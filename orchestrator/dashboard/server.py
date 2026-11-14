@@ -197,6 +197,8 @@ def run_start(payload: dict = Body(default={})) -> JSONResponse:
 
     om = payload.get("objective_mode") or None               # asset|free (없으면 config 기본)
     ta = (payload.get("target_assets") or "").strip() or None  # 크라운 id CSV(예: crown-pii,crown-ops)
+    en = (payload.get("exec_namespace") or "").strip() or None  # 발판 네임스페이스(대시보드 타깃→자동전환)
+    epod = (payload.get("exec_pod") or "").strip() or None      # kubectl exec 대상(deploy/… 또는 파드명)
     cmd = [sys.executable, "-u", "-m", "orchestrator.main",
            "--episodes", str(eps), "--max-rounds", str(mr),
            "--time-limit", str(tl)]
@@ -206,6 +208,10 @@ def run_start(payload: dict = Body(default={})) -> JSONResponse:
         cmd += ["--objective-mode", str(om)]
     if ta:
         cmd += ["--target-assets", str(ta)]
+    if en:                                   # 발판까지 자동전환(exec_namespace/pod override → 공격자·baseline)
+        cmd += ["--exec-namespace", str(en)]
+    if epod:
+        cmd += ["--exec-pod", str(epod)]
     logf = open(_RUN_LOG, "w", encoding="utf-8")
     proc = subprocess.Popen(cmd, cwd=str(_ROOT), stdout=logf,
                             stderr=subprocess.STDOUT, env=os.environ.copy())
@@ -213,7 +219,7 @@ def run_start(payload: dict = Body(default={})) -> JSONResponse:
     started = time.time()
     _run.update(proc=proc, started=started, id=run_id,
                 params={"episodes": eps, "max_rounds": mr, "time_limit": tl, "max_tokens": mt,
-                        "objective_mode": om, "target": ta or "(config)"})
+                        "objective_mode": om, "target": ta or "(config)", "foothold": en or "(config)"})
     try:
         with (_LOGS / "runs.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps({"id": run_id, "started": started,
