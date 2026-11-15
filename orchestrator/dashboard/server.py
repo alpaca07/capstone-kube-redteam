@@ -32,7 +32,7 @@ app = FastAPI(title="Helix — 공수 루프 관제 대시보드")
 
 # ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (app.js 의 UI_BUILD 과 같은 값으로 함께 올린다).
 # /api/status 로 내보내 대시보드가 '서버가 최신 코드로 재시작됐는지' 좌상단 버전으로 확인한다.
-SERVER_BUILD = 1
+SERVER_BUILD = 2
 
 # 실험 프로세스 상태(단일 워커 전제: 한 번에 하나만).
 _run: dict = {"proc": None, "started": None, "params": None, "id": None}
@@ -95,11 +95,12 @@ def _write_stop_flag() -> bool:
 
 def _pid_is_orchestrator(pid: int) -> bool:
     """/proc/<pid>/cmdline 로 실제 orchestrator.main 프로세스인지 검증 — progress 최신성 창에 기대지
-    않고(긴 턴에 묵은 pid 오인 방지) 바로 신호를 보낼 수 있게. 대시보드(orchestrator.dashboard)는 제외."""
+    않고(긴 턴에 묵은 pid 오인 방지) 바로 신호를 보낼 수 있게. 대시보드(orchestrator.dashboard)는 제외.
+    실행 방식 두 가지 모두 인식: `-m orchestrator.main`(점) / `orchestrator/main.py`(경로)."""
     try:
         with open(f"/proc/{pid}/cmdline", "rb") as f:
             cl = f.read().decode("utf-8", "replace")
-        return ("orchestrator.main" in cl) and ("orchestrator.dashboard" not in cl)
+        return (("orchestrator.main" in cl) or ("orchestrator/main" in cl)) and ("dashboard" not in cl)
     except OSError:
         return False
 
@@ -134,11 +135,12 @@ def _wait_pid_dead(pid: int, timeout: float) -> bool:
 
 
 def _pkill_orchestrator(sig: str = "-TERM") -> bool:
-    """pid 폴백 실패 시 최후 수단 — 모듈명으로 orchestrator.main 종료(대시보드와 같은 사용자).
-    패턴이 대시(-)로 시작하면 pkill 이 옵션으로 오인하므로(invalid option) 'orchestrator\\.main' 로
-    매칭한다. 대시보드는 orchestrator.dashboard 라 안 걸리고, pkill 은 자기 자신도 제외. 1건↑ 종료 시 True."""
+    """pid 폴백 실패 시 최후 수단 — 모듈명/경로로 orchestrator.main 종료(대시보드와 같은 사용자).
+    패턴이 대시(-)로 시작하면 pkill 이 옵션으로 오인하므로(invalid option) 'orchestrator[./]main' 로
+    매칭 — `-m orchestrator.main`(점)·`orchestrator/main.py`(경로) 둘 다 잡는다. 대시보드는
+    orchestrator.dashboard 라 안 걸리고, pkill 은 자기 자신도 제외. 1건↑ 종료 시 True."""
     try:
-        r = subprocess.run(["pkill", sig, "-f", r"orchestrator\.main"],
+        r = subprocess.run(["pkill", sig, "-f", r"orchestrator[./]main"],
                            capture_output=True, timeout=5)
         return r.returncode == 0
     except (OSError, subprocess.SubprocessError):
