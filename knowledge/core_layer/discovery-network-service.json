@@ -1,0 +1,28 @@
+{
+  "_note": "핵심층 보강 — 정찰(Discovery). 클러스터 내 네트워크 서비스 탐색. 전술 커버리지 구멍 보강. 수기 AUTHORED.",
+  "env": "k8s-discovery-netsvc",
+  "technique": "T1046",
+  "procedure": {
+    "id": "PROC-discovery-netsvc",
+    "name": "클러스터 내 네트워크 서비스 탐색",
+    "description": "발판 파드에서 nmap/nc 로 pod/svc 대역(.svc.cluster.local, ClusterIP)을 스캔해 열린 내부 서비스·포트(postgres 5432, redis 6379 등)를 찾는다.",
+    "status": "AUTHORED"
+  },
+  "preconditions": [
+    {
+      "id": "PRE-discovery-netsvc-egress",
+      "name": "내부 대역 접근",
+      "description": "NetworkPolicy 가 막지 않아 발판에서 타 네임스페이스 서비스로 TCP 연결 가능."
+    }
+  ],
+  "expected_results": [
+    {
+      "id": "ER-discovery-netsvc-progress",
+      "kind": "progress",
+      "outcome": {"id": "AO-discovery", "name": "정찰"},
+      "conditions": [
+        {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1046"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "_note": "핵심층 보강 — 측면이동(Lateral Movement). 탈취한 ServiceAccount 토큰 재사용으로 타 네임스페이스 API 접근. 전술 커버리지 구멍(2/9) 보강. 수기 AUTHORED. 조건 문법은 postgres.json(canonical).",
+  "env": "k8s-lateral-sa-token",
+  "technique": "T1550.001",
+  "cwe": "CWE-522",
+  "procedure": {
+    "id": "PROC-lateral-sa-token",
+    "name": "ServiceAccount 토큰 재사용 측면이동",
+    "description": "침해한 파드에 자동 마운트된 SA 토큰(/var/run/secrets/kubernetes.io/serviceaccount/token)을 꺼내 kube-apiserver 에 Bearer 인증으로 붙어, 그 SA 권한으로 다른 네임스페이스 리소스에 접근한다.",
+    "status": "AUTHORED"
+  },
+  "preconditions": [
+    {
+      "id": "PRE-lateral-sa-token-mounted",
+      "name": "SA 토큰 마운트 + API 도달",
+      "description": "침해 파드에 SA 토큰이 자동 마운트돼 있고 kube-apiserver(.svc)에 네트워크로 도달 가능."
+    }
+  ],
+  "expected_results": [
+    {
+      "id": "ER-lateral-sa-token-progress",
+      "kind": "progress",
+      "outcome": {"id": "AO-lateral-movement", "name": "측면이동"},
+      "conditions": [
+        {"channel": "audit", "field": "technique", "operator": "eq", "expected": "T1550.001"}
+      ]
+    }
+  ]
+}

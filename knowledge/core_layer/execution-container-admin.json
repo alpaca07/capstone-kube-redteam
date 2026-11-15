@@ -1,0 +1,28 @@
+{
+  "_note": "핵심층 보강 — 실행(Execution). 컨테이너 관리 명령 실행(kubectl exec). 전술 커버리지 구멍(5/22) 보강. 수기 AUTHORED.",
+  "env": "k8s-exec-container-admin",
+  "technique": "T1609",
+  "procedure": {
+    "id": "PROC-exec-container-admin",
+    "name": "컨테이너 관리 명령 실행",
+    "description": "kubectl exec(또는 API exec 하위리소스)로 실행 중 파드 안에서 임의 명령을 실행해 자격증명·설정·데이터에 접근한다.",
+    "status": "AUTHORED"
+  },
+  "preconditions": [
+    {
+      "id": "PRE-exec-container-admin-rbac",
+      "name": "pods/exec 권한",
+      "description": "대상 네임스페이스 파드에 exec 가능한 RBAC(create pods/exec) 보유."
+    }
+  ],
+  "expected_results": [
+    {
+      "id": "ER-exec-container-admin-progress",
+      "kind": "progress",
+      "outcome": {"id": "AO-command-execution", "name": "명령 실행"},
+      "conditions": [
+        {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1609"}
+      ]
+    }
+  ]
+}

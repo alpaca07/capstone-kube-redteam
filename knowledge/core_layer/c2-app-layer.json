@@ -1,0 +1,28 @@
+{
+  "_note": "핵심층 보강 — 명령제어(Command and Control). 일반화용(격리 랩 밖 타깃 대비). 전술 커버리지 0 보강. 수기 AUTHORED.",
+  "env": "k8s-c2-app-layer",
+  "technique": "T1071",
+  "procedure": {
+    "id": "PROC-c2-app-layer",
+    "name": "응용계층 프로토콜 명령제어",
+    "description": "침해 파드에서 HTTP(S) 등 정상처럼 보이는 응용계층 프로토콜로 외부 C2 와 통신해 명령을 수신한다. 격리 랩 밖 실자산 적용 대비 지식.",
+    "status": "AUTHORED"
+  },
+  "preconditions": [
+    {
+      "id": "PRE-c2-app-layer-egress",
+      "name": "외부 통신 경로",
+      "description": "발판에서 외부로 아웃바운드 통신 가능."
+    }
+  ],
+  "expected_results": [
+    {
+      "id": "ER-c2-app-layer-progress",
+      "kind": "progress",
+      "outcome": {"id": "AO-command-and-control", "name": "명령제어 채널"},
+      "conditions": [
+        {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1071"}
+      ]
+    }
+  ]
+}

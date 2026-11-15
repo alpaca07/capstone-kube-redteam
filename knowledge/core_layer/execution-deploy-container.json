@@ -1,0 +1,28 @@
+{
+  "_note": "핵심층 보강 — 실행(Execution). 악성 컨테이너 배포로 발판 확장. 수기 AUTHORED.",
+  "env": "k8s-exec-deploy-container",
+  "technique": "T1610",
+  "procedure": {
+    "id": "PROC-exec-deploy-container",
+    "name": "악성 컨테이너 배포",
+    "description": "과권한 SA 로 privileged/hostPath 파드를 배포해 노드 자원·타 네임스페이스에 새 발판을 만든다.",
+    "status": "AUTHORED"
+  },
+  "preconditions": [
+    {
+      "id": "PRE-exec-deploy-container-create",
+      "name": "파드 생성 권한",
+      "description": "pods create 권한(과권한 SA) 보유, PodSecurity/Admission 이 막지 않음."
+    }
+  ],
+  "expected_results": [
+    {
+      "id": "ER-exec-deploy-container-progress",
+      "kind": "progress",
+      "outcome": {"id": "AO-execution", "name": "실행 기반 확보"},
+      "conditions": [
+        {"channel": "audit", "field": "technique", "operator": "eq", "expected": "T1610"}
+      ]
+    }
+  ]
+}

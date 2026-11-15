@@ -1,0 +1,28 @@
+{
+  "_note": "핵심층 보강 — 정찰(Discovery). 컨테이너·리소스 열거. 전술 커버리지 구멍(3/34) 보강. 수기 AUTHORED.",
+  "env": "k8s-discovery-container",
+  "technique": "T1613",
+  "procedure": {
+    "id": "PROC-discovery-container",
+    "name": "컨테이너·리소스 열거",
+    "description": "kubectl get pods/svc/deploy/secrets 또는 API 로 네임스페이스별 리소스·이미지·마운트를 열거해 공격면과 크라운(민감 테이블·시크릿) 위치를 파악한다.",
+    "status": "AUTHORED"
+  },
+  "preconditions": [
+    {
+      "id": "PRE-discovery-container-apiread",
+      "name": "리소스 읽기 권한",
+      "description": "현 주체 권한으로 최소 한 네임스페이스의 리소스 list/get 가능."
+    }
+  ],
+  "expected_results": [
+    {
+      "id": "ER-discovery-container-progress",
+      "kind": "progress",
+      "outcome": {"id": "AO-discovery", "name": "정찰"},
+      "conditions": [
+        {"channel": "audit", "field": "technique", "operator": "eq", "expected": "T1613"}
+      ]
+    }
+  ]
+}

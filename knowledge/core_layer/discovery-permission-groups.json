@@ -1,0 +1,28 @@
+{
+  "_note": "핵심층 보강 — 정찰(Discovery). 권한·RBAC 열거로 과권한 탐색. 킬체인 ② 권한상승의 선행 정찰. 수기 AUTHORED.",
+  "env": "k8s-discovery-rbac",
+  "technique": "T1069",
+  "procedure": {
+    "id": "PROC-discovery-rbac",
+    "name": "권한·RBAC 열거",
+    "description": "kubectl auth can-i --list 또는 SelfSubjectRulesReview 로 현 주체의 허용 동작을 열거해 과권한(secrets get, 타 네임스페이스 접근)을 찾아 상승 경로를 정한다.",
+    "status": "AUTHORED"
+  },
+  "preconditions": [
+    {
+      "id": "PRE-discovery-rbac-identity",
+      "name": "유효 주체",
+      "description": "유효한 SA/사용자 신원(발판 또는 탈취 토큰)으로 인증 가능."
+    }
+  ],
+  "expected_results": [
+    {
+      "id": "ER-discovery-rbac-progress",
+      "kind": "progress",
+      "outcome": {"id": "AO-discovery", "name": "정찰"},
+      "conditions": [
+        {"channel": "audit", "field": "technique", "operator": "eq", "expected": "T1069"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "_note": "핵심층 보강 — 반출(Exfiltration). 일반화용(격리 랩은 외부 egress 차단이라 진행도만, 비격리 타깃 대비 지식). 전술 커버리지 0 보강. 수기 AUTHORED.",
+  "env": "k8s-exfil-alt-protocol",
+  "technique": "T1048",
+  "procedure": {
+    "id": "PROC-exfil-alt-protocol",
+    "name": "대체 프로토콜 데이터 반출",
+    "description": "확보한 민감 데이터를 DNS/HTTP 등 대체 경로로 외부로 내보낸다. 격리 랩에선 egress 차단으로 진행도만 관측되며, 비격리 실자산 적용 시 유효.",
+    "status": "AUTHORED"
+  },
+  "preconditions": [
+    {
+      "id": "PRE-exfil-alt-protocol-data",
+      "name": "데이터 확보 + 외부 경로",
+      "description": "민감 데이터를 이미 읽었고 외부로 나가는 아웃바운드 경로가 열려 있음."
+    }
+  ],
+  "expected_results": [
+    {
+      "id": "ER-exfil-alt-protocol-progress",
+      "kind": "progress",
+      "outcome": {"id": "AO-exfiltration", "name": "데이터 반출"},
+      "conditions": [
+        {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1048"}
+      ]
+    }
+  ]
+}
