@@ -14,6 +14,8 @@ ARG AMICONTAINED_VERSION=v0.4.9
 ARG DEEPCE_REF=main
 ARG SQLMAP_REF=master
 ARG WITH_NUCLEI_TEMPLATES=true      # false 면 템플릿 없이 린 이미지(실험장 오프라인이면 true 권장)
+ARG WITH_EXPLOITDB=true             # ExploitDB(searchsploit) 오프라인 미러 — 이미지 ~1GB↑
+ARG EXPLOITDB_REF=main              # 고정 커밋/태그로 바꾸면 코퍼스 재현성↑(결정론 리플레이)
 
 ENV HOME=/root
 WORKDIR /opt/toolkit
@@ -63,6 +65,16 @@ RUN (git clone --depth 1 --branch "${SQLMAP_REF}" https://github.com/sqlmapproje
  && printf '#!/bin/sh\nexec python3 /opt/sqlmap/sqlmap.py "$@"\n' > /usr/local/bin/sqlmap \
  && chmod +x /usr/local/bin/sqlmap
 
+# [T3] ExploitDB(searchsploit) — 검증된 PoC/익스플로잇 '오프라인 미러'. 실험 중 인터넷 OFF 라
+#      빌드 시점에 받아 로컬 조회만 한다(런타임 네트워크 없음). EXPLOITDB_REF 고정 = 코퍼스
+#      재현성(결정론 리플레이). wrapper 가 실경로 스크립트를 exec → DB 자동 탐색.
+RUN if [ "$WITH_EXPLOITDB" = "true" ]; then \
+      ( git clone --depth 1 --branch "${EXPLOITDB_REF}" https://gitlab.com/exploit-database/exploitdb /opt/exploitdb \
+        || git clone --depth 1 https://gitlab.com/exploit-database/exploitdb /opt/exploitdb ) ; \
+      printf '#!/bin/sh\nexec /opt/exploitdb/searchsploit "$@"\n' > /usr/local/bin/searchsploit ; \
+      chmod +x /usr/local/bin/searchsploit ; \
+    fi
+
 # ── 3) nuclei 템플릿을 빌드 시 받아 상주(실험장 오프라인 대비) ──
 RUN if [ "$WITH_NUCLEI_TEMPLATES" = "true" ]; then \
       nuclei -update-templates -disable-update-check ; \
@@ -76,6 +88,7 @@ RUN set -e; \
     psql --version >/dev/null; sqlmap --version --batch >/dev/null 2>&1; \
     command -v kdigger >/dev/null; command -v amicontained >/dev/null; command -v deepce >/dev/null; \
     command -v dig >/dev/null; command -v nslookup >/dev/null; command -v wget >/dev/null; command -v nc >/dev/null; \
+    if command -v searchsploit >/dev/null 2>&1; then searchsploit apache >/dev/null 2>&1 && echo "[attacker-toolkit] exploitdb ok"; fi; \
     echo "[attacker-toolkit] smoke ok"
 
 LABEL org.opencontainers.image.title="capstone-attacker-toolkit" \

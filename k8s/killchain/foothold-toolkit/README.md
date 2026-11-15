@@ -20,9 +20,31 @@
 | T2 탈출 | `deepce`, `amicontained` | 컨테이너 탈출 벡터·capability 조사 |
 | T3 CVE | `nuclei` | 템플릿 기반 알려진 CVE 점검(VulHub/corp) |
 | T3 SQLi | `sqlmap` (`--batch`) | SQL 인젝션(비대화 전용) |
+| T3 PoC | `searchsploit` | ExploitDB **오프라인 미러**(고정 커밋) — 검증된 PoC 로컬 조회·복사 |
 | 기존 | `psql`, `nslookup`/`dig`, `sh`, `wget`, `nc` | DB·DNS·셸 |
 
 > **제외:** `peirates`(메뉴 대화형) · `metasploit`(세션 상태성) — ReAct·결정론 리플레이와 충돌.
+
+### 검증된 PoC 라이브러리 (오프라인 미러)
+
+실험 중 인터넷 OFF + `scope.py` 공인 IP 차단이라 **런타임에 인터넷에서 PoC 를 직접 받을 수
+없다.** 대신 검증된 소스(ExploitDB)를 **빌드 시점에 통째로 받아 고정 커밋으로 이미지에 구워 둔다**
+(`WITH_EXPLOITDB`/`EXPLOITDB_REF`). 공격자는 런타임에 `searchsploit` 로 로컬 조회만 한다:
+
+```
+searchsploit struts2 2.5          # 찾기
+searchsploit -x 41570             # 코드 확인
+searchsploit -m 41570             # 로컬 복사 → python3/sh/curl 로 범위 내 대상에 실행
+```
+
+고정 커밋이라 코퍼스가 라운드마다 동일 → 결정론 리플레이 유지. nuclei 템플릿(이미 내장)과
+함께 "검증된 PoC/익스플로잇 오프라인 라이브러리"를 이룬다. 실행 자체는 여전히 `execute_action`
+→ `scope.py`(외부 호스트·파괴명령 차단) + 대본 기록을 거친다. 코퍼스 갱신은 재빌드로만.
+`WITH_EXPLOITDB=false` 로 빌드하면 미러 없이 린 이미지(이미지 ~1GB 절감).
+
+> **런타임 pull 을 원하면(대안 B):** 허용망에 읽기전용 exploitdb 미러 호스트를 두고 `scope.py`
+> `denied_hosts` 반대로 '그 한 호스트만 허용' 규칙을 추가해 `curl` 로 받게 할 수 있다. 미러를
+> 고정 스냅샷으로 유지해야 결정론이 깨지지 않는다.
 
 ## 설계 전제
 

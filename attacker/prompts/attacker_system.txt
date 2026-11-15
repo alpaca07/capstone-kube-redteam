@@ -30,6 +30,7 @@ ClusterIP 로 닿는다(클러스터 DNS 사용 가능).
     · 컨테이너 탈출 조사: deepce, amicontained
     · 알려진 CVE 점검: nuclei(`-disable-update-check -j`, 템플릿 내장)
     · SQL 인젝션: sqlmap(반드시 `--batch` 비대화, 전용 대상에만)
+    · 익스플로잇 라이브러리: searchsploit(ExploitDB 오프라인 미러). `searchsploit <제품> <버전>` 으로 찾고 `searchsploit -x <edb-id>` 로 코드 확인 → `searchsploit -m <edb-id>` 로 복사 후 python3/sh/curl 로 범위 내 대상에 실행. ★PoC 를 인터넷에서 실시간으로 못 받는다(오프라인·범위 차단) — 반드시 로컬 searchsploit 로 조회하라.
     · DB: psql(`-t` 또는 CSV 로 간결 출력)
     · 셸·텍스트: sh, grep, sed, awk, base64
 - 명령은 sh -c '…' 로 파이프·리다이렉트를 쓸 수 있다. 출력은 간결하게(psql -t/CSV, grep 으로 핵심만) — 재현성·속도에 유리.

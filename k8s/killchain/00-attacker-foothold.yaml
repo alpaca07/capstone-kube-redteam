@@ -74,7 +74,8 @@ type: kubernetes.io/service-account-token
 # 이미지 = capstone/attacker-toolkit:1.0 (커스텀 빌드 — 빌드·적재 절차는 foothold-toolkit/).
 #   내장 도구: curl·wget(HTTP) · jq(JSON) · kubectl(K8s API) · nmap(스캔) · psql(④ DB) ·
 #   nslookup/dig(DNS) · kdigger(파드 정찰) · deepce/amicontained(탈출 조사) ·
-#   nuclei(CVE 점검) · sqlmap(SQLi, --batch) · sh (busybox). 대화형 툴(peirates 등) 제외.
+#   nuclei(CVE 점검) · sqlmap(SQLi, --batch) · searchsploit(ExploitDB 오프라인 미러) ·
+#   sh (busybox). 대화형 툴(peirates 등) 제외.
 #   실험 중 인터넷 OFF 라 모든 도구는 이미지에 미리 구워 둔다(런타임 다운로드 없음).
 #   → VM B containerd 에 미리 import 필수(imagePullPolicy: IfNotPresent, 레지스트리 pull 없음).
 # command override 로 유휴 대기만(명령은 exec 로 들어온다).
