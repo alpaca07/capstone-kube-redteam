@@ -1,0 +1,92 @@
+# harness-exec — 단일 '하네스 exec' 자격. 시나리오별 발판 kubeconfig 전환을 없앤다.
+#
+# 문제: exec_kubeconfig 는 config 전용(대시보드 타깃 자동전환 대상 아님)이라, ShopFlow(frontend)
+#   발판 kubeconfig 로 두고 corp 타깃을 돌리면 corp-ext 에서 exec 권한이 없어 전부 실패한다
+#   (그 반대도 마찬가지). 타깃 바꿀 때마다 kubeconfig 를 손으로 바꿔야 하는 운영 함정.
+# 해법: frontend·corp-ext(+향후 시나리오) '모두'에서 exec 되는 SA 하나를 둔다. exec_kubeconfig 를
+#   이 SA 의 kubeconfig 하나로 고정하면, 타깃을 뭘로 바꾸든 kubeconfig 를 건드릴 필요가 없다.
+#
+# ※ 설계 경계: exec_kubeconfig 는 '하네스가 발판 파드에 명령을 주입하는 plumbing'일 뿐,
+#   공격 시나리오의 일부가 아니다. 공격 리얼리즘(파드 안 토큰·권한)은 시나리오별 발판 SA
+#   (foothold-sa / corp-foothold-sa)가 따로 결정한다. 그러니 하네스 exec 자격이 두 네임스페이스에
+#   걸쳐도 공격 표면은 바뀌지 않는다. 동사는 발판 exec Role 과 동일(초과권한 아님).
+#
+# 배포:  kubectl apply -f k8s/harness/00-harness-exec.yaml
+#   자격:  bash k8s/harness/gen-harness-kubeconfig.sh harness-exec.kubeconfig https://192.168.16.128:6443
+#   VM A:  config.yaml  attack.exec_kubeconfig: ~/harness-exec.kubeconfig  → 공격자 재시작
+# 새 시나리오 네임스페이스가 생기면 아래 RoleBinding 을 그 네임스페이스에 하나 더 추가한다.
+# 리셋 비대상: 이 리소스들은 target_namespaces(frontend/backend/database/internal)의 NetworkPolicy
+#   삭제·killchain 재적용 범위 밖이라 수동 적용 후 영구 지속.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: harness
+  labels: { app.kubernetes.io/part-of: capstone-harness }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: harness-exec
+  namespace: harness
+  labels: { app.kubernetes.io/part-of: capstone-harness }
+---
+# exec 권한 정의(ClusterRole) — 발판 exec Role 과 동일 동사. 네임스페이스 귀속은 아래 RoleBinding 이.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: harness-exec
+  labels: { app.kubernetes.io/part-of: capstone-harness }
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get"]                # deploy/<발판> → 파드 해석용
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]      # kubectl exec
+---
+# frontend(ShopFlow 발판)에서 exec 허용. ClusterRole 을 이 네임스페이스로만 묶는다.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: harness-exec
+  namespace: frontend
+  labels: { app.kubernetes.io/part-of: capstone-harness }
+subjects:
+  - kind: ServiceAccount
+    name: harness-exec
+    namespace: harness
+roleRef:
+  kind: ClusterRole
+  name: harness-exec
+  apiGroup: rbac.authorization.k8s.io
+---
+# corp-ext(corp 발판)에서 exec 허용.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: harness-exec
+  namespace: corp-ext
+  labels: { app.kubernetes.io/part-of: capstone-harness }
+subjects:
+  - kind: ServiceAccount
+    name: harness-exec
+    namespace: harness
+roleRef:
+  kind: ClusterRole
+  name: harness-exec
+  apiGroup: rbac.authorization.k8s.io
+---
+# 장수명 토큰(kubeconfig 에 박아 VM A 가 사용). TokenRequest 단수명 아님.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: harness-exec-token
+  namespace: harness
+  labels: { app.kubernetes.io/part-of: capstone-harness }
+  annotations:
+    kubernetes.io/service-account.name: harness-exec
+type: kubernetes.io/service-account-token
