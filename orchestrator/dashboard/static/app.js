@@ -29,6 +29,19 @@
   var DEFAULT_ROUTE = "posture";
   var REAL = { posture: 1, stats: 1, control: 1, live: 1, events: 1, "defender-arch": 1, "defender-graph": 1, "attack-brief": 1, "attack-graph": 1, "attack-log": 1, report: 1 };
 
+  // ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (server.py 의 SERVER_BUILD 과 같은 값으로 함께 올린다).
+  // 좌상단에 v<UI_BUILD> 를 표시하고, 서버가 보고한 server_build 와 다르면 '재시작 필요' 경고를 띄운다.
+  var UI_BUILD = 1;
+  function renderBuild(serverBuild) {
+    var el = document.getElementById("build-tag");
+    if (!el) return;
+    var stale = (serverBuild != null && serverBuild !== UI_BUILD);
+    el.textContent = "v" + UI_BUILD + (stale ? " ⚠" : "");
+    el.className = "brand-tag" + (stale ? " stale" : "");
+    el.title = stale ? ("서버는 v" + serverBuild + " — 대시보드 재시작 필요(최신 코드 미반영)")
+                     : ("빌드 v" + UI_BUILD);
+  }
+
   // ───────── 색 상수(의미색 — CSS 변수와 1:1) ─────────
   var C = { atk: "#e5484d", def: "#3b82f6", sys: "#64748b", crown: "#e5920b",
     ok: "#0ea371", teal: "#0d9488", grid: "#e3e8ee", muted: "#8a97ab" };
@@ -1982,6 +1995,7 @@
     if (st === null) { dot.className = S.demo ? "" : "off"; ct.textContent = S.demo ? "데모 모드" : "서버 연결 끊김"; }
     else { S.status = st; dot.className = st.running ? "live" : ""; ct.textContent = st.running ? "실행 진행 중" : "대기"; }
     renderStatusBar(st === null ? S.status : st);
+    renderBuild(st && st.server_build != null ? st.server_build : null);   // 좌상단 버전 + 서버 불일치 경고
 
     var running = !!(st && st.running);
     if (running && !_wasRunning) {   // 새 실험 시작 감지 — 지난 실험의 선택·캐시 비워 '현재 실행만' 표시
@@ -2044,6 +2058,7 @@
   function closeSidebar() { $("#sidebar").classList.remove("open"); var bd = $("#sidebar-backdrop"); if (bd) bd.classList.remove("on"); $("#nav-toggle").setAttribute("aria-expanded", "false"); }
 
   async function boot() {
+    renderBuild(null);   // 최초엔 프런트 버전만(서버 응답 오면 poll 이 불일치 경고 갱신)
     buildNav();
     $("#nav-toggle").onclick = function () {
       var sb = $("#sidebar"), open = sb.classList.toggle("open");
