@@ -90,7 +90,7 @@ def test_healthcheck_detects_not_ready():
         {"metadata": {"name": "noise", "namespace": "kube-system"},
          "spec": {"replicas": 1}, "status": {"readyReplicas": 0}},    # 앱NS 아님 → 무시
     ]}
-    res = KubectlCluster(runner=_FakeRunner(RunResult(0, json.dumps(deploys)))).healthcheck()
+    res = KubectlCluster(runner=_FakeRunner(RunResult(0, json.dumps(deploys)))).healthcheck(timeout_sec=0)
     assert not res.ok and "backend/catalog" in res.detail
 
 

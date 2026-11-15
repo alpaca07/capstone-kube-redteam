@@ -7,6 +7,7 @@ kubectl 없이 명령·파싱 테스트. VM B는 자기 클러스터 접근 권�
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -82,8 +83,24 @@ class KubectlCluster:
         r = self._run(*args)
         return OpResult(r.returncode == 0, (r.stderr or r.stdout).strip())
 
-    def healthcheck(self) -> OpResult:
-        """앱 네임스페이스의 Deployment가 모두 ready면 가용(True)."""
+    def healthcheck(self, *, timeout_sec: float = 45.0, interval_sec: float = 3.0,
+                    sleep=None) -> OpResult:
+        """앱 네임스페이스의 Deployment가 모두 ready면 가용(True).
+
+        패치(파드 삭제·재기동 등) 직후엔 Deployment 가 롤아웃 중이라 잠깐 0/1(not ready)이 된다.
+        그 재생성 blip 을 '서비스 중단'으로 오판하지 않도록, ready 될 때까지 timeout_sec 동안 짧게
+        폴링한다 — 상한 내 전부 ready 면 통과, 끝까지 안 살아나면(진짜 자멸) not ready 로 본다.
+        timeout_sec=0 이면 즉시 1회만 확인(테스트·빠른 조회용)."""
+        _sleep = sleep or time.sleep
+        deadline = time.monotonic() + max(0.0, timeout_sec)
+        last = self._health_once()
+        while not last.ok and time.monotonic() < deadline:
+            _sleep(interval_sec)
+            last = self._health_once()
+        return last
+
+    def _health_once(self) -> OpResult:
+        """지금 이 순간의 앱 Deployment ready 여부(폴링 1회)."""
         r = self._run("get", "deploy", "-A", "-o", "json")
         if r.returncode != 0:
             return OpResult(False, r.stderr.strip())
