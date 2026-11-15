@@ -1306,10 +1306,10 @@
       finding: { bg: "#b11722", line: "#8a0f18", solid: true, fg: "#ffffff", fg2: "#ffd7db" },
       hint: { bg: "#eef1f5", line: "#5b6676" } })[k] || { bg: "#eef1f5", line: "#5b6676" };
   }
-  function relColor(r) { return ({ spawns: "#e5484d", yields: "#3b82f6", proves: "#b4303a", derived_from: "#94a3b8" })[r] || "#94a3b8"; }
+  function relColor(r) { return ({ spawns: "#e5484d", yields: "#3b82f6", proves: "#b4303a", derived_from: "#94a3b8", enables: "#f59e0b" })[r] || "#94a3b8"; }
   // 관계 — 사람이 읽는 우리말(엣지 의미가 더 직관적)
-  function relLabel(r) { return ({ spawns: "파생", yields: "산출", proves: "입증", derived_from: "유도" })[r] || r; }
-  function relDesc(r) { return ({ spawns: "목표·사실이 새 의도를 낳음", yields: "의도가 사실을 산출", proves: "사실이 발견을 입증", derived_from: "사실이 다른 사실에서 유도됨" })[r] || ""; }
+  function relLabel(r) { return ({ spawns: "파생", yields: "산출", proves: "입증", derived_from: "유도", enables: "활용" })[r] || r; }
+  function relDesc(r) { return ({ spawns: "목표·사실이 새 의도를 낳음", yields: "의도가 사실을 산출", proves: "사실이 발견을 입증", derived_from: "사실이 다른 사실에서 유도됨", enables: "발견(자격증명·접근)을 활용하는 후속 의도를 낳음" })[r] || ""; }
   // 노드 상태 — 화면 표기는 쉬운 우리말(상태는 식별자 아닌 진행 상황이라 한글이 명확)
   function stateKo(s) { return ({ open: "대기", running: "실행 중", done: "완료", blocked: "차단", exhausted: "막다름", stopped: "중단", confirmed: "확인됨", claimed: "포착" })[s] || s; }
   function stateColor(s) { return ({ running: "#0d9488", done: "#0ea371", blocked: "#e5484d", exhausted: "#e5920b", stopped: "#64748b", confirmed: "#2f6fe0", claimed: "#b4303a" })[s] || "#8a97ab"; }
@@ -1653,7 +1653,7 @@
       '" preserveAspectRatio="xMidYMid meet" data-gw="' + W + '" data-gh="' + H + '">' + edgeSvg + nodeSvg + "</svg></div>";
     var legend = '<div class="ag-legend"><div class="legend">' +
       ["goal", "intent", "fact", "finding"].map(function (k) { return '<span><span class="tag-dot" style="background:' + kindColor(k).line + '"></span>' + kindLabelKo(k) + "</span>"; }).join("") +
-      ["spawns", "yields", "proves", "derived_from"].map(function (r) { return '<span title="' + esc(relDesc(r)) + '"><span style="display:inline-block;width:15px;height:0;border-top:2px solid ' + relColor(r) + '"></span> ' + relLabel(r) + "</span>"; }).join("") + "</div>" +
+      ["spawns", "yields", "proves", "derived_from", "enables"].map(function (r) { return '<span title="' + esc(relDesc(r)) + '"><span style="display:inline-block;width:15px;height:0;border-top:2px solid ' + relColor(r) + '"></span> ' + relLabel(r) + "</span>"; }).join("") + "</div>" +
       '<div class="legend ag-legend-st"><span class="agl-k">상태</span>' +
       '<span><span class="agls agls-run"></span>실행 중(맥동)</span>' +
       '<span><span class="agls agls-dead"></span>차단·중단(점선·흐림)</span>' +
