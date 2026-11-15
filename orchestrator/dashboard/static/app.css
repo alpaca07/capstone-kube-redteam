@@ -724,3 +724,7 @@ button { font-family: inherit; }
 .ag-cvss-basis { font-size: 11.5px; color: var(--text-2); line-height: 1.5; margin-top: 7px; }
 .ag-cvss-vec { font-size: 10px; color: var(--text-3); margin-top: 5px; overflow-wrap: anywhere; }
 .ag-cvss-claim { font-size: 10.5px; color: var(--text-3); margin-top: 5px; }
+
+/* 노드 상세 — 긴 경로·URL(토큰 경로·API 주소 등)이 박스를 벗어나지 않게 강제 줄바꿈 */
+.ag-desc, .ag-desc-main, .ag-sum, .ag-ev-sm, .ag-loot-v,
+.ag-side .rep-line span, .ag-side .rep-line a { overflow-wrap: anywhere; word-break: break-word; }

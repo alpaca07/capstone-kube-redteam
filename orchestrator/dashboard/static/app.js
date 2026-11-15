@@ -1545,10 +1545,9 @@
       if (depth[n.id] > maxDep) maxDep = depth[n.id];
     });
     var W = PADX * 2 + maxSlot * COLW + NW, H = TOP + maxDep * ROWH + NH + 20;
-    var newSet = {}; nodes.forEach(function (n) { if (n._new) newSet[n.id] = 1; });
     var edgeSvg = edges.map(function (e) {
       var a = pos[e.src], b = pos[e.dst]; if (!a || !b) return "";
-      var hot = (agSel === e.src || agSel === e.dst), isNew = newSet[e.dst] || newSet[e.src];
+      var hot = (agSel === e.src || agSel === e.dst);
       var dim = focus && !(focus[e.src] && focus[e.dst]), d;
       if (b.y > a.y + 1) {                 // 아래로(부모→자식) — 수직 베지어로 떨어뜨림
         var ax = a.x + NW / 2, ay = a.y + NH, bx = b.x + NW / 2, by = b.y, my = (ay + by) / 2;
@@ -1558,8 +1557,10 @@
         d = "M" + cx + " " + cy + " C" + mx + " " + cy + " " + mx + " " + dy + " " + dx + " " + dy;
       }
       var op = dim ? 0.05 : (hot ? 0.95 : 0.26);
-      return '<path class="ag-edge' + (isNew ? " ag-new" : "") + (hot ? " ag-hot" : "") + '" d="' + d +
-        '" fill="none" stroke="' + relColor(e.rel) + '" stroke-width="' + (hot ? 2.2 : 1.3) + '" opacity="' + op + '"' + (isNew ? ' style="animation-delay:200ms"' : "") + "/>";
+      // 엣지는 등장 애니메이션 없이 즉시 그린다 — dasharray 그리기 애니메이션은 긴 엣지(노드 많을 때)에서
+      // 점선처럼 깨져 '릴레이션이 클릭 전까지 안 보이는' 버그를 일으켰다. 노드만 pop 애니메이션 유지.
+      return '<path class="ag-edge' + (hot ? " ag-hot" : "") + '" d="' + d +
+        '" fill="none" stroke="' + relColor(e.rel) + '" stroke-width="' + (hot ? 2.2 : 1.3) + '" opacity="' + op + '"/>';
     }).join("");
     var curRound = (rec && rec.round != null) ? rec.round : null;   // 지금 보는 라운드 — 이 라운드 추가 노드 강조
     var nIdx = 0;
