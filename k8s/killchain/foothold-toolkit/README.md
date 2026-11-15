@@ -5,8 +5,11 @@
 **공격자가 쓸 수 있는 도구 = 그 파드 이미지에 든 바이너리**가 전부다.
 
 기존엔 `postgres:16-alpine`(= `psql·wget·nc·nslookup·sh` 뿐)이라 공격 수단이 과도하게
-제한됐다. 이 디렉토리는 그 발판을 **커스텀 공격 툴킷 이미지**(`capstone/attacker-toolkit:1.0`)로
-교체한다 — 노선 B(장비를 갖춘 공격자) + 커스텀 이미지 전달.
+제한됐다. 이 디렉토리는 **커스텀 공격 툴킷 이미지**(`capstone/attacker-toolkit:1.0`)를 빌드한다.
+이 이미지는 발판의 본체 이미지를 교체하지 않고, **각 발판 파드의 initContainer 로 돌아 공유 볼륨
+`/tk` 에 도구를 풀어** 본체가 마운트해 쓴다(`frontend/attacker-foothold`·`corp-ext/corp-attacker-foothold`
+등 모든 발판에 같은 블록, 발판별 이미지 재빌드 없음). 본체 exec 환경은 `PATH=/tk/bin`,
+`LD_LIBRARY_PATH=/tk/lib` 로 그 도구를 집는다.
 
 ## 포함 도구 (Tier 1~3, 대화형 툴 제외)
 

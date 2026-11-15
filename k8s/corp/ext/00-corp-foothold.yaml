@@ -4,7 +4,8 @@
 #   명령 실행(KubectlExecRunner namespace=corp-ext pod_ref=deploy/corp-attacker-foothold).
 # 네트워크: corp-ext → WAF(corp-dmz) 만 열림(일방향 킬체인). corp-internal·corp-crown 은
 #   발판에서 직접 못 감 — 1차 범위=발판→WAF→Tomcat/Solr(wget). 깊은 피벗은 corp 실행모델 별도.
-# 도구: postgres:16-alpine 재사용(wget·psql·nc). Samba(smbclient)·Redis(redis-cli)는 측면이동 단계에 이미지 보강.
+# 도구: 본체=postgres:16-alpine(wget·psql·nc). 공격 툴킷은 initContainer 로 /tk 에 마운트(ShopFlow 발판과 동일 블록)
+#   → curl·nuclei·searchsploit·nmap 등 추가. 단 API 토큰 미마운트라 kubectl·kdigger 는 여기선 무용(순수 네트워크 체인).
 # ※ in-pod K8s API 토큰 미마운트(automountServiceAccountToken: false)·recon 권한 없음 — 순수 네트워크 발판.
 #   corp 는 네트워크 피벗 시나리오라, API 정찰이 공격자를 K8s Secret 열거 데드엔드로 유인했음(10R 검증서 확인).
 #   ShopFlow 발판은 그대로(API 정찰 취약점은 거기 유지).
@@ -75,21 +76,42 @@ spec:
     spec:
       serviceAccountName: corp-foothold-sa     # 하네스 exec 용 SA(corp-ext exec 전용) — 기본 SA 아님
       automountServiceAccountToken: false      # in-pod 토큰 미마운트 → 공격자가 K8s API 못 씀(네트워크 체인 강제). exec 는 외부 kubeconfig 라 무관
+      initContainers:
+        - name: toolkit-stage                  # ShopFlow 발판과 동일 — 공유 툴킷을 /tk 에 풀어줌
+          image: capstone/attacker-toolkit:1.0
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              mkdir -p /tk/bin /tk/lib /tk/opt
+              cp -a /usr/local/bin/. /tk/bin/ 2>/dev/null || true
+              cp -a /usr/bin/.       /tk/bin/ 2>/dev/null || true
+              cp -a /usr/lib/.       /tk/lib/ 2>/dev/null || true
+              cp -a /lib/.           /tk/lib/ 2>/dev/null || true
+              for d in exploitdb nuclei-templates sqlmap; do [ -e /opt/$d ] && cp -a /opt/$d /tk/opt/ || true; done
+              ln -sf /tk/bin/gawk /tk/bin/awk
+              printf '#!/bin/sh\nexec /tk/opt/exploitdb/searchsploit "$@"\n' > /tk/bin/searchsploit
+              printf '#!/bin/sh\nexec /tk/bin/python3 /tk/opt/sqlmap/sqlmap.py "$@"\n' > /tk/bin/sqlmap
+              chmod +x /tk/bin/searchsploit /tk/bin/sqlmap
+          volumeMounts:
+            - { name: toolkit, mountPath: /tk }
       containers:
         - name: toolkit
-          image: postgres:16-alpine          # wget·psql·nc 내장 — ShopFlow 발판과 동일 재사용
+          image: postgres:16-alpine          # 본체는 원래 베이스 그대로(wget·psql·nc 내장)
           imagePullPolicy: IfNotPresent
+          command: ["sleep", "infinity"]     # 유휴 대기(명령은 kubectl exec 로 주입)
           env:
+            - { name: PATH, value: "/tk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" }
+            - { name: LD_LIBRARY_PATH, value: "/tk/lib" }
             # corp-dmz 진입점 단서 — 공격자 정찰(env|grep url/internal)에 노출. ShopFlow internal-wiki 런북 역할.
             # WHERE(WAF 경유 진입)만 흘린다. HOW(WAF 우회·Tomcat PUT 웹셸·Solr Log4Shell)는 그대로 자율 과제.
             - { name: INTERNAL_APP_URL,  value: "http://waf.corp-dmz.svc.cluster.local" }
             - { name: INTERNAL_APP_NOTE, value: "legacy Tomcat 8.5 app, reachable only via WAF proxy" }
-          command: ["sh", "-c"]
-          # 재기동 생존: 라이브 패치였던 curl·python3 를 매니페스트에 고정(Tomcat PUT·Log4Shell 콜백용).
-          args:
-            - |
-              apk add --no-cache curl python3 || true
-              exec tail -f /dev/null
+          volumeMounts:
+            - { name: toolkit, mountPath: /tk, readOnly: true }
           resources:
             requests: { cpu: "50m", memory: "64Mi" }
-            limits: { cpu: "500m", memory: "256Mi" }
+            limits: { cpu: "500m", memory: "512Mi" }
+      volumes:
+        - { name: toolkit, emptyDir: {} }

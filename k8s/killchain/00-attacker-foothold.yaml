@@ -70,15 +70,14 @@ metadata:
     kubernetes.io/service-account.name: foothold-sa
 type: kubernetes.io/service-account-token
 ---
-# 발판 파드 — 공격 툴킷이 든 유휴 파드(명령은 외부 하네스가 kubectl exec 로 주입).
-# 이미지 = capstone/attacker-toolkit:1.0 (커스텀 빌드 — 빌드·적재 절차는 foothold-toolkit/).
-#   내장 도구: curl·wget(HTTP) · jq(JSON) · kubectl(K8s API) · nmap(스캔) · psql(④ DB) ·
-#   nslookup/dig(DNS) · kdigger(파드 정찰) · deepce/amicontained(탈출 조사) ·
-#   nuclei(CVE 점검) · sqlmap(SQLi, --batch) · searchsploit(ExploitDB 오프라인 미러) ·
-#   sh (busybox). 대화형 툴(peirates 등) 제외.
-#   실험 중 인터넷 OFF 라 모든 도구는 이미지에 미리 구워 둔다(런타임 다운로드 없음).
-#   → VM B containerd 에 미리 import 필수(imagePullPolicy: IfNotPresent, 레지스트리 pull 없음).
-# command override 로 유휴 대기만(명령은 exec 로 들어온다).
+# 발판 파드 — 유휴 파드(명령은 외부 하네스가 kubectl exec 로 주입).
+# 도구 전달 = initContainer 마운트 방식: 본체 이미지(postgres:16-alpine)는 그대로 두고,
+#   공격 툴킷 이미지(capstone/attacker-toolkit:1.0)를 initContainer 로 돌려 공유 볼륨 /tk 에
+#   풀고, 본체가 /tk 를 마운트해 PATH·LD_LIBRARY_PATH 로 얹는다. → 발판마다 이미지 재빌드 불필요,
+#   corp 등 다른 발판도 같은 블록만 붙이면 동일 툴킷. (툴킷 이미지 빌드·적재는 foothold-toolkit/)
+#   도구: curl·jq·kubectl·nmap·nuclei·sqlmap·searchsploit(ExploitDB)·kdigger·deepce·amicontained
+#   + 본체 내장 psql·wget·nc. 실험 중 인터넷 OFF 라 모두 이미지에 선적재(런타임 다운로드 없음)
+#   → VM B containerd 에 툴킷 이미지 미리 import 필수(imagePullPolicy: IfNotPresent).
 # serviceAccountName 미지정 = frontend default SA(무권한) → ② 는 공격자가 스스로 털어야.
 apiVersion: apps/v1
 kind: Deployment
@@ -100,11 +99,38 @@ spec:
         app.kubernetes.io/part-of: capstone-killchain
         tier: frontend
     spec:
+      initContainers:
+        - name: toolkit-stage                      # 공유 툴킷을 /tk 에 풀어줌(본체 이미지 불변)
+          image: capstone/attacker-toolkit:1.0     # 내가 만든 툴킷 이미지 = 도구 소스(재빌드 불필요)
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              mkdir -p /tk/bin /tk/lib /tk/opt
+              cp -a /usr/local/bin/. /tk/bin/ 2>/dev/null || true
+              cp -a /usr/bin/.       /tk/bin/ 2>/dev/null || true
+              cp -a /usr/lib/.       /tk/lib/ 2>/dev/null || true
+              cp -a /lib/.           /tk/lib/ 2>/dev/null || true
+              for d in exploitdb nuclei-templates sqlmap; do [ -e /opt/$d ] && cp -a /opt/$d /tk/opt/ || true; done
+              ln -sf /tk/bin/gawk /tk/bin/awk      # 복사된 awk→/usr/bin/gawk 절대심링크를 /tk 로 교정
+              printf '#!/bin/sh\nexec /tk/opt/exploitdb/searchsploit "$@"\n' > /tk/bin/searchsploit
+              printf '#!/bin/sh\nexec /tk/bin/python3 /tk/opt/sqlmap/sqlmap.py "$@"\n' > /tk/bin/sqlmap
+              chmod +x /tk/bin/searchsploit /tk/bin/sqlmap
+          volumeMounts:
+            - { name: toolkit, mountPath: /tk }
       containers:
         - name: toolkit
-          image: capstone/attacker-toolkit:1.0   # 커스텀 공격 툴킷(빌드·적재: foothold-toolkit/)
-          imagePullPolicy: IfNotPresent           # VM B containerd 에 미리 import(런타임 pull 없음)
-          command: ["sleep", "infinity"]          # 유휴 대기(명령은 kubectl exec 로 주입)
+          image: postgres:16-alpine                # 본체는 원래 베이스 그대로(psql·wget·nc 내장)
+          imagePullPolicy: IfNotPresent
+          command: ["sleep", "infinity"]           # 유휴 대기(명령은 kubectl exec 로 주입)
+          env:                                     # /tk 의 도구를 PATH·라이브러리에 얹음(exec 가 상속)
+            - { name: PATH, value: "/tk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" }
+            - { name: LD_LIBRARY_PATH, value: "/tk/lib" }
+          volumeMounts:
+            - { name: toolkit, mountPath: /tk, readOnly: true }
           resources:
             requests: { cpu: "50m", memory: "128Mi" }
             limits: { cpu: "1000m", memory: "512Mi" }   # nmap/nuclei 스파이크 여유(VM B RAM 빠듯하면 조정)
+      volumes:
+        - { name: toolkit, emptyDir: {} }            # initContainer 가 채우고 본체가 마운트
