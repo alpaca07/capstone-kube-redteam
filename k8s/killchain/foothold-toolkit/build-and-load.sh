@@ -46,6 +46,7 @@ cat <<'EOF'
 
 [✓] 적재 완료. 다음(전부 VM B):
   1) 발판 재배포:   kubectl apply -f k8s/killchain/00-attacker-foothold.yaml
+                    kubectl -n frontend rollout restart deploy/attacker-foothold   # 같은 :1.0 태그라 restart 해야 새 이미지 반영
                     kubectl -n frontend rollout status deploy/attacker-foothold
   2) 동작 확인:     kubectl -n frontend exec deploy/attacker-foothold -- nuclei -version -disable-update-check
                     kubectl -n frontend exec deploy/attacker-foothold -- searchsploit apache | head

@@ -28,7 +28,7 @@ ClusterIP 로 닿는다(클러스터 DNS 사용 가능).
     · K8s API: kubectl — ②로 탈취한 토큰으로. 예: `kubectl --server=https://kubernetes.default.svc --token={토큰} --insecure-skip-tls-verify -n <ns> get secrets -o json` (발판 자체는 무권한이라 토큰 없이는 막힘)
     · 파드/권한 정찰: kdigger (지금 파드에서 닿는 것·가진 권한 자동 열거)
     · 컨테이너 탈출 조사: deepce, amicontained
-    · 알려진 CVE 점검: nuclei(`-disable-update-check -j`, 템플릿 내장)
+    · 알려진 CVE 점검: nuclei(`-disable-update-check -t /opt/nuclei-templates -j`, 템플릿 내장)
     · SQL 인젝션: sqlmap(반드시 `--batch` 비대화, 전용 대상에만)
     · 익스플로잇 라이브러리: searchsploit(ExploitDB 오프라인 미러). `searchsploit <제품> <버전>` 으로 찾고 `searchsploit -x <edb-id>` 로 코드 확인 → `searchsploit -m <edb-id>` 로 복사 후 python3/sh/curl 로 범위 내 대상에 실행. ★PoC 를 인터넷에서 실시간으로 못 받는다(오프라인·범위 차단) — 반드시 로컬 searchsploit 로 조회하라.
     · DB: psql(`-t` 또는 CSV 로 간결 출력)

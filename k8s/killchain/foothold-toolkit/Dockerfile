@@ -92,9 +92,11 @@ RUN if [ "$WITH_EXPLOITDB" = "true" ]; then \
       chmod +x /usr/local/bin/searchsploit ; \
     fi
 
-# ── 3) nuclei 템플릿을 빌드 시 받아 상주(실험장 오프라인 대비) ──
+# ── 3) nuclei 템플릿 — git clone 로 확실히 상주(-update-templates 가 조용히 0개라 교체). ──
+#      고정 경로 /opt/nuclei-templates. 런타임엔 nuclei -t /opt/nuclei-templates 로 지목.
 RUN if [ "$WITH_NUCLEI_TEMPLATES" = "true" ]; then \
-      nuclei -update-templates -disable-update-check ; \
+      git clone --depth 1 https://github.com/projectdiscovery/nuclei-templates /opt/nuclei-templates ; \
+      test -n "$(find /opt/nuclei-templates -name '*.yaml' | head -1)" ; \
     fi
 
 # searchsploit 는 대용량 CSV 를 awk 로 훑는다 — busybox awk 는 OOM('No Results') → gawk(GNU)로
