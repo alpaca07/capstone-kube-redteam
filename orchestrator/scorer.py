@@ -85,6 +85,74 @@ def confusion_matrix(reported: set[str], truth: set[str]) -> DetectionScore:
     return DetectionScore(tp=len(r & g), fp=len(r - g), fn=len(g - r))
 
 
+def evaluate_detections(detected, truth_log, episode: int, round: int,
+                        reported_cum: set[str]) -> dict:
+    """방어 보고(detected[])를 god-view 사실과 대조해 '왜 정탐·오탐·미탐인지'를 항목별 근거로.
+
+    혼동행렬(confusion_matrix)과 같은 base-기법 집합 기준이라 탐지 정확도 수치와 1:1로 맞는다.
+    - 정탐(TP): 보고한 기법이 god-view 실제 공격에 있음 → 맞춤.
+    - 오탐(FP): 보고했으나 실제 공격 기법에 없음 → 오경보.
+    - 미탐(FN): 실제 발생(god-view 확인)했으나 '누적 보고'에 없음 → 놓침.
+    대시보드 탐지·패치 흐름(인라인·모달)이 이 블록을 읽어 배지·근거를 그린다.
+    """
+    truth_cum = truth_log.techniques_up_to(episode, round)        # 누적 실제(원본 기법 문자열)
+    truth_base = {_base(t) for t in truth_cum}
+    # 미탐 근거용: base 기법 → 최초 발생 라운드 + 증거(detail). 한 번만(간결).
+    first: dict[str, dict] = {}
+    for e in truth_log.entries(episode):
+        if e.round > round:
+            continue
+        for ev in e.events:
+            b = _base(ev.technique)
+            if b not in first:
+                first[b] = {"round": e.round, "technique": ev.technique,
+                            "detail": (ev.detail or "").strip(), "flag_id": ev.flag_id}
+    reported_base_cum = {_base(t) for t in reported_cum}
+    truth_sorted = sorted(truth_base)
+
+    def _fp_reason(b: str) -> str:
+        shown = ", ".join(truth_sorted) if truth_sorted else "없음"
+        return (f"god-view 실제 공격 기법에 {b} 없음 → 오경보(오탐). "
+                f"이 시점까지 실제 발생 기법: {shown}.")
+
+    items = []
+    for d in detected:
+        t = d.technique
+        if not t:
+            items.append({"technique": None, "base": None, "evidence": (d.evidence or ""),
+                          "confidence": d.confidence, "verdict": "unknown",
+                          "reason": "기법 미상 — god-view 대조 불가(판정 보류)."})
+            continue
+        b = _base(t)
+        tp = b in truth_base
+        items.append({
+            "technique": t, "base": b, "evidence": (d.evidence or ""), "confidence": d.confidence,
+            "verdict": "tp" if tp else "fp",
+            "reason": (f"god-view 실제 공격에서 {b} 확인됨 → 맞춤(정탐)." if tp else _fp_reason(b)),
+        })
+
+    missed = []
+    for b in sorted(truth_base - reported_base_cum):
+        info = first.get(b, {})
+        ev = info.get("detail") or ""
+        rn = info.get("round")
+        missed.append({
+            "technique": b, "first_round": rn,
+            "reason": (f"god-view 확인 — 실제 발생"
+                       + (f"(R{rn}" + (f", 증거: {ev}" if ev else "") + ")" if rn else "")
+                       + "했으나 방어가 끝까지 보고 못 함 → 놓침(미탐)."),
+        })
+
+    return {
+        "truth_techniques": truth_sorted,
+        "items": items,
+        "missed": missed,
+        "summary": {"tp": sum(1 for i in items if i["verdict"] == "tp"),
+                    "fp": sum(1 for i in items if i["verdict"] == "fp"),
+                    "fn": len(missed)},
+    }
+
+
 @dataclass
 class MttdResult:
     """Mean Time To Detect — '시간'은 라운드 단위(턴 예산 기반)."""
@@ -200,6 +268,7 @@ class Scorer:
         self._records: list[RoundRecord] = []
         self._reported_cum: set[str] = set()      # 누적 보고 기법
         self._detection_first: dict[str, int] = {}  # 기법→최초 '정탐' 라운드(MTTD)
+        self.last_detection_eval: Optional[dict] = None  # 직전 라운드 탐지 판정 근거(round_detail용)
 
     def score_round(self, *, round: int, attack_result: AttackTurnResult,
                     defense_result: DefenseTurnResult,
@@ -207,6 +276,9 @@ class Scorer:
         truth_cum = self.truth.techniques_up_to(self.episode, round)
         reported = {d.technique for d in defense_result.detected if d.technique}
         self._reported_cum |= reported
+        # 탐지별 '왜 정탐·오탐·미탐' 근거(대시보드 드릴다운용). 누적 보고 기준 → 혼동행렬과 일치.
+        self.last_detection_eval = evaluate_detections(
+            defense_result.detected, self.truth, self.episode, round, self._reported_cum)
         _truth_base = {_base(t) for t in truth_cum}   # 서브기법↔부모 일관 매칭
         for t in reported:                         # 실제 발생을 맞춘 최초 라운드만 MTTD에
             bt = _base(t)

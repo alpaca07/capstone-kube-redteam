@@ -43,8 +43,9 @@ from .events import EventSink, record_round_events
 from .flags import FlagRegistry
 from .logs import LogSource
 from .round_detail import write_round_detail
+from .graph_augment import inject_godview_findings
 from .objectives import ObjectiveRegistry, DEFAULT_ASSET_GOAL
-from .scorer import EpisodeSummary, Scorer
+from .scorer import EpisodeSummary, Scorer, breach_cvss
 from .snapshot import SnapshotManager
 from .truth_log import TruthEntry, TruthEvent, TruthLog
 from .verifier import VerificationEngine, VerificationResult, Verdict
@@ -354,7 +355,8 @@ class TurnSequencer:
                    goals_reached=sorted({self.objectives.get(f).goal for f in crowns}))
 
         # 대시보드 계측(보조): 행위 이벤트 스트림 + 라운드 상세 원자료. 생략 라운드도 공격 활동 기록.
-        self._record_round(episode, rnd, attack, defense, verification)
+        self._record_round(episode, rnd, attack, defense, verification,
+                           detection_eval=scorer.last_detection_eval)
 
         # 방어 성공 = 공격 경로 차단(BLOCKED) AND 서비스 가용성 유지. 서비스를 죽여 얻은
         # BLOCKED(health=False, 과잉차단·자멸)은 성공으로 치지 않는다 → 게이팅 사다리·집계 제외.
@@ -366,14 +368,29 @@ class TurnSequencer:
                             flag_found=flag_found)
 
     # ───────────── 대시보드 계측(이벤트·상세) — 보조, 실패해도 라운드 불변 ─────────────
-    def _record_round(self, episode: int, rnd: int, attack, defense, verification) -> None:
+    def _record_round(self, episode: int, rnd: int, attack, defense, verification,
+                      *, detection_eval=None) -> None:
         try:
             record_round_events(self.events, episode=episode, round=rnd,
                                 attack=attack, defense=defense, verification=verification)
         except Exception:                  # noqa: BLE001 — 계측 실패가 실험을 멈추면 안 됨
             pass
+        # god-view 확정 크라운을 공격 그래프에 발견 노드로 주입(공격자 자기보고엔 없을 수 있음).
+        graph_aug = None
+        try:
+            flags = self.truth.flags_up_to(episode, rnd)
+            crowns = sorted(f for f in flags if self.objectives.get(f))
+            if crowns:
+                cvss = breach_cvss(crowns)
+                channels = self.truth.crown_channels_up_to(episode, rnd)   # {crown: {통로}}
+                snap = getattr(attack, "graph_snapshot", None)
+                graph_aug = inject_godview_findings(snap, crowns, cvss,
+                                                    channels_by_crown=channels, round=rnd)
+        except Exception:                  # noqa: BLE001 — 표시 증강 실패가 실험을 멈추면 안 됨
+            graph_aug = None
         write_round_detail(self.detail_dir, episode, rnd,
-                           attack=attack, defense=defense, verification=verification)
+                           attack=attack, defense=defense, verification=verification,
+                           detection_eval=detection_eval, graph_override=graph_aug)
 
     # ───────────── god-view 정답 구축 ─────────────
     def _build_truth(self, episode: int, rnd: int, attack: AttackTurnResult,

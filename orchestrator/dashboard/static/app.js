@@ -44,6 +44,23 @@
     return ({ "crown-secrets": "내부 비밀 유출", "crown-pii": "고객정보 유출", "crown-ops": "운영 비밀 유출" })[c] ||
       (c ? String(c).replace(/^crown[-_]?/i, "") + " 유출" : "핵심정보 유출");
   }
+  // 탐지 판정(god-view 대조) 배지·조회 — 정탐/오탐/미탐
+  var DET_V = { tp: { ko: "정탐", cls: "b-ok" }, fp: { ko: "오탐", cls: "b-fp" },
+    fn: { ko: "미탐", cls: "b-fn" }, unknown: { ko: "판정 보류", cls: "b-sys" } };
+  function detBadge(v) { var m = DET_V[v]; return m ? '<span class="badge ' + m.cls + '">' + m.ko + "</span>" : ""; }
+  function detEvalByTech(de, tech) {   // detection_eval.items 에서 기법 판정 조회(없으면 null)
+    if (!de || !de.items) return null;
+    for (var i = 0; i < de.items.length; i++) { if (de.items[i].technique === tech) return de.items[i]; }
+    return null;
+  }
+  function detMissedHtml(de, item) {   // 미탐(실제 발생·방어 미보고) 항목들
+    if (!de || !de.missed || !de.missed.length) return "";
+    return de.missed.map(function (m) {
+      return '<div class="' + item + ' det-missed"><div class="fi-head"><span class="badge b-fn">미탐</span>' +
+        '<span class="badge b-atk">' + esc(m.technique) + "</span></div>" +
+        '<div class="det-why det-fn">' + esc(m.reason) + "</div></div>";
+    }).join("");
+  }
   // 턴 종료 사유(enum) → 쉬운 말
   function reasonLabel(r) { return ({ flag: "목표 도달", deadend: "막다른 길", timeout: "시간 초과",
     budget: "예산 소진", max_steps: "명령 한도", error: "오류", patched: "패치 완료", skipped: "건너뜀" })[r] || r || "—"; }
@@ -322,6 +339,11 @@
   // 발견 노드 위험도 — 하이브리드: 크라운 확정(심판 god-view) > loot 입증 > 공격자 주장.
   function findingCvss(node) {
     var bt = _baseTech(node.technique), cc = crownCvss();
+    if (node.crown_id) {                           // god-view 주입 발견 — 해당 크라운 등급 직접(확정)
+      var cj = cc[node.crown_id] || (node.cvss && node.cvss.score ? node.cvss : null);
+      if (cj) return { score: cj.score, severity: cj.severity, vector: cj.vector, confidence: "확정",
+        basis: "심판 god-view 로 확정된 핵심 자산 침해 — " + (cj.basis || "") };
+    }
     var crowns = (_CROWN_BY_MITRE[bt] || []).filter(function (c) { return cc[c]; });
     if (crowns.length) {                           // 크라운 확정 — 심판 god-view 등급 사용
       crowns.sort(function (a, b) { return cc[b].score - cc[a].score; });
@@ -888,11 +910,19 @@
     var atkBody = (a.attack_summary ? '<pre class="md-pre">' + esc(a.attack_summary) + "</pre>" : '<div class="tile-sub">공격 요약 없음</div>') +
       (a.end_reason ? '<div class="rep-line"><span class="rep-k">공격 종료</span><span>' + esc(reasonLabel(a.end_reason)) + "</span></div>" : "");
 
-    var detBody = det.length ? det.map(function (x) {
+    var de = detail.detection_eval || null;
+    var detItems = det.length ? det.map(function (x) {
       var conf = x.confidence != null ? Math.round(x.confidence * 100) + "%" : "—";
-      return '<div class="md-item"><div class="fi-head">' + (x.technique ? '<span class="badge b-def">' + esc(x.technique) + "</span>" : '<span class="chip">기법 미상</span>') + '<span class="fi-conf">확신도 ' + conf + "</span></div>" +
-        '<div class="md-ev mono">' + esc(x.evidence || "—") + "</div></div>";
-    }).join("") : '<div class="tile-sub">미탐 — 공격 미식별</div>';
+      var ev = detEvalByTech(de, x.technique);
+      return '<div class="md-item"><div class="fi-head">' + (x.technique ? '<span class="badge b-def">' + esc(x.technique) + "</span>" : '<span class="chip">기법 미상</span>') + (ev ? detBadge(ev.verdict) : "") + '<span class="fi-conf">확신도 ' + conf + "</span></div>" +
+        '<div class="md-ev mono">' + esc(x.evidence || "—") + "</div>" +
+        (ev ? '<div class="det-why det-' + ev.verdict + '">' + esc(ev.reason) + "</div>" : "") + "</div>";
+    }).join("") : "";
+    var detMiss = (de && de.missed && de.missed.length) ?
+      '<div class="md-st2">미탐 — 실제 발생·방어 미보고 (' + de.missed.length + "건)</div>" + detMissedHtml(de, "md-item") : "";
+    var detNote = (de && de.truth_techniques) ?
+      '<div class="md-ev" style="color:var(--text-3)">god-view 실제 공격 기법: ' + (de.truth_techniques.length ? esc(de.truth_techniques.join(", ")) : "없음") + " · 정탐 " + de.summary.tp + " · 오탐 " + de.summary.fp + " · 미탐 " + de.summary.fn + "</div>" : "";
+    var detBody = (detNote + detItems + detMiss) || '<div class="tile-sub">보고·미탐 없음</div>';
 
     var psBody = (ps.length ? ps.map(function (p) {
       var ba = patchBeforeAfter(p);
@@ -971,11 +1001,15 @@
 
     var chips = roundChipsHtml(rounds, (rec.episode || 1) + "-" + rec.round, "data-rkey");
 
-    var detHtml = det.length ? det.map(function (x) {
+    var de = detail.detection_eval || null;
+    var detItems = det.length ? det.map(function (x) {
       var conf = x.confidence != null ? Math.round(x.confidence * 100) : null;
-      return '<div class="flow-item"><div class="fi-head">' + (x.technique ? '<span class="badge b-def">' + esc(x.technique) + "</span>" : '<span class="chip">기법 미상</span>') + (conf != null ? '<span class="fi-conf">확신도 ' + conf + "%</span>" : "") + "</div>" +
-        '<div class="fi-ev mono">' + esc(x.evidence || "—") + "</div>" + (conf != null ? '<div class="conf-bar"><span style="width:' + conf + '%"></span></div>' : "") + "</div>";
-    }).join("") : '<div class="flow-empty">미탐 — 이 라운드 공격 미식별</div>';
+      var ev = detEvalByTech(de, x.technique);
+      return '<div class="flow-item"><div class="fi-head">' + (x.technique ? '<span class="badge b-def">' + esc(x.technique) + "</span>" : '<span class="chip">기법 미상</span>') + (ev ? detBadge(ev.verdict) : "") + (conf != null ? '<span class="fi-conf">확신도 ' + conf + "%</span>" : "") + "</div>" +
+        '<div class="fi-ev mono">' + esc(x.evidence || "—") + "</div>" + (conf != null ? '<div class="conf-bar"><span style="width:' + conf + '%"></span></div>' : "") +
+        (ev ? '<div class="det-why det-' + ev.verdict + '">' + esc(ev.reason) + "</div>" : "") + "</div>";
+    }).join("") : "";
+    var detHtml = (detItems + detMissedHtml(de, "flow-item")) || '<div class="flow-empty">보고·미탐 없음</div>';
 
     var psHtml = ps.length ? ps.map(function (p) {
       return '<div class="flow-item"><div class="fi-head"><span class="badge b-def">' + esc(patchKindLabel(p.kind)) + '</span><span class="fi-tgt mono">' + esc(p.target || "") + "</span></div>" +
@@ -1470,6 +1504,7 @@
       '<button class="tab' + (agTab === "knowledge" ? " active" : "") + '" data-agtab="knowledge">지식</button></div>';
     var _fc = (n.kind === "finding") ? findingCvss(n) : null;
     var head = '<div class="ag-ph"><span class="badge" style="background:' + col.bg + ";color:" + col.line + '">' + kindLabelFull(n.kind) + "</span>" +
+      (n.godview ? '<span class="badge b-ok" title="심판 god-view 접근기록으로 확정된 침해">god-view 확정</span>' : "") +
       (n.technique ? '<span class="badge b-atk">' + esc(n.technique) + "</span>" : "") +
       (n.state && n.state !== "exhausted" ? '<span class="chip ag-state" style="color:' + stateColor(n.state) + ';border-color:' + stateColor(n.state) + '33">' + esc(stateKo(n.state)) + "</span>" : "") + "</div>" +
       (_fc ? agCvssBlock(_fc, n) : "") +
@@ -1596,10 +1631,14 @@
       var rTag = rnd != null ? '<g class="ag-rtag' + (rcur ? " cur" : "") + '"><rect x="' + (p.x + 8) + '" y="' + (p.y - 8) +
         '" width="' + rtw + '" height="15" rx="7.5" fill="' + (rcur ? "#0d9488" : "#9aa6b6") + '"/>' +
         '<text x="' + (p.x + 8 + rtw / 2) + '" y="' + (p.y + 3) + '" text-anchor="middle" font-size="9" font-weight="700" fill="#fff">R' + rnd + "</text></g>" : "";
+      // god-view 확정 발견(심판 주입) — 노드 우상단에 표식. 공격자 자기보고 발견과 구분.
+      var gvTag = n.godview ? '<g class="ag-gv"><rect x="' + (p.x + NW - 62) + '" y="' + (p.y - 8) +
+        '" width="58" height="15" rx="7.5" fill="#0ea371"/><text x="' + (p.x + NW - 33) + '" y="' + (p.y + 3) +
+        '" text-anchor="middle" font-size="8.5" font-weight="700" fill="#fff">god-view</text></g>' : "";
       return '<g class="' + cls + (rcur ? " ag-rcur" : "") + '" data-nid="' + n.id + '"' + (delay ? ' style="animation-delay:' + delay + 'ms"' : "") + ' opacity="' + op + '">' +
         '<rect x="' + p.x + '" y="' + p.y + '" width="' + NW + '" height="' + NH + '" rx="10" fill="' + col.bg + '" stroke="' + col.line + '" stroke-width="' + (sel ? 2.8 : (col.solid ? 1.6 : 1.2)) + '"' + (dead ? ' stroke-dasharray="5 3"' : "") + "/>" +
         '<text class="agk" x="' + (p.x + 13) + '" y="' + (p.y + 21) + '" font-size="9.5" font-weight="700" fill="' + l1col + '">' + l1 + "</text>" + stBadge +
-        '<text x="' + (p.x + 13) + '" y="' + (p.y + 39) + '" font-size="11.5" fill="' + l2col + '">' + l2 + "</text>" + rTag + "</g>";
+        '<text x="' + (p.x + 13) + '" y="' + (p.y + 39) + '" font-size="11.5" fill="' + l2col + '">' + l2 + "</text>" + rTag + gvTag + "</g>";
     }).join("");
     var vb = agView || { x: 0, y: 0, w: W, h: H };     // agView=수동 조작(확대·이동) 지속, null=자동 맞춤(라이브 성장 추적)
     var tools = '<div class="ag-tools">' +

@@ -182,6 +182,16 @@ button { font-family: inherit; }
 .b-sys { background: var(--sys-soft); color: var(--sys); }
 .b-crown { background: var(--crown-soft); color: #9a6a0c; }
 .b-ok { background: var(--ok-soft); color: var(--ok); }
+.b-fp { background: var(--crown-soft); color: #9a6a0c; }   /* 오탐(오경보) */
+.b-fn { background: var(--atk-soft); color: var(--atk); }   /* 미탐(놓침) */
+
+/* 탐지 판정 근거 — 왜 정탐·오탐·미탐인지 한 줄로 */
+.det-why { font-size: 11.5px; line-height: 1.5; margin-top: 6px; padding: 5px 9px; border-radius: 6px;
+  border-left: 3px solid var(--sys); background: var(--sys-soft); color: var(--text-2); overflow-wrap: anywhere; }
+.det-why.det-tp { border-left-color: var(--ok); background: var(--ok-soft); }
+.det-why.det-fp { border-left-color: var(--crown); background: var(--crown-soft); }
+.det-why.det-fn { border-left-color: var(--atk); background: var(--atk-soft); }
+.det-missed .fi-head { gap: 6px; }
 
 /* 범례 */
 .legend { display: flex; flex-wrap: wrap; gap: 13px; margin-top: 12px; font-family: var(--font-mono); font-size: 11px; color: var(--text-2); }

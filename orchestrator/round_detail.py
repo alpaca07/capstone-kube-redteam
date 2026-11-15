@@ -24,8 +24,11 @@ from typing import Optional
 
 
 def round_detail_dict(episode: int, round: int, *, attack=None, defense=None,
-                      verification=None) -> dict:
-    """한 라운드의 공격·방어·검증 객체를 JSON 직렬화 가능한 상세 dict 로."""
+                      verification=None, detection_eval=None) -> dict:
+    """한 라운드의 공격·방어·검증 객체를 JSON 직렬화 가능한 상세 dict 로.
+
+    detection_eval: 방어 탐지별 '왜 정탐·오탐·미탐인지' 근거 블록(채점기 산출) — 대시보드 탐지 흐름용.
+    """
     return {
         "episode": episode,
         "round": round,
@@ -33,27 +36,30 @@ def round_detail_dict(episode: int, round: int, *, attack=None, defense=None,
         "attack": _dump(attack),
         "defense": _dump(defense),
         "verification": _verif_dict(verification),
+        "detection_eval": detection_eval,        # None 이면 프런트가 자체 계산 폴백
     }
 
 
 def write_round_detail(out_dir: Optional[str], episode: int, round: int, *,
-                       attack=None, defense=None, verification=None) -> None:
+                       attack=None, defense=None, verification=None,
+                       detection_eval=None, graph_override=None) -> None:
     """상세 dict 를 round_detail/<ep>-<rnd>.json 에 원자적으로 쓴다. 토폴로지가 있으면 별도 파일도.
 
+    graph_override: 심판이 god-view 발견 노드를 주입한 증강 그래프. 있으면 공격자 원본 대신 이걸 쓴다.
     out_dir 가 None 이면 무동작. 실패는 삼킨다(보조 로깅).
     """
     if not out_dir:
         return
     try:
         detail = round_detail_dict(episode, round, attack=attack, defense=defense,
-                                   verification=verification)
+                                   verification=verification, detection_eval=detection_eval)
         _atomic_write(Path(out_dir) / "round_detail" / f"{episode}-{round}.json", detail)
         topo = getattr(defense, "topology", None)
         if topo:
             _atomic_write(Path(out_dir) / "defense_topology" / f"{episode}-{round}.json",
                           {"episode": episode, "round": round, "ts": time.time(),
                            "topology": topo})
-        snap = getattr(attack, "graph_snapshot", None)       # 공격 탐색 그래프(표시 전용)
+        snap = graph_override if graph_override is not None else getattr(attack, "graph_snapshot", None)
         if snap:
             _atomic_write(Path(out_dir) / "attack_graph" / f"{episode}-{round}.json",
                           {"episode": episode, "round": round, "ts": time.time(),
