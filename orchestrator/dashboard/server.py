@@ -32,7 +32,7 @@ app = FastAPI(title="Helix — 공수 루프 관제 대시보드")
 
 # ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (app.js 의 UI_BUILD 과 같은 값으로 함께 올린다).
 # /api/status 로 내보내 대시보드가 '서버가 최신 코드로 재시작됐는지' 좌상단 버전으로 확인한다.
-SERVER_BUILD = 2
+SERVER_BUILD = 3
 
 # 실험 프로세스 상태(단일 워커 전제: 한 번에 하나만).
 _run: dict = {"proc": None, "started": None, "params": None, "id": None}
@@ -407,8 +407,14 @@ if _STATIC.is_dir():
 def main() -> None:
     import uvicorn
     port = int(os.environ.get("PORT", "12345"))
-    print(f"[*] 관제 대시보드 http://0.0.0.0:{port}  (logs={_LOGS})")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    reload = os.environ.get("RELOAD", "").lower() in ("1", "true", "yes", "on")
+    print(f"[*] 관제 대시보드 http://0.0.0.0:{port}  (logs={_LOGS}{' · 자동 리로드' if reload else ''})")
+    if reload:
+        # RELOAD=1 로 띄우면 파일 변경(git pull) 시 자동 재기동 — 수동 재시작 불필요.
+        # reload 는 app 객체가 아니라 임포트 문자열을 줘야 동작한다.
+        uvicorn.run("orchestrator.dashboard.server:app", host="0.0.0.0", port=port, reload=True)
+    else:
+        uvicorn.run(app, host="0.0.0.0", port=port)
 
 
 if __name__ == "__main__":

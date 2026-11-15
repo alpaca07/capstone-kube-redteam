@@ -31,7 +31,7 @@
 
   // ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (server.py 의 SERVER_BUILD 과 같은 값으로 함께 올린다).
   // 좌상단에 v<UI_BUILD> 를 표시하고, 서버가 보고한 server_build 와 다르면 '재시작 필요' 경고를 띄운다.
-  var UI_BUILD = 2;
+  var UI_BUILD = 3;
   function renderBuild(serverBuild) {
     var el = document.getElementById("build-tag");
     if (!el) return;
