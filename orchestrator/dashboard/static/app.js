@@ -599,14 +599,23 @@
     Object.keys(byEp).forEach(function (e) { var c = byEp[e]; out.tp += c.tp || 0; out.fp += c.fp || 0; out.fn += c.fn || 0; });
     return out;
   }
+  function overBlockCount() {   // 과잉차단 — 패치했으나 서비스 중단(health 실패)된 라운드 수
+    var n = 0; S.rounds.forEach(function (r) { if (r.patch_applied && r.healthcheck_passed === false) n++; }); return n;
+  }
   function detectionCard() {
     var counts = detectionTotals(), recall = (counts.tp + counts.fn) ? counts.tp / (counts.tp + counts.fn) : null;
+    var ob = overBlockCount();
     var hint = '<div class="det-pop-hint">막대를 클릭하면 발생 라운드가 표시됩니다 · 상세보기 → 해당 라운드 탐지 근거</div>';
     S.drill = S.drill || {};
     S.drill.detection = { items: detectionItemsFromDeltas(), names: { tp: "정탐", fp: "오탐", fn: "미탐" }, section: "detect", hint: hint };
+    var foot = "탐지율 " + pct(recall) + " · 미탐 " + counts.fn + "건 (방어 공백)";
+    if (counts.tp === 0 && (counts.fp + counts.fn) > 0)   // 정탐 0 — 왜인지 명시(착시 교정)
+      foot += '<div class="det-note">정탐 0 — 보고한 탐지가 god-view 실제 공격 기법과 하나도 맞지 않음(전부 오경보). 탐지(기법 식별)와 패치·차단(검증)은 별개 축이라, 경로를 막아도 기법을 못 맞히면 정탐은 0입니다.</div>';
+    if (ob > 0)   // 과잉차단 — '패치 잘한다' 착시 교정
+      foot += '<div class="det-note det-warn">과잉차단 ' + ob + '회 — 서비스 중단(health 실패)을 감수하고 얻은 차단. 채점에선 방어 성공으로 치지 않습니다.</div>';
     return drillCard({ id: "detection", title: "공격 탐지 정확도", hint: hint,
       cats: [["tp", "정탐", C.ok, "실제 공격 식별"], ["fp", "오탐", C.crown, "오경보"], ["fn", "미탐", C.atk, "공격 미식별"]],
-      counts: counts, footer: "탐지율 " + pct(recall) + " · 미탐 " + counts.fn + "건 (방어 공백)" });
+      counts: counts, footer: foot });
   }
   // 검증 판정 — 라운드 단위라 범주별 발생 라운드가 바로 나온다(델타 불필요).
   function verdictItemsFromRounds() {
@@ -1467,34 +1476,9 @@
     return loot ? "실제 데이터 확보로 침해가 입증됨" : "";
   }
   function agCuration(n) {
-    if (n.desc) return n.desc;
-    var s = String(n.summary || "").trim(), d = String(n.detail || "").trim(), parts = [];
-    if (n.kind === "goal") {
-      parts.push("이번 회차 공격의 최종 목표입니다. 아래의 모든 의도·사실·발견이 이 목표에서 뻗어 나옵니다.");
-      if (s) parts.push("목표 — " + _dot(s));
-    } else if (n.kind === "intent") {
-      parts.push((n.target ? "'" + n.target + "'을(를) 겨냥한 " : "") + "탐색 의도입니다.");
-      if (s) parts.push("방향 — " + _dot(s));
-      if (n.why) parts.push("판단 근거: " + _dot(n.why));
-      if (n.state) parts.push("현재 " + stateKo(n.state) + " 상태입니다.");
-    } else if (n.kind === "fact") {
-      parts.push((n.target ? "'" + n.target + "' 관련 " : "") + "확인된 사실입니다.");
-      if (s) parts.push("내용 — " + _dot(s));
-      if (n.evidence) parts.push("관측 근거: " + _dot(n.evidence));
-    } else if (n.kind === "finding") {
-      parts.push((n.technique ? n.technique + " 기법으로 " : "") + (n.target ? "'" + n.target + "'에서 " : "") +
-        (n.severity ? n.severity + " 등급 " : "") + "침해를 확인했습니다.");
-      if (s) parts.push("내용 — " + _dot(s));
-      var sb = _sevBasis(n);
-      if (n.severity && sb) parts.push("심각도 판단 근거 — " + _dot(sb));
-      if (n.evidence) parts.push("관측 근거: " + _dot(n.evidence));
-      if (n.occurrences > 1) parts.push(n.occurrences + "회 재현돼 일시적 우연이 아님이 확인됐습니다.");
-      if (n.loot != null && String(n.loot) !== "") parts.push("아래 '확보한 데이터'에 실제 탈취 값이 담겨 있습니다.");
-    } else if (s) {
-      parts.push(_dot(s));
-    }
-    if (d && d !== s) parts.push("상세: " + _dot(d));
-    return parts.join(" ");
+    // 노드 상세 핵심 한 줄 — god-view 설명(desc) 우선, 없으면 요약. 종류별 상투 문구와
+    // 판단근거·관측·상태 반복은 뺀다(그 값들은 아래 '개요'에 구조화돼 한 번만 나온다).
+    return String(n.desc || n.summary || n.detail || "").trim();
   }
   function agPanel(nodes) {
     var n = nodes.filter(function (x) { return x.id === agSel; })[0];
@@ -1503,16 +1487,19 @@
     var tabs = '<div class="tabs"><button class="tab' + (agTab === "overview" ? " active" : "") + '" data-agtab="overview">개요</button>' +
       '<button class="tab' + (agTab === "knowledge" ? " active" : "") + '" data-agtab="knowledge">지식</button></div>';
     var _fc = (n.kind === "finding") ? findingCvss(n) : null;
+    var curation = agCuration(n);
+    // 원문(원본 산출) — 큐레이션 한 줄과 겹치지 않는 부분만. god-view 주입 노드는 desc 가 완결이라 생략.
+    var rawParts = n.godview ? "" : (
+      (n.summary && n.summary !== curation ? '<div class="ag-raw-k">summary</div><div class="ag-sum">' + esc(n.summary) + "</div>" : "") +
+      (n.detail && n.detail !== n.summary && n.detail !== curation ? '<div class="ag-raw-k">detail</div><div class="ag-sum">' + esc(n.detail) + "</div>" : ""));
     var head = '<div class="ag-ph"><span class="badge" style="background:' + col.bg + ";color:" + col.line + '">' + kindLabelFull(n.kind) + "</span>" +
       (n.godview ? '<span class="badge b-ok" title="심판 god-view 접근기록으로 확정된 침해">god-view 확정</span>' : "") +
       (n.technique ? '<span class="badge b-atk">' + esc(n.technique) + "</span>" : "") +
       (n.state && n.state !== "exhausted" ? '<span class="chip ag-state" style="color:' + stateColor(n.state) + ';border-color:' + stateColor(n.state) + '33">' + esc(stateKo(n.state)) + "</span>" : "") + "</div>" +
       (_fc ? agCvssBlock(_fc, n) : "") +
-      (function () { var c = agCuration(n); return c ? '<div class="ag-desc ag-desc-main">' + esc(c) + "</div>" : ""; })() +
-      ((n.summary || n.detail) ? '<button class="ag-raw-t" data-agraw>' + (agRaw ? "원문 접기 ▴" : "원문(원본 산출) 보기 ▾") + "</button>" +
-        (agRaw ? '<div class="ag-raw">' +
-          (n.summary ? '<div class="ag-raw-k">summary</div><div class="ag-sum">' + esc(n.summary) + "</div>" : "") +
-          (n.detail && n.detail !== n.summary ? '<div class="ag-raw-k">detail</div><div class="ag-sum">' + esc(n.detail) + "</div>" : "") + "</div>" : "") : "") +
+      (curation ? '<div class="ag-desc ag-desc-main">' + esc(curation) + "</div>" : "") +
+      (rawParts ? '<button class="ag-raw-t" data-agraw>' + (agRaw ? "원문 접기 ▴" : "원문 보기 ▾") + "</button>" +
+        (agRaw ? '<div class="ag-raw">' + rawParts + "</div>" : "") : "") +
       (n.loot != null && n.loot !== "" ? '<div class="ag-loot"><div class="ag-loot-h">확보한 데이터</div><pre class="ag-loot-v">' + esc(typeof n.loot === "object" ? JSON.stringify(n.loot, null, 2) : String(n.loot)) + "</pre></div>" : "");
     var body;
     if (agTab === "overview") {
@@ -1520,14 +1507,12 @@
         (n.why ? agLine("판단 근거", n.why) : "") +
         (n.confidence != null && isFinite(n.confidence) ? agLine("확신도", Math.round(n.confidence * 100) + "%") : "") +
         (n.occurrences ? agLine("재현 횟수", n.occurrences + "회") : "") +
-        (n.owner ? agLine("담당 워커", n.owner) : "") +
         (n.evidence ? '<div class="ag-ev-sm">관측: ' + esc(n.evidence) + "</div>" : "");
-      if (!body) body = '<div class="tile-sub">추가 정보 없음</div>';
+      if (!body) body = '<div class="tile-sub">핵심 요약 외 추가 정보 없음</div>';
     } else {
       body = (n.technique ? agLine("MITRE 기법", n.technique) +
           '<div class="rep-line"><span class="rep-k">참고 문서</span><span><a href="' + mitreUrl(n.technique) + '" target="_blank" rel="noopener">MITRE ATT&CK에서 보기 ↗</a></span></div>'
-        : '<div class="tile-sub">연결된 MITRE 기법 없음</div>') +
-        '<div class="tile-sub" style="margin-top:10px">제품·CVE 심층 조회(지식그래프)는 다음 단계 브리지에서 연결됩니다.</div>';
+        : '<div class="tile-sub">연결된 MITRE 기법 없음</div>');
     }
     return '<div class="section-label">노드 상세</div><div class="card ag-panel" style="border-top:3px solid ' + col.line + '">' + tabs + head + '<div class="ag-body">' + body + "</div></div>";
   }
