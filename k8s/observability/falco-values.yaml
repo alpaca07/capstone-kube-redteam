@@ -167,8 +167,9 @@ customRules:
         베이스라인엔 없는 신호라 공격 결정적 — 프로세스 기동 레벨이라 크라운(실행) 달성 포착.
       condition: >-
         spawned_process and container
-        and (proc.name in (xmrig, minerd, cpuminer, cpuminer-multi, ethminer, cgminer,
-                           bfgminer, xmr-stak, nbminer, t-rex, phoenixminer, nanominer)
+        and (proc.name in ("xmrig", "minerd", "cpuminer", "cpuminer-multi", "ethminer",
+                           "cgminer", "bfgminer", "xmr-stak", "nbminer", "t-rex",
+                           "phoenixminer", "nanominer")
              or proc.cmdline contains "stratum+tcp"
              or proc.cmdline contains "--donate-level"
              or (proc.cmdline contains "--algo" and proc.cmdline contains "--pool"))
