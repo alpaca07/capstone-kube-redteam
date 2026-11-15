@@ -97,6 +97,11 @@ RUN if [ "$WITH_NUCLEI_TEMPLATES" = "true" ]; then \
       nuclei -update-templates -disable-update-check ; \
     fi
 
+# searchsploit 는 대용량 CSV 를 awk 로 훑는다 — busybox awk 는 OOM('No Results') → gawk(GNU)로
+# 교체(PATH 상 /usr/local/bin 우선). tput(ncurses)도 깔아 포맷 경고 제거.
+RUN apk add --no-cache gawk ncurses \
+ && ln -sf "$(command -v gawk)" /usr/local/bin/awk
+
 # ── 4) 스모크(핵심 도구 존재/실행 확인 — 실패 시 빌드 중단) ──
 RUN set -e; \
     kubectl version --client >/dev/null; \
