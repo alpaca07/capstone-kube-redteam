@@ -66,6 +66,16 @@ def build_user_prompt(*, goal: str, history: AttackHistory,
             "직접 재실행해 아직 통하는지 확인하되, 같은 명령이 반복 실패(차단·연결거부·forbidden)하면 "
             "그 경로는 방어된 것이다: 똑같은 명령을 반복하지 말고 다른 서비스·경로를 탐색하라. "
             "'지난 라운드에 이미 획득'은 포기 사유가 아니다.")
+    # 도구 선택 규칙을 '결정 직전'(프롬프트 맨 끝)에 매 스텝 주입 — 로컬 27B 가 시스템 프롬프트의
+    # 도구 목록을 무시하고 wget/env 로 수렴하는 걸 교정. 최근성(recency)이 약한 모델엔 더 센 레버.
+    parts.append(
+        "[도구 규칙 — 매 스텝 반드시 지켜라]\n"
+        "· HTTP·웹은 curl 로: 인증 `curl -s -u <user>:<pass> <url>`, 업로드 `curl -s -T <file> <url>`. "
+        "★wget 로 인증(`--header 'Authorization: Basic ...'`)·PUT·업로드 하지 마라 — BusyBox wget 은 조용히 무시해 실패한다.\n"
+        "· 웹 서비스(매니저·로그인·앱)를 보면 수동 추측 전에 먼저 "
+        "`nuclei -disable-update-check -t /tk/opt/nuclei-templates -u <url> -j` 와 `searchsploit <제품> <버전>` 를 돌려라.\n"
+        "· 포트 스캔은 nmap(nc 반복 금지), K8s API 는 kubectl(raw wget 금지), DB 는 psql.\n"
+        "· `env | grep`·`cat /proc/..environ` 만 반복하지 마라 — 두 번 넘게 같은 정찰을 돌렸으면 전용 도구로 전환하라.")
     parts.append("위를 보고 다음 행동 하나를 지정된 JSON 형식으로만 응답하라. "
                  "실제로 모든 경로를 시도해 전부 막혔을 때만 tool 을 give_up 으로(지난 성과를 이유로 포기 금지).")
     # Qwen3 계열 '사고(thinking) 모드' OFF 소프트 스위치. 켜져 있으면 모델이 <think> 안에서
