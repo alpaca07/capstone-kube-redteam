@@ -63,6 +63,10 @@
     return ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) + ":" + ("0" + d.getSeconds()).slice(-2); }
 
   async function jget(path) {
+    if (window.__SNAPSHOT__) {                 // 스냅샷 모드 — 박제된 데이터만 읽고 네트워크 안 씀(공유용 단일 HTML)
+      var k = (path || "").split("?")[0];
+      return (k in window.__SNAPSHOT__) ? window.__SNAPSHOT__[k] : null;
+    }
     try { var r = await fetch(path, { cache: "no-store" }); if (!r.ok) return null; return await r.json(); }
     catch (e) { return null; }
   }
@@ -2007,7 +2011,7 @@
     window.addEventListener("scroll", hideTip, true);
     await loadCore();
     onHash();
-    poll(); setInterval(poll, 2500);
+    poll(); if (!window.__SNAPSHOT__) setInterval(poll, 2500);   // 스냅샷은 정적 — 폴링 중단
   }
   boot();
 })();
