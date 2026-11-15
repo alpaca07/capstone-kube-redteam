@@ -121,6 +121,11 @@ def validate_env(env) -> tuple[list[str], list[str]]:
             errors.append(f"procedure.id 누락/형식오류: {proc.get('id')!r}")
         if not proc.get("name"):
             errors.append("procedure.name 누락")
+        for i, st in enumerate(proc.get("steps") or []):   # 실행 스텝(있으면): id·command 필수
+            if not isinstance(st, dict) or not _SLUG.match(str(st.get("id", ""))):
+                errors.append(f"procedure.steps[{i}].id 누락/형식오류")
+            elif not st.get("command"):
+                errors.append(f"procedure.steps[{i}].command 누락")
 
     for i, pre in enumerate(env.get("preconditions") or []):
         if not isinstance(pre, dict) or not _SLUG.match(str(pre.get("id", ""))):

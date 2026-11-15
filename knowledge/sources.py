@@ -420,6 +420,13 @@ def _build_env(env: dict, nodes: list[Node], rels: list[Rel],
         rels.append({"type": "REALIZED_BY", "from_label": _tech_label(env["technique"]),
                      "from_id": env["technique"], "to_label": "Procedure", "to_id": proc["id"], "props": {}})
 
+    # Step(실행 시퀀스) — Procedure -HAS_STEP-> Step. 범용 명령 레시피($VAR 자리, 워커가 관측으로 채움).
+    for st in proc.get("steps", []):
+        mint("Step", st["id"], {"seq": st.get("seq"), "command": st.get("command", ""),
+                                "description": st.get("description", "")})
+        rels.append({"type": "HAS_STEP", "from_label": "Procedure", "from_id": proc["id"],
+                     "to_label": "Step", "to_id": st["id"], "props": {"seq": st.get("seq")}})
+
     # CleanupAction(흔적 정리/롤백) — Procedure 를 REVERSED_BY 로 되감는 공격자 후처리(선택).
     for cl in env.get("cleanup_actions", []):
         mint("CleanupAction", cl["id"], {"name": cl.get("name", ""), "description": cl.get("description", "")})

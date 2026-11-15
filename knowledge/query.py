@@ -288,11 +288,13 @@ def procedure_for_technique(session: Session, tech_id: str) -> list[dict]:
         "OPTIONAL MATCH (pre)-[rc:REQUIRES_CONFIGURATION]->(cfg:Configuration) "
         "OPTIONAL MATCH (p)-[:PRODUCES]->(er:ExpectedResult) "
         "OPTIONAL MATCH (p)-[:REVERSED_BY]->(cl:CleanupAction) "
+        "OPTIONAL MATCH (p)-[:HAS_STEP]->(s:Step) "
         "RETURN p.id AS procedure, p.name AS name, p.description AS description, "
         "p.env AS env, p.cve AS cve, p.cwe AS cwe, p.status AS status, "
         "collect(DISTINCT {name: pre.name, description: pre.description, "
         "config_key: cfg.config_key, expected_value: rc.expected_value}) AS preconditions, "
         "collect(DISTINCT {id: er.id, name: er.name, kind: er.kind}) AS expected_results, "
+        "collect(DISTINCT {seq: s.seq, command: s.command, description: s.description}) AS steps, "
         "collect(DISTINCT {name: cl.name, description: cl.description}) AS cleanup",
         id=t))
     out = []
@@ -302,22 +304,24 @@ def procedure_for_technique(session: Session, tech_id: str) -> list[dict]:
         pres = [pp for pp in (r.get("preconditions") or []) if pp.get("name")]       # null 전제 제거
         ers = [ee for ee in (r.get("expected_results") or []) if ee.get("id")]
         cleans = [cc for cc in (r.get("cleanup") or []) if cc.get("name")]   # null 정리 제거
+        steps = sorted([ss for ss in (r.get("steps") or []) if ss.get("command")],
+                       key=lambda x: x.get("seq") or 0)   # 실행 순서대로(seq 오름차순)
         # advisory 는 별도 anchored 질의 — mega 쿼리에 p.cve WHERE 를 끼우면 cve 없는 절차(킬체인 등)의
         # 다른 collect(cleanup)까지 비는 Neo4j OPTIONAL MATCH+WHERE 상호작용을 피한다.
         advs = _advisories_for_cve(session, r.get("cve"))
         out.append({"procedure": r["procedure"], "name": r.get("name"),
                     "description": r.get("description"), "env": r.get("env"),
                     "cve": r.get("cve"), "cwe": r.get("cwe"), "status": r.get("status"),
-                    "preconditions": pres, "expected_results": ers, "cleanup": cleans,
-                    "advisory": advs})
+                    "preconditions": pres, "expected_results": ers, "steps": steps,
+                    "cleanup": cleans, "advisory": advs})
     return out
 
 
 def render_procedures(procedures: list[dict], *, limit: int = 6) -> str:
     """procedure_for_technique 결과 → 워커 프롬프트용 텍스트 블록(없으면 빈 문자열).
 
-    '이 기법의 알려진 절차+전제+목표'를 간결히 나열 — 워커가 관측에 맞는 걸 골라 payload 작성에 참고
-    (참고 절차일 뿐, 실제 명령은 워커가 스스로 쓴다).
+    '이 기법의 알려진 절차+스텝+전제+목표'를 간결히 나열 — 워커가 관측에 맞는 걸 골라 payload 작성에 참고.
+    스텝이 있으면 명령 레시피($VAR 자리는 워커가 관측으로 채움), 없으면 워커가 명령을 스스로 쓴다.
     """
     procs = (procedures or [])[:limit]
     if not procs:
@@ -330,6 +334,8 @@ def render_procedures(procedures: list[dict], *, limit: int = 6) -> str:
         for pre in (p.get("preconditions") or [])[:3]:
             cond = f" (needs {pre['config_key']}={pre.get('expected_value')})" if pre.get("config_key") else ""
             lines.append(f"    requires: {pre.get('name', '')}{cond}")
+        for st in sorted((p.get("steps") or []), key=lambda x: x.get("seq") or 0):   # 실행 시퀀스(순서대로)
+            lines.append(f"    step {st.get('seq')}: {st.get('command', '')}")
         goals = [e.get("name") for e in (p.get("expected_results") or []) if e.get("kind") == "crown"]
         if goals:
             lines.append(f"    goal: {', '.join(g for g in goals if g)}")

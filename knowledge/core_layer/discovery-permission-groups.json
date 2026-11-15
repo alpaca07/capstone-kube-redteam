@@ -6,7 +6,21 @@
     "id": "PROC-discovery-rbac",
     "name": "권한·RBAC 열거",
     "description": "kubectl auth can-i --list 또는 SelfSubjectRulesReview 로 현 주체의 허용 동작을 열거해 과권한(secrets get, 타 네임스페이스 접근)을 찾아 상승 경로를 정한다.",
-    "status": "AUTHORED"
+    "status": "AUTHORED",
+    "steps": [
+      {
+        "id": "STEP-disc-rbac-list",
+        "seq": 1,
+        "command": "kubectl auth can-i --list",
+        "description": "현 주체 허용 동작 전체 열거"
+      },
+      {
+        "id": "STEP-disc-rbac-check",
+        "seq": 2,
+        "command": "kubectl auth can-i get secrets -n database",
+        "description": "특정 과권한(타 NS secrets) 확인"
+      }
+    ]
   },
   "preconditions": [
     {
@@ -19,9 +33,17 @@
     {
       "id": "ER-discovery-rbac-progress",
       "kind": "progress",
-      "outcome": {"id": "AO-discovery", "name": "정찰"},
+      "outcome": {
+        "id": "AO-discovery",
+        "name": "정찰"
+      },
       "conditions": [
-        {"channel": "audit", "field": "technique", "operator": "eq", "expected": "T1069"}
+        {
+          "channel": "audit",
+          "field": "technique",
+          "operator": "eq",
+          "expected": "T1069"
+        }
       ]
     }
   ]

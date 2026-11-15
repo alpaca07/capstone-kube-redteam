@@ -6,7 +6,21 @@
     "id": "PROC-discovery-container",
     "name": "컨테이너·리소스 열거",
     "description": "kubectl get pods/svc/deploy/secrets 또는 API 로 네임스페이스별 리소스·이미지·마운트를 열거해 공격면과 크라운(민감 테이블·시크릿) 위치를 파악한다.",
-    "status": "AUTHORED"
+    "status": "AUTHORED",
+    "steps": [
+      {
+        "id": "STEP-disc-container-list",
+        "seq": 1,
+        "command": "kubectl get pods,svc,deploy -A -o wide",
+        "description": "전 네임스페이스 리소스 열거(권한 되면)"
+      },
+      {
+        "id": "STEP-disc-container-secrets",
+        "seq": 2,
+        "command": "kubectl get secrets -A 2>/dev/null",
+        "description": "시크릿 위치·크라운 자산 후보 파악"
+      }
+    ]
   },
   "preconditions": [
     {
@@ -19,9 +33,17 @@
     {
       "id": "ER-discovery-container-progress",
       "kind": "progress",
-      "outcome": {"id": "AO-discovery", "name": "정찰"},
+      "outcome": {
+        "id": "AO-discovery",
+        "name": "정찰"
+      },
       "conditions": [
-        {"channel": "audit", "field": "technique", "operator": "eq", "expected": "T1613"}
+        {
+          "channel": "audit",
+          "field": "technique",
+          "operator": "eq",
+          "expected": "T1613"
+        }
       ]
     }
   ]

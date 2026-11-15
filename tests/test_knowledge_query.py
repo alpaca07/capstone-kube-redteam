@@ -216,11 +216,14 @@ def test_render_procedures():
         "preconditions": [{"name": "취약 버전", "config_key": None, "expected_value": None}],
         "expected_results": [{"id": "ER", "name": "host file read", "kind": "crown"}],
         "cleanup": [{"name": "흔적 축소", "description": "d"}],
+        "steps": [{"seq": 2, "command": "cmd-two"}, {"seq": 1, "command": "cmd-one"}],
         "advisory": [{"affected_versions": "2.3.5–2.3.31", "url": "https://x"}]}])
     assert "PROC-x [struts2]: do the thing" in block
     assert "cleanup: 흔적 축소" in block
     assert "advisory: 2.3.5–2.3.31 — https://x" in block
     assert "requires: 취약 버전" in block and "goal: host file read" in block
+    assert "step 1: cmd-one" in block and "step 2: cmd-two" in block   # 스텝 렌더
+    assert block.index("step 1:") < block.index("step 2:")             # seq 오름차순 정렬
     assert render_procedures([]) == ""
 
 
