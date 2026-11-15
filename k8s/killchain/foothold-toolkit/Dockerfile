@@ -50,7 +50,10 @@ RUN set -eux; \
     test -n "$url"; \
     curl -fsSL "$url" -o /tmp/kdigger.tgz; \
     mkdir -p /tmp/kd && tar -xzf /tmp/kdigger.tgz -C /tmp/kd; \
-    install -m0755 "$(find /tmp/kd -type f -name kdigger | head -1)" /usr/local/bin/kdigger; \
+    bin="$(find /tmp/kd -type f -name 'kdigger*' ! -name '*.sha256' ! -name '*.txt' ! -name '*.md' | head -1)"; \
+    [ -n "$bin" ] || bin="$(find /tmp/kd -type f ! -name '*.md' ! -name '*.txt' ! -iname 'license*' | head -1)"; \
+    test -n "$bin"; \
+    install -m0755 "$bin" /usr/local/bin/kdigger; \
     rm -rf /tmp/kd /tmp/kdigger.tgz
 
 # [T2] amicontained — 컨테이너 introspection(capability·seccomp 조사, jessfraz).
