@@ -58,15 +58,16 @@ searchsploit -m 41570             # 로컬 복사 → python3/sh/curl 로 범위
 
 ## 빌드 & 적재
 
-**VM B 에서** 돌린다(개발 단계, 인터넷 ON). VM B 가 k3s 노드라 빌드하면 containerd 에 바로
-올라간다. 스크립트가 빌더를 자동 선택(nerdctl→k3s 직접 / docker→`k3s ctr import`):
+**VM B 에서 한 줄 실행하면 끝**(개발 단계, 인터넷 ON). VM B 가 k3s 노드라 빌드하면 containerd 에
+바로 올라간다. 스크립트가 빌더를 자동 선택하고(`nerdctl`→k3s 직접 / `docker`→`k3s ctr import`),
+둘 다 없으면 `docker` 를 자동 설치해 진행한다:
 ```bash
 # (VM B, 인터넷 ON)
 bash k8s/killchain/foothold-toolkit/build-and-load.sh
 ```
-> k3s 는 `ctr`/`crictl` 만 있어 Dockerfile 을 못 빌드한다. VM B 에 `nerdctl`(또는 `docker`)이
-> 없으면, 도커가 있는 다른 장비에서 `docker build`→`docker save` 로 tar 를 만들어 VM B 로 옮긴 뒤
-> `sudo k3s ctr images import attacker-toolkit-1.0.tar` 로 적재한다(스크립트가 안내 출력).
+> k3s 는 `ctr`/`crictl` 만 있어 Dockerfile 을 못 빌드한다 → 스크립트가 `docker` 를 설치해 빌드한다
+> (`docker` 는 k3s containerd 와 별도라 충돌 없음, 빌드·save 용으로만). 자동 설치를 막으려면
+> `NO_AUTO_INSTALL=1 bash ...` — 그 경우 다른 장비서 빌드한 tar 를 `sudo k3s ctr images import` 로.
 
 적재 후 (VM B):
 ```bash

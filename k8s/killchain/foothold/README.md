@@ -21,8 +21,8 @@ bash k8s/killchain/foothold-toolkit/build-and-load.sh
 # 적재 확인:
 sudo k3s ctr images ls | grep attacker-toolkit
 ```
-빌더(nerdctl·docker)가 VM B 에 없으면 다른 장비서 빌드→tar→`k3s ctr images import`
-(`../foothold-toolkit/README.md` 참고).
+빌더가 없으면 스크립트가 `docker` 를 자동 설치해 빌드한다(막으려면 `NO_AUTO_INSTALL=1`).
+자세한 건 `../foothold-toolkit/README.md`.
 
 ## 2. 발판 리소스 적용 (VM B)
 ```bash
