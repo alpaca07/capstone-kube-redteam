@@ -70,6 +70,22 @@ customRules:
         proc=%proc.name cmd=%proc.cmdline)
       priority: NOTICE
       tags: [network, mitre_network_service_discovery, T1046]
+    # ── [툴킷] 웹 익스플로잇 도구 (T1190 Exploit Public-Facing Application) ──
+    - rule: Web exploitation tooling from foothold
+      desc: >-
+        attacker-foothold 발판에서 웹 취약점 공격 도구(nuclei/sqlmap) 기동 = T1190.
+        VulHub·corp 웹 타깃(알려진 CVE·SQLi)을 노리는 '시도' 신호 — 성공 시 생기는 웹셸은
+        corp DMZ web shell(T1059)이 별도로 잡는다(시도 vs 결과 분리). 발판 NS 한정이라
+        공격자만 해당. 현 ShopFlow 베이스라인엔 웹 CVE 가 없어 평소엔 안 뜬다(웹 타깃 도입 시 신호).
+      condition: >-
+        spawned_process and container
+        and k8s.pod.name startswith "attacker-foothold"
+        and proc.name in (nuclei, sqlmap)
+      output: >-
+        Web exploitation tooling from foothold (ns=%k8s.ns.name pod=%k8s.pod.name
+        proc=%proc.name cmd=%proc.cmdline)
+      priority: NOTICE
+      tags: [network, mitre_exploit_public_facing_application, T1190]
     # ── [corp 서버] 측면이동: 내부 → 크라운 ──
     - rule: corp lateral movement to crown
       desc: >-

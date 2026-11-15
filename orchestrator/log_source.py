@@ -73,6 +73,8 @@ def map_falco_event(ev: dict) -> Optional[str]:
         return "T1611"   # [Wave1] 컨테이너 탈출 — /host 민감파일 read
     if rule == "Port scan from foothold":
         return "T1046"   # [Wave1] 네트워크 서비스 탐색 — 포트 스캐너 기동
+    if rule == "Web exploitation tooling from foothold":
+        return "T1190"   # [툴킷] 웹 익스플로잇 도구(nuclei/sqlmap) — VulHub·corp 웹 타깃 시도
     if rule == "Privilege escalation in container":
         return "T1068"   # [가] 권한상승 익스플로잇 — 특권 컨테이너 mount/nsenter 상승 행위(T1611 /host read 와 구분)
     if rule == "Elevation control abuse":

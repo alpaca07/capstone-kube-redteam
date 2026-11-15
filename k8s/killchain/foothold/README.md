@@ -8,15 +8,18 @@
 > 못 닿는다. 이 발판이 그 간극을 메운다. 발판 kubeconfig 는 **frontend 파드 exec 전용**이라
 > ②(admin-sa 과권한)는 공격자가 여전히 스스로 털어야 한다.
 
-**이미지 = `postgres:16-alpine`** — ShopFlow 가 이미 쓰는 공식 이미지(수동 walkthrough 의 dbattack
-과 동일). 커스텀 빌드·도커 **불필요**. 내장 도구: `psql`(④ DB) · `wget`(① HTTP) · `nc`(③ 포트) ·
-`nslookup`(DNS) · `sh` (alpine busybox). 이미 노드 containerd 에 캐시돼 있을 것(DB 가 같은 이미지).
+**이미지 = `capstone/attacker-toolkit:1.0`** — 커스텀 공격 툴킷. 내장 도구: `curl`/`wget`(HTTP) ·
+`jq`(JSON) · `kubectl`(K8s API) · `nmap`(스캔) · `psql`(④ DB) · `nslookup`/`dig`(DNS) ·
+`kdigger`(파드 정찰) · `deepce`/`amicontained`(탈출 조사) · `nuclei`(CVE) · `sqlmap --batch`(SQLi) ·
+`sh`(busybox). 레지스트리 pull 이 아니라 **빌드 후 VM B containerd 로 import** 한다
+(실험 중 인터넷 OFF 대비). 빌드·적재 절차는 [`../foothold-toolkit/README.md`](../foothold-toolkit/README.md).
 
-## 1. 이미지 캐시 확인 (VM B)
+## 1. 이미지 빌드 & 적재 (개발기 인터넷 ON → VM B)
 ```bash
-sudo k3s ctr images ls | grep 'postgres:16-alpine'    # 이미 있으면 OK (DB 와 동일 이미지)
-# 혹시 없으면(인터넷 ON 상태에서) 미리 당겨두기:
-sudo k3s crictl pull docker.io/library/postgres:16-alpine
+# 개발기(인터넷 ON)에서 빌드 + VM B 로 import 까지:
+bash k8s/killchain/foothold-toolkit/build-and-load.sh --vmb <사용자>@192.168.16.128
+# 적재 확인 (VM B):
+sudo k3s ctr images ls | grep attacker-toolkit
 ```
 
 ## 2. 발판 리소스 적용 (VM B)
