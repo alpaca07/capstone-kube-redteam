@@ -100,6 +100,35 @@ def _pid_is_orchestrator(pid: int) -> bool:
         return False
 
 
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True            # 권한 등 — 보수적으로 살아있다고 본다
+    # pid 가 존재해도 좀비(Z, 종료됐지만 부모가 아직 회수 안 함)는 죽은 것으로 본다.
+    try:
+        with open(f"/proc/{pid}/stat", "rb") as f:
+            st = f.read().decode("utf-8", "replace")
+        state = st[st.rfind(")") + 1:].split()[0] if ")" in st else ""
+        if state == "Z":
+            return False
+    except OSError:
+        return False           # /proc 항목 없음 = 죽음
+    return True
+
+
+def _wait_pid_dead(pid: int, timeout: float) -> bool:
+    """timeout 동안 pid 가 죽길 기다린다. 죽으면 True."""
+    end = time.time() + max(0.0, timeout)
+    while time.time() < end:
+        if not _pid_alive(pid):
+            return True
+        time.sleep(0.2)
+    return not _pid_alive(pid)
+
+
 def _pkill_orchestrator(sig: str = "-TERM") -> bool:
     """pid 폴백 실패 시 최후 수단 — 모듈명으로 orchestrator.main 종료(대시보드와 같은 사용자).
     패턴이 대시(-)로 시작하면 pkill 이 옵션으로 오인하므로(invalid option) 'orchestrator\\.main' 로
@@ -270,45 +299,69 @@ def run_start(payload: dict = Body(default={})) -> JSONResponse:
 
 @app.post("/api/run/stop")
 def run_stop(payload: dict = Body(default={})) -> JSONResponse:
-    """실험 중지. 기본(force 미지정)=안전 종료: 중지 플래그 기록 + SIGTERM → 현재 라운드만
-    마치고 깨끗이 끝냄. force=true=즉시 강제: SIGKILL(진행 중 턴에 갇혔을 때). 플래그는 권한·pid·
-    progress 최신성과 무관하게 전달되는 1차 경로라, 신호가 막혀도 다음 라운드 경계에서 멈춘다."""
+    """실험 중지 — 버튼 한 번으로 확실히 멈춘다. SIGTERM(안전 종료 요청)을 보내고 몇 초(grace) 안에
+    안 죽으면 SIGKILL(강제)로 escalate 한다. 공격 턴이 수백 초라 orchestrator 가 라운드 경계까지
+    graceful 하게 안 끝나므로, grace 뒤에는 무조건 강제로 끊는다. force=true 면 유예 없이 즉시 SIGKILL."""
     force = bool(payload.get("force"))
-    sig = signal.SIGKILL if force else signal.SIGTERM
-    flagged = _write_stop_flag()                 # 1차: 협조적 중지(항상 시도)
+    grace = 0.0 if force else 3.0
+    flagged = _write_stop_flag()                 # 협조적 중지 플래그(라운드 경계까지 살아있으면 활용)
     via = ["flag"] if flagged else []
 
-    p = _run["proc"]                             # 2차: 대시보드가 띄운 프로세스면 바로 신호
+    p = _run["proc"]                             # 1) 대시보드가 띄운 프로세스
     if p and p.poll() is None:
         try:
-            p.kill() if force else p.terminate()  # terminate=SIGTERM(안전) / kill=SIGKILL(강제)
+            if force:
+                p.kill()
+            else:
+                p.terminate()                     # SIGTERM(안전 종료 요청)
+                try:
+                    p.wait(timeout=grace)
+                except subprocess.TimeoutExpired:
+                    p.kill()                      # 유예 내 안 죽으면 강제
+            try:
+                p.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            dead = p.poll() is not None
             via.append("signal")
-            return JSONResponse({"ok": True, "stopping": True, "forced": force, "via": via,
-                                 "detail": "대시보드 실행 프로세스에 중지 신호 전송"})
+            return JSONResponse({"ok": dead, "stopped": dead, "via": via,
+                                 "detail": "대시보드 실행 종료" if dead else "종료 신호 전송(확인 필요)"})
         except OSError as e:
-            return JSONResponse({"ok": flagged, "stopping": flagged, "via": via,
-                                 "error": f"프로세스 신호 실패(플래그로 다음 라운드 종료): {e}"})
+            return JSONResponse({"ok": flagged, "stopped": False, "via": via,
+                                 "error": f"프로세스 신호 실패(플래그 기록됨): {e}"})
 
-    # 외부(CLI) 실행 — progress.json pid 를 /proc 로 검증 후 신호(최신성 창 우회).
+    # 2) 외부(CLI) 실행 — progress.json pid 를 /proc 로 검증 후 SIGTERM → 유예 → SIGKILL.
     prog = _read_json(_LOGS / "progress.json")
     pid = prog.get("pid")
     if isinstance(pid, int) and pid > 0 and _pid_is_orchestrator(pid):
         try:
-            os.kill(pid, sig)
-            via.append("signal")
-            return JSONResponse({"ok": True, "stopping": True, "forced": force, "external": True,
-                                 "via": via, "detail": f"외부 실행 pid {pid} 에 중지 신호 전송"})
+            os.kill(pid, signal.SIGKILL if force else signal.SIGTERM)
         except ProcessLookupError:
-            pass                                  # 이미 죽음 → pkill 폴백
+            return JSONResponse({"ok": True, "stopped": True, "via": via, "detail": "이미 종료됨"})
         except PermissionError as e:
-            return JSONResponse({"ok": flagged, "stopping": flagged, "external": True, "via": via,
-                                 "error": f"pid {pid} 종료 권한 없음(플래그로 다음 라운드 종료): {e}"})
+            return JSONResponse({"ok": flagged, "stopped": False, "external": True, "via": via,
+                                 "error": f"pid {pid} 종료 권한 없음: {e}"})
+        if not _wait_pid_dead(pid, grace):            # 유예 내 안 죽으면(또는 force=유예0) SIGKILL
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+            _wait_pid_dead(pid, 3.0)                   # 강제 반영 대기
+        via.append("signal")
+        dead = not _pid_alive(pid)
+        return JSONResponse({"ok": dead, "stopped": dead, "external": True, "via": via,
+                             "detail": f"외부 실행 pid {pid} 종료" if dead
+                                       else f"pid {pid} 종료 신호 전송(아직 살아있음)"})
 
-    killed = _pkill_orchestrator("-KILL" if force else "-TERM")  # 3차: 모듈명 pkill 폴백
-    if killed:
+    # 3) pkill 폴백 — TERM 후 유예, 그래도 남으면 KILL.
+    hit = _pkill_orchestrator("-TERM")
+    if hit and not force:
+        time.sleep(grace)
+    killed = _pkill_orchestrator("-KILL")        # 남아있으면 강제(없으면 returncode≠0)
+    if hit or killed:
         via.append("pkill")
-    ok = flagged or killed
-    return JSONResponse({"ok": ok, "stopping": ok, "external": True, "forced": force, "via": via,
+    ok = flagged or hit or killed
+    return JSONResponse({"ok": ok, "stopped": killed or (hit and not force), "via": via, "external": True,
                          "error": None if ok else "중지 경로 모두 실패 — orchestrator.main 프로세스·권한 확인"})
 
 
