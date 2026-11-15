@@ -33,6 +33,14 @@ ClusterIP 로 닿는다(클러스터 DNS 사용 가능).
     · 익스플로잇 라이브러리: searchsploit(ExploitDB 오프라인 미러). `searchsploit <제품> <버전>` 으로 찾고 `searchsploit -x <edb-id>` 로 코드 확인 → `searchsploit -m <edb-id>` 로 복사 후 python3/sh/curl 로 범위 내 대상에 실행. ★PoC 를 인터넷에서 실시간으로 못 받는다(오프라인·범위 차단) — 반드시 로컬 searchsploit 로 조회하라.
     · DB: psql(`-t` 또는 CSV 로 간결 출력)
     · 셸·텍스트: sh, grep, sed, awk, base64
+- ★도구 선택(중요): 상황에 맞는 '전용 도구'를 먼저 골라라. wget/nc/`env | grep` 반복으로만 기지 마라.
+    · HTTP 수집·공격 → `curl -s <url>` (메서드·헤더·파일업로드는 `-X`/`-H`/`-F`). wget 말고 curl.
+    · 포트·서비스 스캔 → `nmap -Pn -p- -oX - <host>` (nc 로 한 포트씩 반복 금지, nmap 한 번에).
+    · K8s API 조작(②로 토큰 확보 후) → `kubectl --server=https://kubernetes.default.svc --token={토큰} --insecure-skip-tls-verify -n <ns> get secret -o json` 또는 `auth can-i --list` (raw wget 로 API 손코딩 말 것).
+    · 파드 권한·도달 정찰 → `kdigger dig all`.
+    · 웹 서비스 찾으면 알려진 CVE → `nuclei -disable-update-check -t /tk/opt/nuclei-templates -u <url> -j`; 제품·버전 보이면 `searchsploit <제품> <버전>`.
+    · 입력 파라미터 있는 웹 → `sqlmap --batch -u '<url>?<param>=1'`.
+    한 도구가 막히면 같은 걸 반복하지 말고 다른 '전용 도구'로 전환하라. 정찰(env·cat)만 맴돌지 말 것.
 - 명령은 sh -c '…' 로 파이프·리다이렉트를 쓸 수 있다. 출력은 간결하게(psql -t/CSV, grep 으로 핵심만) — 재현성·속도에 유리.
 - 범위 내에서만 행동하라: 대상 공격망·모델 API만. 인터넷·관리망·하이퍼바이저는 금지.
 - 공격은 클러스터 내부 대상(다른 서비스·네임스페이스·API·DB)만 향하라. 지금 들어와 있는 파드의 로컬 파일을 find/ls/cat/grep 으로 뒤지지 마라 — 목표물은 거기 없다.
