@@ -1,10 +1,17 @@
-# attacker-toolkit — 자동 공격 하네스(VM A)가 frontend 발판 파드 안에서 kubectl exec 로
-# 돌리는 '공격 도구 모음' 이미지. 기존 postgres:16-alpine(psql·wget·nc 만) 을 대체한다.
-# 노선 B(장비를 갖춘 공격자) + 전달 2(커스텀 이미지). 대화형 툴(peirates·metasploit)은 제외.
+# attacker-toolkit — 자동 공격 하네스(VM A)가 발판 파드 안에서 kubectl exec 로 돌리는
+# '공격 도구 모음' 이미지. 본체는 그대로 postgres:16-alpine 이고, 이 이미지는 그 위에 도구를
+# 얹어 발판 파드의 /tk 로 '측면 적재'된다(initContainer). 노선 B(장비를 갖춘 공격자).
+# 대화형 툴(peirates·metasploit)은 제외.
 #
 # 실험 중 모델망 외 인터넷 OFF 라 모든 도구는 '빌드 시점'에 구워 넣는다(런타임 다운로드 없음).
 # 빌드/적재 절차는 build-and-load.sh / README.md 참고 — VM B(개발 단계·인터넷 ON)에서 빌드.
-FROM alpine:3.20
+#
+# ── 베이스 = 발판 '본체' 컨테이너와 같은 이미지여야 한다 (중요) ──
+# 발판 파드는 본체(postgres:16-alpine) 안에서 PATH=/tk/bin·LD_LIBRARY_PATH=/tk/lib 로 이 이미지의
+# 바이너리·라이브러리를 섞어 쓴다. 베이스가 다르면(과거 alpine:3.20) 본체의 /bin/bash 가 /tk/lib 의
+# 버전 안 맞는 libreadline 을 물어 'Error relocating rl_* symbol not found' 로 기동 실패하고,
+# searchsploit·sqlmap·deepce(전부 bash/py 래퍼)가 몰살된다. 본체와 같은 베이스로 ABI 를 맞춰 방지.
+FROM postgres:16-alpine
 
 # ── 버전 핀(재현성). 다운로드가 404 면 여기 값을 해당 릴리스 페이지의 최신으로 올려라. ──
 ARG KUBECTL_VERSION=v1.31.5         # k3s 서버 버전에 맞춰 ±1 마이너 권장(VM B: sudo k3s kubectl version)
@@ -21,10 +28,11 @@ ENV HOME=/root
 WORKDIR /opt/toolkit
 
 # ── 1) apk 패키지(안정적으로 제공되는 것) ──
-#   curl(HTTP)·jq(JSON)·nmap+NSE(스캔)·bind-tools(dig/nslookup)·psql(DB)·bash·python3(sqlmap)
+#   curl(HTTP)·jq(JSON)·nmap+NSE(스캔)·bind-tools(dig/nslookup)·bash·python3(sqlmap)
+#   psql 은 베이스(postgres:16-alpine)에 이미 내장 → apk 로 또 받지 않는다(버전 충돌 회피).
 #   libc6-compat/libseccomp = 다운로드한 바이너리를 musl alpine 에서 실행하기 위한 호환층
 RUN apk add --no-cache \
-      curl jq nmap nmap-scripts bind-tools postgresql16-client \
+      curl jq nmap nmap-scripts bind-tools \
       bash coreutils grep ca-certificates python3 git unzip \
       libc6-compat libseccomp \
  && update-ca-certificates
@@ -120,4 +128,6 @@ LABEL org.opencontainers.image.title="capstone-attacker-toolkit" \
       role="attacker-foothold"
 
 # 유휴 대기(발판 파드에선 매니페스트 command 가 덮어씀; 단독 실행 대비 기본값).
+# 베이스(postgres)의 ENTRYPOINT(docker-entrypoint.sh)를 비워 CMD 가 그대로 실행되게 한다.
+ENTRYPOINT []
 CMD ["sleep", "infinity"]
