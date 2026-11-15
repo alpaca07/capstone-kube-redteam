@@ -43,21 +43,35 @@ RUN curl -fsSL "https://github.com/projectdiscovery/nuclei/releases/download/${N
  && rm -f /tmp/nuclei.zip
 
 # [T2] kdigger — 파드 안에서 닿는 것·가진 권한 자동 열거(quarkslab).
-RUN curl -fsSL "https://github.com/quarkslab/kdigger/releases/download/${KDIGGER_VERSION}/kdigger_${KDIGGER_VERSION#v}_linux_amd64.tar.gz" \
-      -o /tmp/kdigger.tgz \
- && tar -xzf /tmp/kdigger.tgz -C /usr/local/bin kdigger \
- && chmod +x /usr/local/bin/kdigger \
- && rm -f /tmp/kdigger.tgz
+#   릴리스 자산명(Linux_x86_64 등)이 버전마다 달라 GitHub API 로 linux/amd64 자산을 자동 해결.
+RUN set -eux; \
+    url="$(curl -fsSL https://api.github.com/repos/quarkslab/kdigger/releases/latest \
+      | grep -o 'https://[^"]*' | grep -iE 'linux.*(amd64|x86_64)\.tar\.gz' | head -1)"; \
+    test -n "$url"; \
+    curl -fsSL "$url" -o /tmp/kdigger.tgz; \
+    mkdir -p /tmp/kd && tar -xzf /tmp/kdigger.tgz -C /tmp/kd; \
+    install -m0755 "$(find /tmp/kd -type f -name kdigger | head -1)" /usr/local/bin/kdigger; \
+    rm -rf /tmp/kd /tmp/kdigger.tgz
 
 # [T2] amicontained — 컨테이너 introspection(capability·seccomp 조사, jessfraz).
-RUN curl -fsSL "https://github.com/jessfraz/amicontained/releases/download/${AMICONTAINED_VERSION}/amicontained-linux-amd64" \
-      -o /usr/local/bin/amicontained \
- && chmod +x /usr/local/bin/amicontained
+#   자산명이 버전마다 달라 GitHub API 로 linux-amd64 바이너리를 자동 해결.
+RUN set -eux; \
+    url="$(curl -fsSL https://api.github.com/repos/genuinetools/amicontained/releases/latest \
+      | grep -o 'https://[^"]*' | grep -iE 'linux-amd64$' | head -1)"; \
+    if [ -z "$url" ]; then \
+      url="$(curl -fsSL https://api.github.com/repos/jessfraz/amicontained/releases/latest \
+        | grep -o 'https://[^"]*' | grep -iE 'linux-amd64$' | head -1)"; \
+    fi; \
+    test -n "$url"; \
+    curl -fsSL "$url" -o /usr/local/bin/amicontained; \
+    chmod +x /usr/local/bin/amicontained
 
-# [T2] deepce — 컨테이너 탈출 벡터 열거(bash 스크립트, stealthcopter).
-RUN curl -fsSL "https://raw.githubusercontent.com/stealthcopter/deepce/${DEEPCE_REF}/deepce.sh" \
-      -o /usr/local/bin/deepce \
- && chmod +x /usr/local/bin/deepce
+# [T2] deepce — 컨테이너 탈출 벡터 열거(bash 스크립트, stealthcopter). main/master 순서로 시도.
+RUN set -eux; \
+    ( curl -fsSL "https://raw.githubusercontent.com/stealthcopter/deepce/main/deepce.sh" -o /usr/local/bin/deepce \
+      || curl -fsSL "https://raw.githubusercontent.com/stealthcopter/deepce/master/deepce.sh" -o /usr/local/bin/deepce ); \
+    test -s /usr/local/bin/deepce; \
+    chmod +x /usr/local/bin/deepce
 
 # [T3] sqlmap — SQL 인젝션(--batch 비대화). git 배포가 정본이라 clone 후 wrapper 배선.
 RUN (git clone --depth 1 --branch "${SQLMAP_REF}" https://github.com/sqlmapproject/sqlmap /opt/sqlmap \
