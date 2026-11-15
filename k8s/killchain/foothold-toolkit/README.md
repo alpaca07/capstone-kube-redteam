@@ -58,12 +58,15 @@ searchsploit -m 41570             # 로컬 복사 → python3/sh/curl 로 범위
 
 ## 빌드 & 적재
 
+**VM B 에서** 돌린다(개발 단계, 인터넷 ON). VM B 가 k3s 노드라 빌드하면 containerd 에 바로
+올라간다. 스크립트가 빌더를 자동 선택(nerdctl→k3s 직접 / docker→`k3s ctr import`):
 ```bash
-# 개발기(인터넷 ON):
-bash k8s/killchain/foothold-toolkit/build-and-load.sh --vmb <사용자>@192.168.16.128
-# 또는 빌드만 하고 수동 적재:
+# (VM B, 인터넷 ON)
 bash k8s/killchain/foothold-toolkit/build-and-load.sh
 ```
+> k3s 는 `ctr`/`crictl` 만 있어 Dockerfile 을 못 빌드한다. VM B 에 `nerdctl`(또는 `docker`)이
+> 없으면, 도커가 있는 다른 장비에서 `docker build`→`docker save` 로 tar 를 만들어 VM B 로 옮긴 뒤
+> `sudo k3s ctr images import attacker-toolkit-1.0.tar` 로 적재한다(스크립트가 안내 출력).
 
 적재 후 (VM B):
 ```bash

@@ -14,13 +14,15 @@
 `sh`(busybox). 레지스트리 pull 이 아니라 **빌드 후 VM B containerd 로 import** 한다
 (실험 중 인터넷 OFF 대비). 빌드·적재 절차는 [`../foothold-toolkit/README.md`](../foothold-toolkit/README.md).
 
-## 1. 이미지 빌드 & 적재 (개발기 인터넷 ON → VM B)
+## 1. 이미지 빌드 & 적재 (VM B, 개발 단계·인터넷 ON)
 ```bash
-# 개발기(인터넷 ON)에서 빌드 + VM B 로 import 까지:
-bash k8s/killchain/foothold-toolkit/build-and-load.sh --vmb <사용자>@192.168.16.128
-# 적재 확인 (VM B):
+# VM B 에서 빌드 → k3s containerd 에 바로 적재(스크립트가 빌더 자동 선택):
+bash k8s/killchain/foothold-toolkit/build-and-load.sh
+# 적재 확인:
 sudo k3s ctr images ls | grep attacker-toolkit
 ```
+빌더(nerdctl·docker)가 VM B 에 없으면 다른 장비서 빌드→tar→`k3s ctr images import`
+(`../foothold-toolkit/README.md` 참고).
 
 ## 2. 발판 리소스 적용 (VM B)
 ```bash
