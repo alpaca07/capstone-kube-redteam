@@ -50,6 +50,7 @@ class Rel(str, Enum):
     YIELDS = "yields"              # intent → fact (의도가 사실을 낳음)
     PROVES = "proves"              # fact → finding (사실이 침해를 입증)
     SELECTED = "selected"          # intent → KG 기법 노드(1차가 고른 지식 — 프로비넌스)
+    ENABLES = "enables"            # finding → intent (발견이 그걸 활용하는 후속 의도를 낳음)
 
 
 # claim 종료 시 넘어갈 수 있는 상태(open은 claim의 출발이라 제외)
@@ -96,12 +97,15 @@ class ExplorationGraph(Protocol):
 
     def add_intent(self, payload: dict, *, priority: int = 0,
                    anchors: Optional[list[int]] = None, origin: str = "planner",
-                   spawned_by=None) -> int:
+                   spawned_by=None, enabled_by=None) -> int:
         """열린 intent를 frontier에 추가하고 id를 돌려준다.
 
         spawned_by: 이 의도를 낳은 출처 노드 id(목표·사실·상위의도). int 하나 또는 리스트.
         각 출처에서 (출처)-[:SPAWNS]->(이 의도) 엣지를 건다 → 추론 트리가 하나로 이어진다.
         (사실→SPAWNS→의도 = '이 사실을 보고 이 의도가 나왔다')
+        enabled_by: 이 의도를 낳은 finding id(들). 각 finding 에서
+        (finding)-[:ENABLES]->(이 의도) 엣지를 건다 → '이 발견(자격증명 등)을 활용하는 후속
+        의도'. 그 finding 은 더 이상 unexploited_findings 에 안 뜬다(활용됨 표시).
         """
         ...
 
@@ -166,6 +170,12 @@ class ExplorationGraph(Protocol):
 
     def recent_findings(self, limit: int = 20) -> list[Node]:
         """최근 finding들(공격자 주장 침해 — 라운드 결과 요약·채점 입력용)."""
+        ...
+
+    def unexploited_findings(self, limit: int = 20) -> list[Node]:
+        """아직 활용 안 된 finding들 — ENABLES 엣지(발견→후속 의도)가 없는 것만, 최근순.
+        플래너 태세에 '확보했으나 미활용한 자격증명·접근'으로 주입 → 후속 의도를 낳게 한다.
+        후속 의도가 enabled_by 로 걸리면 ENABLES 가 생겨 다음부터는 안 뜬다(중복 방지)."""
         ...
 
     def running_intents(self) -> list[Node]:

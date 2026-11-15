@@ -129,6 +129,28 @@ def _prior_findings_block(graph: ExplorationGraph, prior_ids, asset_graph,
     return "\n".join(lines)
 
 
+def _unexploited_block(graph: ExplorationGraph, asset_graph, *, limit: int = 8) -> str:
+    """아직 안 쓴 발견(ENABLES 엣지 없는 것)을 'F<id>: ...'로 렌더 — 플래너가 후속 의도의
+    enables 로 그 번호를 적으면 (finding)-[:ENABLES]->(의도)가 걸려 다음 웨이브부터 안 뜬다.
+    확보한 자격증명·접근을 사장시키지 않고 다음 단계로 잇기 위함(발견→후속)."""
+    findings = graph.unexploited_findings(limit=limit)
+    if not findings:
+        return ""
+    lines: list[str] = []
+    for n in findings:
+        p = n.payload
+        sev = f" [{p['severity']}]" if p.get("severity") else ""
+        tech = f" ({p['technique']})" if p.get("technique") else ""
+        tgt = ""
+        if asset_graph is not None and n.anchors:
+            names = [asset_graph.get_asset(aid).name for aid in n.anchors
+                     if asset_graph.get_asset(aid) is not None]
+            if names:
+                tgt = " on " + ", ".join(names[:3])
+        lines.append(f"F{n.id}: {p.get('summary', '') or p.get('title', '')}{sev}{tech}{tgt}")
+    return "\n".join(lines)
+
+
 class AttackRound:
     """공격 턴 하나(멀티워커)를 돌려 AttackTurnResult를 조립한다."""
 
@@ -204,6 +226,8 @@ class AttackRound:
                 graph, assets_block=assets_block, kg_block=kg_block,
                 prior_findings_block=prior_block, timeout=max(5.0, deadline - self.clock()))
             selected_block = sel.render()
+            unexpl_block = _unexploited_block(graph, asset_graph)   # 미활용 발견(확보 자격증명·접근)
+            n_unexpl = sum(1 for ln in unexpl_block.splitlines() if ln.strip())
             # 태세 요약 — 자산 겨냥·재검증 + KG 후보→1차 선별이 플래너에 들어가는지 저널에 노출.
             # (KNOWN ASSETS·SELECTED KNOWLEDGE 는 프롬프트라 저널엔 안 뜨므로 수치·기법으로 노출.)
             if asset_graph is not None:
@@ -220,11 +244,14 @@ class AttackRound:
                     br = ("[" + "·".join(sel_techs[:6]) + ("…]" if len(sel_techs) > 6 else "]")
                           if sel_techs else "")
                     kg_note = f" · KG후보 {len(kg_techs)}개→선별 {len(sel_techs)}개{br}"
+                unexpl_note = f" · 미활용발견 {n_unexpl}개" if n_unexpl else ""
                 self.log(f"[round r{round}] wave {waves+1}: 태세 → 자산 {len(all_assets)}개"
-                         f"(미탐색 {n_untouched}) · 지난라운드침해 {len(prior_finding_ids)}건{kg_note}")
-            # 2차: 1차 선별을 받아 의도노드+공격계획 생성.
+                         f"(미탐색 {n_untouched}) · 지난라운드침해 {len(prior_finding_ids)}건"
+                         f"{kg_note}{unexpl_note}")
+            # 2차: 1차 선별 + 미활용 발견(확보 자격증명·접근)을 받아 의도노드+공격계획 생성.
             plan = planner.plan(graph, assets_block=assets_block, selected_block=selected_block,
-                                prior_findings_block=prior_block, default_parent=goal_id,
+                                prior_findings_block=prior_block, unexploited_block=unexpl_block,
+                                default_parent=goal_id,
                                 timeout=max(5.0, deadline - self.clock()))   # 마감 넘겨 늘어지지 않게
             if not plan.added_ids:
                 planner_empty = True        # 더 낼 방향 없음(목표 달성/막다른/계획 실패)

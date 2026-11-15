@@ -162,6 +162,31 @@ def test_plan_adds_intents_to_frontier():
     assert g.get_node(res.added_ids[0]).payload["technique"] == "T1046"
 
 
+# ── plan: 미활용 발견 → 후속 의도(ENABLES) ──
+def test_plan_enables_links_finding_to_followup():
+    from attacker.graph import Rel
+    g = InMemoryGraph()
+    g.add_goal({"title": "crown"})
+    fact = g.add_fact({"text": "tomcat manager accepts manager:manager"})
+    find = g.add_finding({"summary": "credential retrieved: manager:manager",
+                          "technique": "T1552"}, proved_by=[fact])
+    assert any(n.id == find for n in g.unexploited_findings())    # 활용 전엔 뜸
+
+    reply = ('{"intents": [{"summary": "deploy webshell via tomcat manager", '
+             '"target": "waf.corp-dmz", "why": "RCE pivot", "technique": "T1505", '
+             '"enables": [%d]}]}' % find)
+    llm = _FakeLLM([reply])
+    res = Planner(llm, goal="crown").plan(
+        g, unexploited_block=f"F{find}: credential retrieved: manager:manager (T1552)")
+    assert res.added_ids, "후속 의도가 추가돼야"
+    follow = res.added_ids[0]
+
+    assert any(e.src_id == find and e.rel == Rel.ENABLES and e.dst_id == follow
+               for e in g._edges), "finding—ENABLES→후속 의도 엣지가 걸려야"
+    assert not any(n.id == find for n in g.unexploited_findings())  # 활용 후엔 빠짐
+    assert "UNUSED FINDINGS" in llm.calls[0][1]                     # 태세에 블록이 들어감
+
+
 # ── plan: 파싱 실패 시 재시도 후 0개 추가 + 에러 보고 ──
 def test_plan_parse_fail_retries_then_reports():
     llm = _FakeLLM(["not json", "still not json"])  # retries=1 → 2번 시도 다 실패

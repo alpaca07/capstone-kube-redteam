@@ -67,13 +67,17 @@ class InMemoryGraph(ExplorationGraph):
 
     def add_intent(self, payload: dict, *, priority: int = 0,
                    anchors: Optional[list[int]] = None, origin: str = "planner",
-                   spawned_by=None) -> int:
+                   spawned_by=None, enabled_by=None) -> int:
         with self._lock:
             nid = self._new_node(NodeKind.INTENT, payload, IntentState.OPEN.value,
                                  priority, anchors)
             for src in _as_id_list(spawned_by):   # 출처(목표·사실·상위의도) → SPAWNS → 이 의도
                 if src in self._nodes:            # 존재하는 노드만(헛 id 무시)
                     self._link(src, Rel.SPAWNS, nid)
+            for src in _as_id_list(enabled_by):   # 발견(자격증명 등) → ENABLES → 이 후속 의도
+                n = self._nodes.get(src)
+                if n is not None and n.kind == NodeKind.FINDING:   # finding 에서만(활용됨 표시)
+                    self._link(src, Rel.ENABLES, nid)
             return nid
 
     def add_fact(self, payload: dict, *, intent_id: Optional[int] = None,
@@ -193,6 +197,14 @@ class InMemoryGraph(ExplorationGraph):
     def recent_findings(self, limit: int = 20) -> list[Node]:
         with self._lock:
             fs = [n for n in self._nodes.values() if n.kind == NodeKind.FINDING]
+            fs.sort(key=lambda n: n.id, reverse=True)
+            return [self._copy(n) for n in fs[:limit]]
+
+    def unexploited_findings(self, limit: int = 20) -> list[Node]:
+        with self._lock:
+            enabled = {e.src_id for e in self._edges if e.rel == Rel.ENABLES}
+            fs = [n for n in self._nodes.values()
+                  if n.kind == NodeKind.FINDING and n.id not in enabled]
             fs.sort(key=lambda n: n.id, reverse=True)
             return [self._copy(n) for n in fs[:limit]]
 

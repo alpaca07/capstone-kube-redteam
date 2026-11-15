@@ -96,6 +96,9 @@ commands or payloads. Example: ["locate the DB service and port on the path to t
 sensitive rows"].
 - "from": list the fact id numbers (the #N in RECENT FACTS) this intent builds on. Use [] only \
 for the opening move with no facts yet. This links each direction to the evidence that motivated it.
+- "enables": when this intent USES one of the UNUSED FINDINGS (a credential/access already \
+obtained), list that finding's F-number(s) here. This records finding→follow-up so the credential \
+is marked used and not re-discovered next wave. Use [] when the intent builds on no prior finding.
 - PREVIOUSLY BREACHED, when shown, lists accesses achieved in an EARLIER round. The defender may \
 have patched them between rounds, so they are NOT done: when one lies on the path to the goal, \
 propose an intent to RE-VERIFY it still works this round (and find another route if now blocked).
@@ -105,7 +108,8 @@ Return an empty "intents" list only when this round's facts already show the goa
 Output ONLY a JSON object, no prose:
 {"intents": [{"summary": "<one-line direction>", "target": "<asset>", \
 "why": "<why it advances the goal>", "technique": "<MITRE id or empty>", \
-"plan": ["<step 1>", "<step 2>"], "from": [<fact id numbers this builds on>]}]}"""
+"plan": ["<step 1>", "<step 2>"], "from": [<fact id numbers this builds on>], \
+"enables": [<F-numbers from UNUSED FINDINGS this intent uses, else empty>]}]}"""
 
 
 @dataclass
@@ -130,6 +134,7 @@ class PlannerIntent:
     technique: str = ""
     plan: Optional[list] = None    # 공격 계획 — 워커가 따를 단계 배열(방향 수준, 페이로드 아님)
     from_facts: Optional[list] = None   # 이 의도가 파생된 출처 사실 id들(그래프 연결용)
+    from_findings: Optional[list] = None  # 이 의도가 활용하는 finding id들(ENABLES — 발견→후속 의도)
 
     def to_payload(self) -> dict:
         p = {"summary": self.summary}
@@ -164,7 +169,8 @@ def _intent_line(n: Node) -> str:
 
 def build_situation(graph: ExplorationGraph, *, goal: str, assets_block: str = "",
                     kg_block: str = "", selected_block: str = "",
-                    prior_findings_block: str = "", facts_limit: int = 20,
+                    prior_findings_block: str = "", unexploited_block: str = "",
+                    facts_limit: int = 20,
                     target_intents: Optional[int] = None) -> str:
     """플래너가 보는 태세. 1차엔 kg_block(원시 후보), 2차엔 selected_block(1차 선별)을 넣는다.
 
@@ -188,6 +194,14 @@ def build_situation(graph: ExplorationGraph, *, goal: str, assets_block: str = "
         parts.append("RECENT FACTS:\n" + "\n".join(_fact_line(f) for f in facts))
     else:
         parts.append("RECENT FACTS: (none yet — this is the opening)")
+
+    if unexploited_block:                     # 확보했으나 아직 안 쓴 발견(자격증명·접근) → 후속 의도로
+        parts.append(
+            "UNUSED FINDINGS (credentials/accesses already obtained but NOT yet leveraged — "
+            "each line is 'F<id>: ...'). For every one that advances the GOAL, add ONE follow-up "
+            "intent that USES it against the next target (e.g. authenticate to a service with the "
+            "credential, or pivot deeper), and put that finding's number in \"enables\": [<id>]. "
+            "Do not merely re-discover it — act on it:\n" + unexploited_block)
 
     if prior_findings_block:                 # 지난 라운드 침해 → 재검증 대상(공진화)
         parts.append("PREVIOUSLY BREACHED (last round — re-verify, may be patched):\n"
@@ -275,7 +289,8 @@ def parse_intents(text: str) -> list[PlannerIntent]:
             why=str(it.get("why", "")).strip(),
             technique=str(it.get("technique", "")).strip(),
             plan=_parse_steps(it.get("plan")),
-            from_facts=_parse_ids(it.get("from"))))
+            from_facts=_parse_ids(it.get("from")),
+            from_findings=_parse_ids(it.get("enables"))))
     return out
 
 
@@ -366,6 +381,7 @@ class Planner:
     # ── 2차: 의도·계획 생성 ──
     def plan(self, graph: ExplorationGraph, *, assets_block: str = "",
              selected_block: str = "", prior_findings_block: str = "",
+             unexploited_block: str = "",
              spawned_by: Optional[int] = None,
              default_parent: Optional[int] = None,
              timeout: Optional[float] = None) -> PlanResult:
@@ -377,10 +393,12 @@ class Planner:
         user = build_situation(graph, goal=self.goal, assets_block=assets_block,
                                selected_block=selected_block,
                                prior_findings_block=prior_findings_block,
+                               unexploited_block=unexploited_block,
                                target_intents=self.target_intents)
         # 플래너가 헛 id를 낼 수 있으니 현존 사실·의도 id만 유효 출처로 인정
         valid = {n.id for n in graph.recent_facts(limit=10_000)}
         valid |= {n.id for n in graph.running_intents()}
+        valid_findings = {n.id for n in graph.recent_findings(limit=10_000)}  # enables 검증용
         last_err = ""
         for attempt in range(self.retries + 1):
             prompt = user if attempt == 0 else user + (
@@ -418,8 +436,9 @@ class Planner:
                     srcs = [default_parent]          # 개막·무출처 의도는 목표에서 파생
                 if spawned_by is not None:
                     srcs.append(spawned_by)
+                ens = [i for i in (pi.from_findings or []) if i in valid_findings]
                 iid = graph.add_intent(pi.to_payload(), origin="planner",
-                                       spawned_by=srcs or None)
+                                       spawned_by=srcs or None, enabled_by=ens or None)
                 if pi.technique:                     # 프로비넌스: 의도 → KG 기법(SELECTED)
                     try:
                         graph.select_knowledge(iid, [pi.technique])

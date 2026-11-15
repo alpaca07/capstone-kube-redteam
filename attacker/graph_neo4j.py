@@ -28,7 +28,7 @@ from .graph import (
 )
 
 _REL = {Rel.SPAWNS: "SPAWNS", Rel.DERIVED_FROM: "DERIVED_FROM",
-        Rel.YIELDS: "YIELDS", Rel.PROVES: "PROVES"}
+        Rel.YIELDS: "YIELDS", Rel.PROVES: "PROVES", Rel.ENABLES: "ENABLES"}
 
 
 # ───────────── 매핑 헬퍼(순수 — 드라이버 불필요, 단위 테스트 대상) ─────────────
@@ -79,6 +79,8 @@ _CLAIM = (
 _FRONTIER = ("MATCH (n:Intent {episode:$episode, state:'open'}) "
              "RETURN n{.*} AS props ORDER BY n.priority DESC, n.id ASC LIMIT $limit")
 _RUNNING = "MATCH (n:Intent {episode:$episode, state:'running'}) RETURN n{.*} AS props"
+_UNEXPLOITED = ("MATCH (n:Finding {episode:$episode}) WHERE NOT (n)-[:ENABLES]->() "
+                "RETURN n{.*} AS props ORDER BY n.id DESC LIMIT $limit")
 _RECENT = ("MATCH (n:" + _LABEL + " {episode:$episode}) "
            "RETURN n{.*} AS props ORDER BY n.id DESC LIMIT $limit")
 _GET = "MATCH (n:Explore {episode:$episode, id:$id}) RETURN n{.*} AS props"
@@ -168,13 +170,23 @@ class Neo4jGraph(ExplorationGraph):
 
     def add_intent(self, payload: dict, *, priority: int = 0,
                    anchors: Optional[list[int]] = None, origin: str = "planner",
-                   spawned_by=None) -> int:
+                   spawned_by=None, enabled_by=None) -> int:
         nid = self._create("Intent", NodeKind.INTENT, payload,
                            IntentState.OPEN.value, priority, anchors)
         srcs = [spawned_by] if isinstance(spawned_by, int) else list(spawned_by or [])
         for src in srcs:                      # 출처→SPAWNS→의도 (Neo4j _link는 양쪽 존재 시만 엣지)
             self._link(src, Rel.SPAWNS, nid)
+        ens = [enabled_by] if isinstance(enabled_by, int) else list(enabled_by or [])
+        for src in ens:                       # finding→ENABLES→후속 의도(발견 활용). 발견만 거는 건
+            self._link_if_finding(src, nid)   # _link_if_finding 가 src 가 Finding 일 때만 MERGE
         return nid
+
+    def _link_if_finding(self, finding_id: int, intent_id: int) -> None:
+        """src 가 이 회차 Finding 일 때만 (finding)-[:ENABLES]->(intent) 를 MERGE(아니면 무시)."""
+        self._run(
+            "MATCH (f:Finding {episode:$episode, id:$src}), "
+            "(i:Intent {episode:$episode, id:$dst}) MERGE (f)-[:ENABLES]->(i)",
+            src=int(finding_id), dst=int(intent_id))
 
     def add_fact(self, payload: dict, *, intent_id: Optional[int] = None,
                  anchors: Optional[list[int]] = None,
@@ -302,6 +314,10 @@ class Neo4jGraph(ExplorationGraph):
     def recent_findings(self, limit: int = 20) -> list[Node]:
         return [_node_from_props(r["props"])
                 for r in self._run(_RECENT.replace(_LABEL, "Finding"), limit=limit)]
+
+    def unexploited_findings(self, limit: int = 20) -> list[Node]:
+        return [_node_from_props(r["props"])
+                for r in self._run(_UNEXPLOITED, limit=limit)]
 
     def running_intents(self) -> list[Node]:
         return [_node_from_props(r["props"]) for r in self._run(_RUNNING)]
