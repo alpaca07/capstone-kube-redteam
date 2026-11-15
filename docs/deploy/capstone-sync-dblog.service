@@ -1,0 +1,20 @@
+# VM C DB 로그 동기 systemd 유닛 — /etc/systemd/system/capstone-sync-dblog.service
+# database(고객 PII)·corp-crown(internal_secrets) 두 postgres 를 각자 파일로 수집.
+# <USER> 를 VM C 사용자로 치환. 설치:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now capstone-sync-dblog
+[Unit]
+Description=Capstone DB 로그 동기 (VM B database·corp-crown -> VM C god-view)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<USER>
+WorkingDirectory=/home/<USER>/capstone
+ExecStart=/usr/bin/bash scripts/vmc-sync-dblog.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

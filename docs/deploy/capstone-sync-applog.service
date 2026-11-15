@@ -1,0 +1,20 @@
+# VM C 앱 로그 동기 systemd 유닛 — /etc/systemd/system/capstone-sync-applog.service
+# backend(catalog-api·order-api)·internal(admin-dashboard) 앱 감사로그 수집.
+# <USER> 를 VM C 사용자로 치환. 설치:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now capstone-sync-applog
+[Unit]
+Description=Capstone 앱 로그 동기 (VM B backend·internal -> VM C god-view)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<USER>
+WorkingDirectory=/home/<USER>/capstone
+ExecStart=/usr/bin/bash scripts/vmc-sync-applog.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
