@@ -1531,6 +1531,19 @@
       var chipsH = (rounds && rounds.length) ? roundChipsHtml(rounds, selKey || "", "data-agrk") : "";
       return chipsH + agKindFilter(g.nodes || []) + '<div class="tile-sub" style="padding:20px">선택한 종류가 모두 숨겨졌습니다 · 위 필터에서 다시 켜세요</div>';
     }
+    // 라운드별 보기 — 종합(aggEp)이 아니라 '단일 라운드'를 고르면 그 라운드 노드만 보이고,
+    // 그 노드들의 직속 부모(한 단계 위, 대개 직전 라운드)만 맥락으로 함께 둔다(점선·흐림 표기).
+    var ctxIds = {}, _perRound = false;
+    var _curR = (rec && rec.round != null) ? rec.round : null;
+    if (!aggEp && _curR != null && nodes.some(function (n) { return n.round === _curR; })) {
+      var inR = {}; nodes.forEach(function (n) { if (n.round === _curR) inR[n.id] = 1; });
+      var par = {}; edges.forEach(function (e) { if (inR[e.dst] && !inR[e.src]) par[e.src] = 1; });  // 직속 부모만(1단계)
+      nodes = nodes.filter(function (n) { return inR[n.id] || par[n.id]; });
+      nodes.forEach(function (n) { if (par[n.id] && !inR[n.id]) ctxIds[n.id] = 1; });
+      var _keepR = {}; nodes.forEach(function (n) { _keepR[n.id] = 1; });
+      edges = edges.filter(function (e) { return _keepR[e.src] && _keepR[e.dst]; });
+      _perRound = true;
+    }
     // 수직 트리 레이아웃 — 목표(위)에서 깊이가 아래로 떨어진다. BFS 최단경로로 깊이(행)를 잡고,
     // 자식은 부모 아래에 모아 배치(종류별 가로 열이 아니라 계층 트리). 하위 의도는 사실보다 더 아래.
     var NW = 184, NH = 56, PADX = 28, TOP = 20;
@@ -1600,7 +1613,8 @@
       // 막다름(exhausted=시간예산 소진)은 거의 모든 미결 의도에 붙는 흔한 상태라 태그에서 제외 —
       // 사점(점선·흐림) 표기는 실제 중단 사유인 차단·중단만.
       var dead = n.kind === "intent" && (n.state === "blocked" || n.state === "stopped");
-      var cls = "ag-node" + (n._new ? " ag-new" : "") + (n.state === "running" ? " ag-run" : "") + (dead ? " ag-dead" : "") + (n.kind === "finding" ? " ag-find" : "");
+      var isCtx = !!ctxIds[n.id];   // 라운드별 보기에서 맥락으로 끌어온 직전 부모
+      var cls = "ag-node" + (n._new ? " ag-new" : "") + (n.state === "running" ? " ag-run" : "") + (dead ? " ag-dead" : "") + (n.kind === "finding" ? " ag-find" : "") + (isCtx ? " ag-ctx" : "");
       var delay = n._new ? (nIdx++ * 55) : 0;
       var l1col = col.solid ? col.fg2 : col.line, l2col = col.solid ? col.fg : "#0f1b2d";
       var l1 = kindLabelKo(n.kind) + (n.technique ? " · " + esc(n.technique) : "");
@@ -1608,7 +1622,7 @@
       // 상태 뱃지 — 대기·완료·막다름 외 의미 있는 상태(실행 중·차단·중단·확인됨·포착)만.
       var showSt = n.kind === "intent" && n.state && n.state !== "open" && n.state !== "done" && n.state !== "exhausted";
       var stBadge = showSt ? '<text x="' + (p.x + NW - 11) + '" y="' + (p.y + 21) + '" text-anchor="end" font-size="8.5" font-weight="700" fill="' + stateColor(n.state) + '">' + esc(stateKo(n.state)) + "</text>" : "";
-      var op = dim ? 0.2 : (dead ? 0.9 : 1);
+      var op = isCtx ? (dim ? 0.18 : 0.5) : (dim ? 0.2 : (dead ? 0.9 : 1));
       // 라운드 태그 — 노드가 생성된 라운드. 지금 보는 라운드에 추가된 노드는 강조색(그 외 회색).
       var rnd = (n.round != null && isFinite(n.round) && n.round > 0) ? n.round : null;
       var rcur = (rnd != null && curRound != null && rnd === curRound);
@@ -1620,10 +1634,14 @@
       var gvTag = n.godview ? '<g class="ag-gv"><rect x="' + (p.x + NW - 62) + '" y="' + (p.y - 8) +
         '" width="58" height="15" rx="7.5" fill="#0ea371"/><text x="' + (p.x + NW - 33) + '" y="' + (p.y + 3) +
         '" text-anchor="middle" font-size="8.5" font-weight="700" fill="#fff">god-view</text></g>' : "";
+      // 직전 부모(맥락) 표식 — 라운드별 보기에서 끌어온 한 단계 위 부모. 라운드 태그 오른쪽에.
+      var ctxTag = isCtx ? '<g class="ag-ctxtag"><rect x="' + (p.x + 8 + rtw + 4) + '" y="' + (p.y - 8) +
+        '" width="54" height="15" rx="7.5" fill="#64748b"/><text x="' + (p.x + 8 + rtw + 4 + 27) + '" y="' + (p.y + 3) +
+        '" text-anchor="middle" font-size="8.5" font-weight="700" fill="#fff">직전 부모</text></g>' : "";
       return '<g class="' + cls + (rcur ? " ag-rcur" : "") + '" data-nid="' + n.id + '"' + (delay ? ' style="animation-delay:' + delay + 'ms"' : "") + ' opacity="' + op + '">' +
-        '<rect x="' + p.x + '" y="' + p.y + '" width="' + NW + '" height="' + NH + '" rx="10" fill="' + col.bg + '" stroke="' + col.line + '" stroke-width="' + (sel ? 2.8 : (col.solid ? 1.6 : 1.2)) + '"' + (dead ? ' stroke-dasharray="5 3"' : "") + "/>" +
+        '<rect x="' + p.x + '" y="' + p.y + '" width="' + NW + '" height="' + NH + '" rx="10" fill="' + col.bg + '" stroke="' + col.line + '" stroke-width="' + (sel ? 2.8 : (col.solid ? 1.6 : 1.2)) + '"' + (dead || isCtx ? ' stroke-dasharray="5 3"' : "") + "/>" +
         '<text class="agk" x="' + (p.x + 13) + '" y="' + (p.y + 21) + '" font-size="9.5" font-weight="700" fill="' + l1col + '">' + l1 + "</text>" + stBadge +
-        '<text x="' + (p.x + 13) + '" y="' + (p.y + 39) + '" font-size="11.5" fill="' + l2col + '">' + l2 + "</text>" + rTag + gvTag + "</g>";
+        '<text x="' + (p.x + 13) + '" y="' + (p.y + 39) + '" font-size="11.5" fill="' + l2col + '">' + l2 + "</text>" + rTag + gvTag + ctxTag + "</g>";
     }).join("");
     var vb = agView || { x: 0, y: 0, w: W, h: H };     // agView=수동 조작(확대·이동) 지속, null=자동 맞춤(라이브 성장 추적)
     var tools = '<div class="ag-tools">' +
@@ -1640,9 +1658,10 @@
       '<span><span class="agls agls-run"></span>실행 중(맥동)</span>' +
       '<span><span class="agls agls-dead"></span>차단·중단(점선·흐림)</span>' +
       '<span><span class="agls" style="background:#0d9488;border:none"></span>R# 생성 라운드(강조=현재 라운드 추가)</span>' +
+      (_perRound ? '<span><span class="agls" style="background:#64748b;border:none;opacity:.55"></span>직전 부모(점선·흐림, 맥락용)</span>' : "") +
       (focus ? '<span class="agl-focus">· 선택 노드 계보만 선명 (노드 다시 클릭 → 해제)</span>' : "") + "</div></div>";
     var chips = (rounds && rounds.length) ? roundChipsHtml(rounds, selKey || "", "data-agrk") : "";
-    var ctx = aggEp ? aggEp + "회차 종합 · 누적 그래프" : (rec ? (rec.episode || 1) + "회차 R" + rec.round : "예시");
+    var ctx = aggEp ? aggEp + "회차 종합 · 누적 그래프" : (rec ? (rec.episode || 1) + "회차 R" + rec.round + (_perRound ? " · 이 라운드 노드만(직전 부모는 점선)" : "") : "예시");
     return (S.demo ? demoBanner() : "") + chips +
       '<div class="section-label">' + ctx + " · 공격 추론 그래프 (목표 → 의도 → 사실 → 발견)</div>" +
       agKindFilter(g.nodes || []) +
