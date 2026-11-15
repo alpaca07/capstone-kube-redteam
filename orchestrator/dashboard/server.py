@@ -75,11 +75,37 @@ def _external_running(prog: dict) -> bool:
     return bool(prog.get("status") == "running" and updated and (time.time() - updated) < window)
 
 
-def _pkill_orchestrator() -> bool:
-    """pid 없을 때 폴백 — 모듈명으로 orchestrator.main 종료(대시보드와 같은 사용자). 대시보드는
-    orchestrator.dashboard 라 매칭 안 됨. 1건이라도 종료하면 True."""
+_STOP_FLAG = _LOGS / "stop.request"              # orchestrator.main 이 매 라운드 경계에서 읽는 협조적 중지 플래그
+
+
+def _write_stop_flag() -> bool:
+    """협조적 중지 — 권한·pid·progress 최신성과 무관하게 전달되는 1차 경로.
+    orchestrator.main 이 같은 로그 디렉토리에서 이 파일을 읽어 현재 라운드만 마치고 안전 종료한다."""
     try:
-        r = subprocess.run(["pkill", "-TERM", "-f", "-m orchestrator.main"],
+        _LOGS.mkdir(parents=True, exist_ok=True)
+        _STOP_FLAG.write_text(str(time.time()), encoding="utf-8")
+        return True
+    except OSError:
+        return False
+
+
+def _pid_is_orchestrator(pid: int) -> bool:
+    """/proc/<pid>/cmdline 로 실제 orchestrator.main 프로세스인지 검증 — progress 최신성 창에 기대지
+    않고(긴 턴에 묵은 pid 오인 방지) 바로 신호를 보낼 수 있게. 대시보드(orchestrator.dashboard)는 제외."""
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            cl = f.read().decode("utf-8", "replace")
+        return ("orchestrator.main" in cl) and ("orchestrator.dashboard" not in cl)
+    except OSError:
+        return False
+
+
+def _pkill_orchestrator(sig: str = "-TERM") -> bool:
+    """pid 폴백 실패 시 최후 수단 — 모듈명으로 orchestrator.main 종료(대시보드와 같은 사용자).
+    패턴이 대시(-)로 시작하면 pkill 이 옵션으로 오인하므로(invalid option) 'orchestrator\\.main' 로
+    매칭한다. 대시보드는 orchestrator.dashboard 라 안 걸리고, pkill 은 자기 자신도 제외. 1건↑ 종료 시 True."""
+    try:
+        r = subprocess.run(["pkill", sig, "-f", r"orchestrator\.main"],
                            capture_output=True, timeout=5)
         return r.returncode == 0
     except (OSError, subprocess.SubprocessError):
@@ -191,6 +217,10 @@ def run_start(payload: dict = Body(default={})) -> JSONResponse:
         return JSONResponse({"ok": False, "error": "잘못된 파라미터"}, status_code=400)
 
     _LOGS.mkdir(parents=True, exist_ok=True)
+    try:                                         # 묵은 중지 플래그 제거 — 새 런이 바로 종료되지 않게
+        _STOP_FLAG.exists() and _STOP_FLAG.unlink()
+    except OSError:
+        pass
     archived = None
     if payload.get("fresh"):
         archived = _archive_run_logs()      # 지운다 아님 — 지난 실행을 runs_archive/ 로 보관 후 라이브 비움
@@ -239,31 +269,47 @@ def run_start(payload: dict = Body(default={})) -> JSONResponse:
 
 
 @app.post("/api/run/stop")
-def run_stop() -> JSONResponse:
-    p = _run["proc"]
-    if p and p.poll() is None:               # 대시보드가 띄운 프로세스
-        p.terminate()
+def run_stop(payload: dict = Body(default={})) -> JSONResponse:
+    """실험 중지. 기본(force 미지정)=안전 종료: 중지 플래그 기록 + SIGTERM → 현재 라운드만
+    마치고 깨끗이 끝냄. force=true=즉시 강제: SIGKILL(진행 중 턴에 갇혔을 때). 플래그는 권한·pid·
+    progress 최신성과 무관하게 전달되는 1차 경로라, 신호가 막혀도 다음 라운드 경계에서 멈춘다."""
+    force = bool(payload.get("force"))
+    sig = signal.SIGKILL if force else signal.SIGTERM
+    flagged = _write_stop_flag()                 # 1차: 협조적 중지(항상 시도)
+    via = ["flag"] if flagged else []
+
+    p = _run["proc"]                             # 2차: 대시보드가 띄운 프로세스면 바로 신호
+    if p and p.poll() is None:
         try:
-            p.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            p.kill()
-        return JSONResponse({"ok": True, "stopped": True})
-    # 외부(CLI) 실행 — progress.json 의 pid 로 종료 시도(최신성 가드로 묵은 pid 오인 방지)
+            p.kill() if force else p.terminate()  # terminate=SIGTERM(안전) / kill=SIGKILL(강제)
+            via.append("signal")
+            return JSONResponse({"ok": True, "stopping": True, "forced": force, "via": via,
+                                 "detail": "대시보드 실행 프로세스에 중지 신호 전송"})
+        except OSError as e:
+            return JSONResponse({"ok": flagged, "stopping": flagged, "via": via,
+                                 "error": f"프로세스 신호 실패(플래그로 다음 라운드 종료): {e}"})
+
+    # 외부(CLI) 실행 — progress.json pid 를 /proc 로 검증 후 신호(최신성 창 우회).
     prog = _read_json(_LOGS / "progress.json")
-    if _external_running(prog):
-        pid = prog.get("pid")
-        if isinstance(pid, int) and pid > 0:
-            try:
-                os.kill(pid, signal.SIGTERM)
-                return JSONResponse({"ok": True, "stopped": True, "external": True})
-            except ProcessLookupError:
-                pass                                  # 이미 죽음 → pkill 폴백으로
-            except PermissionError as e:
-                return JSONResponse({"ok": False, "stopped": False, "error": f"외부 실행 종료 권한 없음: {e}"})
-        killed = _pkill_orchestrator()                # pid 없음(구버전 런) 또는 위 실패 — 모듈명 폴백
-        return JSONResponse({"ok": killed, "stopped": killed, "external": True,
-                             "error": None if killed else "orchestrator.main 프로세스를 찾지 못했습니다(권한·이름 확인)"})
-    return JSONResponse({"ok": True, "stopped": False})
+    pid = prog.get("pid")
+    if isinstance(pid, int) and pid > 0 and _pid_is_orchestrator(pid):
+        try:
+            os.kill(pid, sig)
+            via.append("signal")
+            return JSONResponse({"ok": True, "stopping": True, "forced": force, "external": True,
+                                 "via": via, "detail": f"외부 실행 pid {pid} 에 중지 신호 전송"})
+        except ProcessLookupError:
+            pass                                  # 이미 죽음 → pkill 폴백
+        except PermissionError as e:
+            return JSONResponse({"ok": flagged, "stopping": flagged, "external": True, "via": via,
+                                 "error": f"pid {pid} 종료 권한 없음(플래그로 다음 라운드 종료): {e}"})
+
+    killed = _pkill_orchestrator("-KILL" if force else "-TERM")  # 3차: 모듈명 pkill 폴백
+    if killed:
+        via.append("pkill")
+    ok = flagged or killed
+    return JSONResponse({"ok": ok, "stopping": ok, "external": True, "forced": force, "via": via,
+                         "error": None if ok else "중지 경로 모두 실패 — orchestrator.main 프로세스·권한 확인"})
 
 
 @app.get("/api/run/status")
@@ -279,8 +325,10 @@ def run_status() -> JSONResponse:
     except OSError:
         pass
     started = _run["started"]
+    stopping = running and _STOP_FLAG.exists()    # 중지 플래그는 떨어졌는데 아직 라운드 진행 중
     return JSONResponse({
-        "running": running, "external": external, "params": _run["params"], "started": started,
+        "running": running, "external": external, "stopping": stopping,
+        "params": _run["params"], "started": started,
         "elapsed": (time.time() - started) if started else 0,
         "returncode": (p.poll() if (p and not managed) else None), "log": tail,
     })

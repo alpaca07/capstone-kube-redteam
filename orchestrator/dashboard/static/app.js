@@ -671,10 +671,19 @@
       msg.textContent = r.ok ? ("시작됨: " + r.id + (r.archived ? " · 이전 실행 보관됨" : "")) : "실패: " + (r.error || "");
       refreshRunStatus();
     };
+    var stopReq = false;   // 이 화면에서 이미 중지 요청했는지 — 두 번째 누름 = 즉시 강제 종료
     if (stop) stop.onclick = async function () {
-      msg.textContent = "중지 요청…";
-      await fetch("/api/run/stop", { method: "POST" }).catch(function () {});
-      msg.textContent = "중지 요청 보냄"; refreshRunStatus();
+      var force = stopReq;                 // 한 번 누른 뒤 또 누르면 SIGKILL
+      msg.textContent = force ? "강제 종료 요청…" : "중지 요청…";
+      var r = await fetch("/api/run/stop", { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ force: force }) })
+        .then(function (x) { return x.json(); }).catch(function () { return { ok: false, error: "서버 연결 실패" }; });
+      stopReq = true;
+      if (r && r.ok) msg.textContent = force
+        ? "강제 종료 신호 보냄"
+        : "중지 요청됨 — 현재 라운드 마치고 종료(즉시 멈추려면 한 번 더)";
+      else msg.textContent = "중지 실패: " + ((r && r.error) || "경로 없음");
+      refreshRunStatus();
     };
     refreshRunStatus();
   }
@@ -683,9 +692,10 @@
     var log = $("#run-log"); if (log && st && st.log) log.textContent = st.log.join("\n") || "로그 없음";
     var start = $("#btn-start"), stop = $("#btn-stop");
     if (start && st) start.disabled = !!st.running;
-    if (stop && st) stop.disabled = !st.running;
-    var msg = $("#ctl-msg");    // 외부(CLI) 실행 감지 표기 — 사용자 동작 메시지가 없을 때만
-    if (msg && st && st.external && !msg.textContent) msg.textContent = "외부(CLI) 실행 감지 — 여기서 중지 가능";
+    if (stop && st) stop.disabled = !st.running;   // 중지 중에도 running=true → 재누름(강제) 가능
+    var msg = $("#ctl-msg");
+    if (msg && st && st.stopping) msg.textContent = "중지 중 — 현재 라운드 종료 대기(즉시 멈추려면 중지 재클릭)";
+    else if (msg && st && st.external && !msg.textContent) msg.textContent = "외부(CLI) 실행 감지 — 여기서 중지 가능";
   }
 
   // ───────── 페이지: 실시간 현황 ─────────

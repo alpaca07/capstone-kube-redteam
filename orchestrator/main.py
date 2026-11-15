@@ -15,6 +15,7 @@ import argparse
 import json
 import os
 import shutil
+import signal
 import sys
 import time
 from pathlib import Path
@@ -69,7 +70,7 @@ def _build_snapshots(cfg: Config):
 
 def build_sequencer(cfg: Config, *, sink=None, progress=None, events=None,
                     detail_dir=None, off_kg_sink=None, episode_sink=None,
-                    params: Optional[RunParams] = None) -> TurnSequencer:
+                    kill_switch=None, params: Optional[RunParams] = None) -> TurnSequencer:
     """config + 실 어댑터로 턴 시퀀서 조립(I/O 없음 — 실제 연결은 run_experiment에서)."""
     attacker = HttpAttackerClient(cfg.network.attacker_url, token=cfg.network.shared_token)
     defender = HttpDefenderClient(cfg.network.defender_url, token=cfg.network.shared_token)
@@ -117,7 +118,7 @@ def build_sequencer(cfg: Config, *, sink=None, progress=None, events=None,
                          objectives=objectives, truth=truth,
                          params=params, sink=sink, off_kg_sink=off_kg_sink,
                          progress=progress, events=events, detail_dir=detail_dir,
-                         episode_sink=episode_sink)
+                         episode_sink=episode_sink, kill_switch=kill_switch)
 
 
 def _params_from_args(cfg: Config, args: argparse.Namespace) -> RunParams:
@@ -256,6 +257,50 @@ def main(argv: Optional[list[str]] = None) -> int:
     params = _params_from_args(cfg, args)
 
     os.makedirs(args.out_dir, exist_ok=True)
+
+    # ── 협조적 중지 ─────────────────────────────────────────────────────
+    # 대시보드(또는 사람)가 중지를 요청하는 두 경로를 한 스위치로 모은다.
+    #  (1) stop.request 파일 — 대시보드가 떨궈 둠. 권한·pid·progress 최신성과 무관하게 전달.
+    #  (2) SIGTERM/SIGINT — 터미널 Ctrl-C, 대시보드가 보낸 신호. 첫 신호=안전 종료 예약,
+    #      두 번째 신호=즉시 강제 종료(긴 턴에 갇혔을 때 탈출구).
+    # 스위치가 켜지면 시퀀서가 '현재 라운드'만 마치고 KILLED 로 깨끗이 끝낸다(진행 중 로그 보존).
+    stop_path = os.path.join(args.out_dir, "stop.request")
+    try:
+        os.path.exists(stop_path) and os.remove(stop_path)   # 지난 런이 남긴 묵은 플래그 제거
+    except OSError:
+        pass
+    _stop = {"on": False}
+
+    def _request_stop(reason: str) -> None:
+        if not _stop["on"]:
+            _stop["on"] = True
+            print(f"\n[!] 중지 요청 수신({reason}) — 현재 라운드를 마치는 대로 안전 종료합니다. "
+                  f"즉시 멈추려면 한 번 더 보내세요(Ctrl-C/대시보드 재요청).", flush=True)
+        else:
+            print("[!] 두 번째 중지 요청 — 즉시 강제 종료합니다.", flush=True)
+            os._exit(130)
+
+    def _on_signal(signum, _frame) -> None:
+        _request_stop(signal.Signals(signum).name)
+
+    for _sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(_sig, _on_signal)
+        except (ValueError, OSError):            # 메인 스레드가 아니면 무시
+            pass
+
+    def _kill_switch() -> bool:
+        if _stop["on"]:
+            return True
+        try:
+            if os.path.exists(stop_path):        # 대시보드가 떨군 중지 플래그
+                _stop["on"] = True
+                print("[!] 중지 플래그(stop.request) 감지 — 현재 라운드 종료 후 안전 종료.", flush=True)
+                return True
+        except OSError:
+            pass
+        return False
+
     if not args.keep_logs:                       # 새 런 = 깨끗한 시작(이전 그래프·회차 기록 이관)
         _arch = _archive_prior_logs(args.out_dir)
         if _arch:
@@ -275,7 +320,8 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     seq = build_sequencer(cfg, sink=sink, progress=progress,
                           events=events, detail_dir=detail_dir,
-                          off_kg_sink=off_kg_sink, episode_sink=episode_sink, params=params)
+                          off_kg_sink=off_kg_sink, episode_sink=episode_sink,
+                          kill_switch=_kill_switch, params=params)
 
     print(f"[*] 실험 시작: episodes={params.episodes} max_rounds={params.max_rounds} "
           f"time_limit={params.time_limit_sec}s "
@@ -294,6 +340,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(f"    공격자 목표={_g[:70] + ('…' if len(_g) > 70 else '')}")
 
     summaries = seq.run_experiment()   # 회차 요약은 episode_sink 가 매 회차 즉시 episodes.jsonl 에 기록(위)
+    try:                                # 중지 플래그 뒷정리 — 다음 런이 묵은 플래그로 바로 끝나지 않게
+        os.path.exists(stop_path) and os.remove(stop_path)
+    except OSError:
+        pass
+    if _stop["on"]:
+        print("\n[■] 중지 요청으로 안전 종료되었습니다(완료된 회차까지 기록됨).")
 
     print("\n[✓] 완료. 회차 요약:")
     for s in summaries:
