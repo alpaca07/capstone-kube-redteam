@@ -32,7 +32,7 @@ app = FastAPI(title="Helix — 공수 루프 관제 대시보드")
 
 # ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (app.js 의 UI_BUILD 과 같은 값으로 함께 올린다).
 # /api/status 로 내보내 대시보드가 '서버가 최신 코드로 재시작됐는지' 좌상단 버전으로 확인한다.
-SERVER_BUILD = 3
+SERVER_BUILD = 4
 
 # 실험 프로세스 상태(단일 워커 전제: 한 번에 하나만).
 _run: dict = {"proc": None, "started": None, "params": None, "id": None}
@@ -134,6 +134,24 @@ def _wait_pid_dead(pid: int, timeout: float) -> bool:
     return not _pid_alive(pid)
 
 
+def _mark_stopped() -> None:
+    """progress.json 의 running 상태를 종료로 정리 — 프로세스가 없는데 남은 '헛표시 running' 제거."""
+    path = _LOGS / "progress.json"
+    try:
+        prog = _read_json(path)
+        if prog.get("status") != "running":
+            return
+        prog["status"] = "stopped"
+        prog["active"] = None
+        prog["turn_started"] = None
+        tmp = path.with_suffix(".json.tmp")
+        with tmp.open("w", encoding="utf-8") as f:
+            json.dump(prog, f, ensure_ascii=False)
+        os.replace(str(tmp), str(path))
+    except OSError:
+        pass
+
+
 def _pkill_orchestrator(sig: str = "-TERM") -> bool:
     """pid 폴백 실패 시 최후 수단 — 모듈명/경로로 orchestrator.main 종료(대시보드와 같은 사용자).
     패턴이 대시(-)로 시작하면 pkill 이 옵션으로 오인하므로(invalid option) 'orchestrator[./]main' 로
@@ -226,9 +244,13 @@ def attack_graph(episode: int, rnd: int) -> JSONResponse:
 @app.get("/api/status")
 def live_status() -> JSONResponse:
     prog = _read_json(_LOGS / "progress.json") or {"status": "idle"}
-    running = _running() or _external_running(prog)  # 대시보드 띄운 프로세스 + CLI 외부 실행
+    # progress 가 running 이라도 기록된 pid 가 실제로 죽었으면(크래시·외부 kill) 종료로 본다 —
+    # updated_at 이 아직 신선해도 '헛표시 running'을 막는다. pid 없으면 최신성(_external_running)만.
+    _pid = prog.get("pid")
+    pid_dead = isinstance(_pid, int) and _pid > 0 and not _pid_alive(_pid)
+    running = _running() or (_external_running(prog) and not pid_dead)
     started = _run["started"]
-    if not running and prog.get("status") == "running":      # 오래 멈춘 running = 크래시/종료 보정
+    if not running and prog.get("status") == "running":      # 크래시/종료/외부kill 보정
         prog["status"] = "stopped"
         prog["active"] = None
         prog["turn_started"] = None
@@ -367,9 +389,13 @@ def run_stop(payload: dict = Body(default={})) -> JSONResponse:
     killed = _pkill_orchestrator("-KILL")        # 남아있으면 강제(없으면 returncode≠0)
     if hit or killed:
         via.append("pkill")
-    ok = flagged or hit or killed
-    return JSONResponse({"ok": ok, "stopped": killed or (hit and not force), "via": via, "external": True,
-                         "error": None if ok else "중지 경로 모두 실패 — orchestrator.main 프로세스·권한 확인"})
+        return JSONResponse({"ok": True, "stopped": True, "via": via, "external": True, "detail": "pkill 로 종료"})
+
+    # 4) 죽일 orchestrator.main 프로세스가 전혀 없음 = 실험이 이미 끝났거나 안 돌고 있음.
+    #    '헛표시 running'을 정리하고 '이미 종료됨'으로 성공 반환(멈추려던 상태엔 이미 도달).
+    _mark_stopped()
+    return JSONResponse({"ok": True, "stopped": True, "via": via, "external": True,
+                         "detail": "실행 중인 orchestrator.main 없음 — 이미 종료됨(상태 정리)"})
 
 
 @app.get("/api/run/status")
