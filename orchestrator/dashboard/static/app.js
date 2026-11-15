@@ -1637,7 +1637,7 @@
       // 직전 부모(맥락) 표식 — 라운드별 보기에서 끌어온 한 단계 위 부모. 라운드 태그 오른쪽에.
       var ctxTag = isCtx ? '<g class="ag-ctxtag"><rect x="' + (p.x + 8 + rtw + 4) + '" y="' + (p.y - 8) +
         '" width="54" height="15" rx="7.5" fill="#64748b"/><text x="' + (p.x + 8 + rtw + 4 + 27) + '" y="' + (p.y + 3) +
-        '" text-anchor="middle" font-size="8.5" font-weight="700" fill="#fff">직전 부모</text></g>' : "";
+        '" text-anchor="middle" font-size="8.5" font-weight="700" fill="#fff">직전 노드</text></g>' : "";
       return '<g class="' + cls + (rcur ? " ag-rcur" : "") + '" data-nid="' + n.id + '"' + (delay ? ' style="animation-delay:' + delay + 'ms"' : "") + ' opacity="' + op + '">' +
         '<rect x="' + p.x + '" y="' + p.y + '" width="' + NW + '" height="' + NH + '" rx="10" fill="' + col.bg + '" stroke="' + col.line + '" stroke-width="' + (sel ? 2.8 : (col.solid ? 1.6 : 1.2)) + '"' + (dead || isCtx ? ' stroke-dasharray="5 3"' : "") + "/>" +
         '<text class="agk" x="' + (p.x + 13) + '" y="' + (p.y + 21) + '" font-size="9.5" font-weight="700" fill="' + l1col + '">' + l1 + "</text>" + stBadge +
@@ -1658,10 +1658,10 @@
       '<span><span class="agls agls-run"></span>실행 중(맥동)</span>' +
       '<span><span class="agls agls-dead"></span>차단·중단(점선·흐림)</span>' +
       '<span><span class="agls" style="background:#0d9488;border:none"></span>R# 생성 라운드(강조=현재 라운드 추가)</span>' +
-      (_perRound ? '<span><span class="agls" style="background:#64748b;border:none;opacity:.55"></span>직전 부모(점선·흐림, 맥락용)</span>' : "") +
+      (_perRound ? '<span><span class="agls" style="background:#64748b;border:none;opacity:.55"></span>직전 노드(점선·흐림, 맥락용)</span>' : "") +
       (focus ? '<span class="agl-focus">· 선택 노드 계보만 선명 (노드 다시 클릭 → 해제)</span>' : "") + "</div></div>";
     var chips = (rounds && rounds.length) ? roundChipsHtml(rounds, selKey || "", "data-agrk") : "";
-    var ctx = aggEp ? aggEp + "회차 종합 · 누적 그래프" : (rec ? (rec.episode || 1) + "회차 R" + rec.round + (_perRound ? " · 이 라운드 노드만(직전 부모는 점선)" : "") : "예시");
+    var ctx = aggEp ? aggEp + "회차 종합 · 누적 그래프" : (rec ? (rec.episode || 1) + "회차 R" + rec.round + (_perRound ? " · 이 라운드 노드만(직전 노드는 점선)" : "") : "예시");
     return (S.demo ? demoBanner() : "") + chips +
       '<div class="section-label">' + ctx + " · 공격 추론 그래프 (목표 → 의도 → 사실 → 발견)</div>" +
       agKindFilter(g.nodes || []) +
