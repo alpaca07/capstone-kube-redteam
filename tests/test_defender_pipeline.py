@@ -135,6 +135,20 @@ def test_render_networkpolicy_natural_language_target_falls_back():
     assert "all namespaces" not in op.manifest
 
 
+def test_render_delete_pod_ephemeral_allowed():
+    # 웹셸·발판 등 비-상태유지 파드 삭제(격리)는 허용.
+    op = render_op(PatchStep(action="delete_pod", target="corp-dmz/tomcat-shell-7f9"))
+    assert op is not None and op.kind == "delete" and op.del_kind == "pod"
+    assert op.del_ns == "corp-dmz" and op.del_name == "tomcat-shell-7f9"
+
+
+def test_render_delete_pod_stateful_rejected():
+    # 자멸 가드레일: 상태유지 데이터스토어(postgres·redis) 파드 삭제는 거부(None → 미지원 처리).
+    assert render_op(PatchStep(action="delete_pod", target="corp-crown/postgres-75cf5577b-wbdnl")) is None
+    assert render_op(PatchStep(action="delete_pod", target="corp-internal/redis-59f5c48b47-pk7p9")) is None
+    assert render_op(PatchStep(action="delete_pod", target="database/postgres-abc")) is None
+
+
 # ───────────── Patcher ─────────────
 def test_patcher_applies_set_and_healthchecks():
     cluster = _FakeCluster(healthy=True)

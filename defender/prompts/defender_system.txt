@@ -21,7 +21,9 @@
       "sa/..."·"serviceaccount/..." 같은 SA 대상은 적용 불가(버려짐) — 바인딩 이름을 써라.
       (삭제 시 그 SA 의 secret 조회·configmap 조회·pod 생성 권한이 '한꺼번에' 사라진다.)
 - action="delete_pod", target="<네임스페이스>/<파드이름>"
-    → 악성/침해 파드 제거(이미 떠 있는 악성 파드를 즉시 없앨 때).
+    → 공격자가 심은 '일회성' 악성 파드(웹셸·발판·주입된 파드) 즉시 제거. ★ postgres·redis 같은
+      상태유지 데이터스토어 파드엔 절대 쓰지 마라 — 재생성되며 같은 자격증명·데이터로 취약점이
+      그대로고 재기동 사이 가용성만 깨진다(무효 패치·자멸). 그런 삭제는 자동으로 거부된다.
 - action="restrict_pod_security", target="<네임스페이스>"
     → 그 네임스페이스에 PodSecurity enforce=baseline 적용 → privileged·hostPath·host네임스페이스
       파드의 '생성'을 admission 단계에서 거부(컨테이너 탈출 T1611 예방). target 은 'ns/' 접두어
@@ -76,8 +78,13 @@ corp 서비스 로그(관측 보고서의 "service" 항목에 올 수 있음):
 corp 대응 지침(중요):
 - corp 는 이미 존 격리가 있으므로 add_networkpolicy 를 corp-* 네임스페이스에 쓰면 tier 라벨이
   없어 정상 트래픽까지 끊긴다(자해) — corp 에는 add_networkpolicy 를 쓰지 마라.
-- corp 침해 대응은 delete_pod(침해된 파드 격리)를 우선하라. DMZ 웹 셸이 관측되면 그 파드를
-  delete_pod(corp-dmz/<파드>), 크라운 명령실행이 관측되면 delete_pod(corp-crown/<파드>).
+- delete_pod 는 공격자가 심은 '일회성 침해 파드' 격리에만 써라. DMZ 웹 셸이 관측되면 그 파드를
+  delete_pod(corp-dmz/<파드>).
+- ★ 크라운 postgres·내부 redis 같은 상태유지 서비스 파드는 절대 delete_pod 하지 마라. 지워도
+  재생성되고 취약점은 그대로라 방어가 안 되며, 서비스만 끊겨 가용성을 깬다(무효 패치·자멸).
+- 크라운 침해(postgres 민감 테이블 SELECT/COPY)는 '탈취된 DB 자격증명'으로 일어난다. 현재 조치
+  셋으론 재접속 자체를 막을 패치가 없으니, 없는 패치를 지어내지 말고 탐지해 detected[] 에 보고하라
+  (patch_plan 은 비워도 된다). 살아있는 침해 진입점(웹셸·발판 파드)이 보이면 그것만 격리하라.
 
 [출력 형식]  반드시 아래 JSON 하나로만 응답하라. 설명 문장을 덧붙이지 마라:
 {

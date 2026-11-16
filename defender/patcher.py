@@ -24,6 +24,12 @@ _DNS1123 = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 _APP_SVC_NS = {"catalog-api": "backend", "order-api": "backend",
                "auth-service": "backend", "admin-dashboard": "internal"}
 
+# delete_pod 자멸 가드레일 — 상태유지 데이터스토어(postgres·redis 등) 파드는 삭제 금지.
+# 삭제해도 공격자를 못 없앤다(유출은 탈취된 자격증명으로 일어나며 파드 존재와 무관). 재생성하면
+# 같은 자격증명·같은 데이터라 취약점은 그대로고, 재기동 사이에 가용성만 깨진다(무효 패치·자멸).
+# 파드명 접두(workload)로 식별 — 웹셸·발판·주입 악성 파드 격리(delete_pod)는 계속 허용한다.
+_STATEFUL_POD_NAMES = {"postgres", "redis", "mariadb", "mysql", "mongodb", "etcd", "memcached"}
+
 
 @dataclass
 class OpResult:
@@ -172,6 +178,8 @@ def render_op(step: PatchStep) -> Optional[_Op]:
         ns, pod = _ns_pod_from_target(tgt)
         if not pod:
             return None
+        if pod.split("-", 1)[0].lower() in _STATEFUL_POD_NAMES:
+            return None                # 상태유지 데이터스토어 삭제 거부(자멸 가드레일 — 아래 주석)
         return _Op(kind="delete", del_kind="pod", del_name=pod, del_ns=ns,
                    label=f"delete pod {ns or '?'}/{pod}")
     return None
