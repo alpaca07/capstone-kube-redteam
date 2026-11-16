@@ -735,6 +735,21 @@ button { font-family: inherit; }
 .ag-layout { display: flex; gap: 14px; align-items: flex-start; margin-top: 10px; }
 .ag-main { flex: 1; min-width: 0; }
 .ag-side { flex: none; width: 344px; }
+
+/* 공격 그래프 — 그래프↔리스트 전환 + 종류별 노드 리스트 */
+.ag-vtoggle { margin: 4px 0 10px; }
+.anl { max-height: 74vh; overflow: auto; display: flex; flex-direction: column; gap: 16px; }
+.anl-h { display: flex; align-items: center; gap: 7px; font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--text); margin-bottom: 7px; }
+.anl-n { font-size: 11px; font-weight: 600; color: var(--text-3); }
+.anl-item { display: block; width: 100%; text-align: left; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 11px; margin-bottom: 6px; cursor: pointer; }
+.anl-item:hover { border-color: var(--border-strong); }
+.anl-item.sel { border-color: var(--atk); box-shadow: 0 0 0 1px var(--atk); }
+.anl-top { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 3px; }
+.anl-r { font-family: var(--font-mono); font-size: 9px; font-weight: 700; color: #fff; background: #9aa6b6; border-radius: 6px; padding: 1px 6px; }
+.anl-st { font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; }
+.anl-sum { font-size: 12.5px; color: var(--text); line-height: 1.45; overflow-wrap: anywhere; }
+.anl-tgt { font-size: 11px; color: var(--text-3); margin-top: 2px; overflow-wrap: anywhere; }
 .ag-side-empty { padding: 22px 16px; color: var(--text-3); font-size: 12.5px; text-align: center;
   border: 1px dashed var(--border-strong); border-radius: var(--r); background: var(--surface-2); }
 @media (max-width: 1000px) { .ag-layout { flex-direction: column; } .ag-side { width: 100%; } }

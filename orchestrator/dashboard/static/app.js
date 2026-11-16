@@ -32,7 +32,7 @@
 
   // ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (server.py 의 SERVER_BUILD 과 같은 값으로 함께 올린다).
   // 좌상단에 v<UI_BUILD> 를 표시하고, 서버가 보고한 server_build 와 다르면 '재시작 필요' 경고를 띄운다.
-  var UI_BUILD = 6;
+  var UI_BUILD = 7;
   function renderBuild(serverBuild) {
     var el = document.getElementById("build-tag");
     if (!el) return;
@@ -82,7 +82,7 @@
 
   // ───────── 상태 ─────────
   var S = { rounds: [], episodes: [], runs: [], events: [], journal: [], status: {}, demo: false, runCount: 0, detItems: null };
-  var route = DEFAULT_ROUTE, evTab = "all", defSel = null, repEp = null, agRkey = null, agSel = null, agTab = "overview", agLogView = "intent", evRun = null, jRun = null, agView = null, agLogOpen = null, agHide = {}, agRaw = false, briefEp = null, _wasRunning = false, dlRun = null, dlOpen = null;
+  var route = DEFAULT_ROUTE, evTab = "all", defSel = null, repEp = null, agRkey = null, agSel = null, agTab = "overview", agLogView = "intent", evRun = null, jRun = null, agView = null, agLogOpen = null, agHide = {}, agRaw = false, briefEp = null, _wasRunning = false, dlRun = null, dlOpen = null, agMode = "graph";
 
   // ───────── 유틸 ─────────
   function $(sel, el) { return (el || document).querySelector(sel); }
@@ -1596,6 +1596,12 @@
     Array.prototype.forEach.call(document.querySelectorAll("[data-agraw]"), function (b) {    // 원문 보기 토글
       b.onclick = function () { agRaw = !agRaw; S.agSig = null; pageAttackGraphRender(); };
     });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-agmode]"), function (b) {   // 그래프↔리스트 전환
+      b.onclick = function () { agMode = b.getAttribute("data-agmode"); S.agSig = null; pageAttackGraphRender(); };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll(".anl-item"), function (b) {       // 리스트 항목 선택 → 우측 상세
+      b.onclick = function () { var id = parseInt(b.getAttribute("data-nid"), 10); agSel = (agSel === id) ? null : id; S.agSig = null; pageAttackGraphRender(); };
+    });
     var svg = document.querySelector(".ag-svg");
     if (!svg) return;
     var GW = parseFloat(svg.getAttribute("data-gw")) || 1, GH = parseFloat(svg.getAttribute("data-gh")) || 1;
@@ -1731,6 +1737,16 @@
       edges = edges.filter(function (e) { return _keepR[e.src] && _keepR[e.dst]; });
       _perRound = true;
     }
+    // 리스트 보기 — 종류(목표·의도·사실·발견)별로 노드를 일괄 나열. 그래프 레이아웃 계산 없이 바로.
+    if (agMode === "list") {
+      var chipsL = (rounds && rounds.length) ? roundChipsHtml(rounds, selKey || "", "data-agrk") : "";
+      var ctxL = aggEp ? aggEp + "회차 종합 · 누적" : (rec ? (rec.episode || 1) + "회차 R" + rec.round + (_perRound ? " · 이 라운드 노드만" : "") : "예시");
+      return (S.demo ? demoBanner() : "") + chipsL +
+        '<div class="section-label">' + ctxL + " · 공격 추론 그래프</div>" +
+        agViewToggle() + agKindFilter(g.nodes || []) +
+        '<div class="ag-layout"><div class="ag-main">' + agNodeList(nodes) + "</div>" +
+        '<div class="ag-side">' + agPanel(g.nodes || []) + "</div></div>";
+    }
     // 수직 트리 레이아웃 — 목표(위)에서 깊이가 아래로 떨어진다. BFS 최단경로로 깊이(행)를 잡고,
     // 자식은 부모 아래에 모아 배치(종류별 가로 열이 아니라 계층 트리). 하위 의도는 사실보다 더 아래.
     var NW = 184, NH = 56, PADX = 28, TOP = 20;
@@ -1851,9 +1867,39 @@
     var ctx = aggEp ? aggEp + "회차 종합 · 누적 그래프" : (rec ? (rec.episode || 1) + "회차 R" + rec.round + (_perRound ? " · 이 라운드 노드만(직전 노드는 점선)" : "") : "예시");
     return (S.demo ? demoBanner() : "") + chips +
       '<div class="section-label">' + ctx + " · 공격 추론 그래프 (목표 → 의도 → 사실 → 발견)</div>" +
-      agKindFilter(g.nodes || []) +
+      agViewToggle() + agKindFilter(g.nodes || []) +
       '<div class="ag-layout"><div class="ag-main">' + svg + legend + "</div>" +
       '<div class="ag-side">' + agPanel(g.nodes || []) + "</div></div>";
+  }
+  // 보기 전환 — 그래프(관계 트리) ↔ 리스트(종류별 일괄 나열)
+  function agViewToggle() {
+    return '<div class="tabs ag-vtoggle"><button class="tab' + (agMode !== "list" ? " active" : "") + '" data-agmode="graph">그래프</button>' +
+      '<button class="tab' + (agMode === "list" ? " active" : "") + '" data-agmode="list">리스트</button></div>';
+  }
+  // 종류별 노드 리스트 — 목표·의도·사실·발견 순으로 섹션, 각 노드 한 줄 요약(클릭 시 우측 상세).
+  function agNodeList(nodes) {
+    var kinds = ["goal", "intent", "fact", "finding"];
+    var byKind = {}; nodes.forEach(function (n) { (byKind[n.kind] = byKind[n.kind] || []).push(n); });
+    var secs = kinds.filter(function (k) { return byKind[k] && byKind[k].length; });
+    if (!secs.length) return '<div class="tile-sub" style="padding:18px">표시할 노드가 없습니다.</div>';
+    return '<div class="anl">' + secs.map(function (k) {
+      var col = kindColor(k), items = byKind[k].slice().sort(function (a, b) { return (a.id || 0) - (b.id || 0); });
+      return '<div class="anl-sec"><div class="anl-h"><span class="tag-dot" style="background:' + col.line + '"></span>' +
+        kindLabelKo(k) + ' <span class="anl-n">' + items.length + "건</span></div>" +
+        items.map(function (n) {
+          var fc = (k === "finding") ? findingCvss(n) : null, sev = fc ? String(fc.severity).toLowerCase() : "";
+          var st = (n.state && n.state !== "open" && n.state !== "exhausted" && n.state !== "done");
+          return '<button class="anl-item' + (agSel === n.id ? " sel" : "") + '" data-nid="' + n.id + '">' +
+            '<div class="anl-top">' +
+            (n.round ? '<span class="anl-r">R' + n.round + "</span>" : "") +
+            (n.technique ? '<span class="badge b-atk">' + esc(n.technique) + "</span>" : "") +
+            (n.godview ? '<span class="badge b-ok">god-view</span>' : "") +
+            (st ? '<span class="anl-st" style="color:' + stateColor(n.state) + '">' + esc(stateKo(n.state)) + "</span>" : "") +
+            (fc ? '<span class="sev-badge sev-' + sev + '">CVSS ' + fc.score + "</span>" : "") +
+            '</div><div class="anl-sum">' + esc(n.summary || kindLabelKo(k)) + "</div>" +
+            (n.target ? '<div class="anl-tgt mono">' + esc(n.target) + "</div>" : "") + "</button>";
+        }).join("") + "</div>";
+    }).join("") + "</div>";
   }
   // 카테고리(종류) 표시 토글 — 노드 많을 때 종류별로 조회. 켜진 종류만 그래프에 표시.
   function agKindFilter(allNodes) {
