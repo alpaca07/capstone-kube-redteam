@@ -32,7 +32,7 @@
 
   // ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (server.py 의 SERVER_BUILD 과 같은 값으로 함께 올린다).
   // 좌상단에 v<UI_BUILD> 를 표시하고, 서버가 보고한 server_build 와 다르면 '재시작 필요' 경고를 띄운다.
-  var UI_BUILD = 7;
+  var UI_BUILD = 8;
   function renderBuild(serverBuild) {
     var el = document.getElementById("build-tag");
     if (!el) return;
@@ -1533,9 +1533,17 @@
   // 라운드 선택 키 해석 — "E{ep}"=회차 종합(해당 회차 누적=마지막 라운드 스냅샷), "ep-rnd"=단일 라운드.
   function resolveRoundSel(rounds, sel) {
     if (sel != null && /^E\d+$/.test(sel)) {
-      var ep = parseInt(sel.slice(1), 10), li = -1;
-      rounds.forEach(function (r, i) { if ((r.episode || 1) === ep) li = i; });
-      return { rec: li >= 0 ? rounds[li] : null, aggEp: li >= 0 ? ep : null };
+      var ep = parseInt(sel.slice(1), 10), li = -1, liDone = -1;
+      rounds.forEach(function (r, i) {
+        if ((r.episode || 1) !== ep) return;
+        li = i;                     // 그 회차 마지막 라운드(진행 중 포함)
+        if (!r._live) liDone = i;   // 그 회차 마지막 '완료' 라운드
+      });
+      // 종합은 god-view 발견 노드가 주입된 '완료 라운드' 스냅샷을 읽어야 한다.
+      // 진행 중 라운드 파일은 아직 라이브 스트리머 사본(주입 전)이라 god-view 발견이 없다
+      // — 돌파 라운드엔 보이는데 종합(=마지막=진행 중)엔 안 보이던 원인.
+      var pick = liDone >= 0 ? liDone : li;
+      return { rec: pick >= 0 ? rounds[pick] : null, aggEp: pick >= 0 ? ep : null };
     }
     var idx = sel != null ? rounds.map(function (r) { return (r.episode || 1) + "-" + r.round; }).indexOf(sel) : rounds.length - 1;
     if (idx < 0) idx = rounds.length - 1;
