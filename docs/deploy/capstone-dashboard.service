@@ -1,21 +1,25 @@
-# VM C 대시보드(FastAPI :8090) systemd 유닛 — /etc/systemd/system/capstone-dashboard.service
-# <USER> 를 VM C 사용자로 치환. 설치:
+# VM C Helix 관제 대시보드 systemd 유닛 — /etc/systemd/system/capstone-dashboard.service
+# 설치(VM C):
+#   sudo cp docs/deploy/capstone-dashboard.service /etc/systemd/system/
 #   sudo systemctl daemon-reload && sudo systemctl enable --now capstone-dashboard
-# python 이 fastapi 를 못 찾으면: pip install --break-system-packages fastapi uvicorn aiofiles
-# (venv 를 쓰면 ExecStart 의 python3 를 그 venv 의 python 절대경로로 교체.)
+# 코드 갱신 후 반영(한 줄):  git pull 다음  sudo systemctl restart capstone-dashboard
+# (사용자가 vm-c 가 아니면 User=·WorkingDirectory= 두 줄만 실제 값으로 바꾸세요.)
 [Unit]
-Description=Capstone 공수 공진화 대시보드 (VM C, FastAPI :8090)
+Description=Capstone Helix 관제 대시보드 (VM C, :12345)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=<USER>
-WorkingDirectory=/home/<USER>/capstone
-ExecStart=/usr/bin/python3 -m orchestrator.api
-Environment=PORT=8090
+User=vm-c
+WorkingDirectory=/home/vm-c/capstone
+Environment=PORT=12345
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+# 자동 리로드로 돌리려면 아래 주석 해제(파일 변경 시 알아서 재기동 — watchfiles 필요).
+# Environment=RELOAD=1
+ExecStart=/usr/bin/python3 -m orchestrator.dashboard
 Restart=always
-RestartSec=3
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
