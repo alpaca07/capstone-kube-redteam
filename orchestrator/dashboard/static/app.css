@@ -322,6 +322,19 @@ button { font-family: inherit; }
 .jacc-meta { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--text-3); white-space: nowrap; display: inline-flex; align-items: center; gap: 7px; }
 .jacc-i .jacc-meta { margin-left: 8px; }
 .jacc-body { padding: 2px 0; }
+
+/* 방어 저널 — 방어자 행동 로그(파랑 톤). 공격 저널 틀 재사용 + 단계(탐지·패치·검증) 구분 */
+.jhead-v.def { color: var(--def); }
+.dj-acc .jacc-r { background: var(--def-soft); }
+.dj-ph { display: flex; align-items: center; gap: 8px; margin: 9px 13px 3px; padding-top: 7px; border-top: 1px solid var(--border); }
+.jacc-body > .dj-ph:first-child { border-top: none; padding-top: 2px; margin-top: 2px; }
+.dj-pt { font-family: var(--font-mono); font-size: 11.5px; font-weight: 700; color: var(--def); }
+.dj-n { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3); }
+.dj-row { display: flex; align-items: center; gap: 9px; padding: 4px 13px; }
+.dj-ev { flex: 1; min-width: 0; font-size: 11.5px; color: var(--text-2); word-break: break-word; overflow-wrap: anywhere; }
+.dj-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 8px 13px 4px; padding-top: 8px; border-top: 1px solid var(--border); }
+.dj-note { font-size: 11px; color: var(--text-3); }
+
 .jacc-ig { border-top: 1px solid var(--surface-3); }
 .jacc-ig:first-child { border-top: none; }
 .jacc-i { padding: 7px 13px 7px 22px; background: none; }

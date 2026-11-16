@@ -17,17 +17,18 @@
       { id: "attack-log", label: "공격 저널" } ] },
     { group: "방어", items: [
       { id: "defender-arch", label: "타깃 구성도" },
-      { id: "defender-graph", label: "탐지·패치 흐름" } ] },
+      { id: "defender-graph", label: "탐지·패치 흐름" },
+      { id: "defense-log", label: "방어 저널" } ] },
     { group: "기록", items: [
       { id: "events", label: "이벤트 로그" },
       { id: "report", label: "회차 보고서" } ] }
   ];
   var TITLES = { posture: "보안 현황", stats: "공격·방어 통계", control: "실행 제어",
     live: "실시간 현황", events: "이벤트 로그", "attack-brief": "공격 브리핑", "attack-graph": "공격 추적 그래프", "attack-log": "공격 저널",
-    "defender-arch": "타깃 구성도", "defender-graph": "탐지·패치 흐름",
+    "defender-arch": "타깃 구성도", "defender-graph": "탐지·패치 흐름", "defense-log": "방어 저널",
     report: "회차 보고서" };
   var DEFAULT_ROUTE = "posture";
-  var REAL = { posture: 1, stats: 1, control: 1, live: 1, events: 1, "defender-arch": 1, "defender-graph": 1, "attack-brief": 1, "attack-graph": 1, "attack-log": 1, report: 1 };
+  var REAL = { posture: 1, stats: 1, control: 1, live: 1, events: 1, "defender-arch": 1, "defender-graph": 1, "defense-log": 1, "attack-brief": 1, "attack-graph": 1, "attack-log": 1, report: 1 };
 
   // ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (server.py 의 SERVER_BUILD 과 같은 값으로 함께 올린다).
   // 좌상단에 v<UI_BUILD> 를 표시하고, 서버가 보고한 server_build 와 다르면 '재시작 필요' 경고를 띄운다.
@@ -81,7 +82,7 @@
 
   // ───────── 상태 ─────────
   var S = { rounds: [], episodes: [], runs: [], events: [], journal: [], status: {}, demo: false, runCount: 0, detItems: null };
-  var route = DEFAULT_ROUTE, evTab = "all", defSel = null, repEp = null, agRkey = null, agSel = null, agTab = "overview", agLogView = "intent", evRun = null, jRun = null, agView = null, agLogOpen = null, agHide = {}, agRaw = false, briefEp = null, _wasRunning = false;
+  var route = DEFAULT_ROUTE, evTab = "all", defSel = null, repEp = null, agRkey = null, agSel = null, agTab = "overview", agLogView = "intent", evRun = null, jRun = null, agView = null, agLogOpen = null, agHide = {}, agRaw = false, briefEp = null, _wasRunning = false, dlRun = null, dlOpen = null;
 
   // ───────── 유틸 ─────────
   function $(sel, el) { return (el || document).querySelector(sel); }
@@ -1306,6 +1307,94 @@
     });
   }
 
+  // ───────── 페이지: 방어 저널(방어자 행동 로그 — 탐지→패치→검증) ─────────
+  // events.jsonl 의 방어자/판정 이벤트(detection·patch·defense_turn·verdict)를 라운드별로 모아 보여준다.
+  // 공격 저널과 같은 틀(실행 선택·라운드 아코디언)·방어 색(파랑). 백엔드 추가 없음(이미 기록됨).
+  function defLogRows(evs) {
+    var det = [], pat = [], ver = [], turn = null;
+    evs.forEach(function (e) {
+      if (e.type === "detection") det.push(e);
+      else if (e.type === "patch") pat.push(e);
+      else if (e.type === "verdict") ver.push(e);
+      else if (e.type === "defense_turn") turn = e;
+    });
+    var out = "";
+    if (det.length) out += '<div class="dj-ph"><span class="dj-pt">① 탐지</span><span class="dj-n">' + det.length + "건</span></div>" +
+      det.map(function (e) { var p = e.payload || {}, conf = p.confidence != null ? Math.round(p.confidence * 100) + "%" : "—";
+        return '<div class="dj-row"><span class="jr-ts">' + hhmmss(e.ts) + "</span>" +
+          (p.technique ? '<span class="badge b-def">' + esc(p.technique) + "</span>" : '<span class="chip">기법 미상</span>') +
+          '<span class="dj-ev mono">' + esc(p.evidence || "—") + '</span><span class="jr-meta">확신도 ' + conf + "</span></div>"; }).join("");
+    if (pat.length) out += '<div class="dj-ph"><span class="dj-pt">② 패치</span><span class="dj-n">' + pat.length + "건</span></div>" +
+      pat.map(function (e) { var p = e.payload || {};
+        var label = p.detail ? p.detail : (patchKindLabel(p.kind) + " → " + (p.target || "") + (p.summary ? " · " + p.summary : ""));
+        return '<div class="dj-row"><span class="jr-ts">' + hhmmss(e.ts) + "</span>" +
+          (p.applied ? '<span class="jr-ok">적용</span>' : '<span class="jr-fail">스킵</span>') +
+          '<span class="dj-ev mono">' + esc(label) + "</span></div>"; }).join("");
+    if (ver.length) out += '<div class="dj-ph"><span class="dj-pt">③ 검증</span></div>' +
+      ver.map(function (e) { var p = e.payload || {}, vv = p.verdict ? VERDICT[p.verdict] : null;
+        return '<div class="dj-row"><span class="jr-ts">' + hhmmss(e.ts) + "</span>" +
+          (vv ? '<span class="badge ' + vv.cls + '">' + vv.label + "</span>" : '<span class="chip">—</span>') +
+          '<span class="dj-ev">' + esc(p.detail || "") + '</span><span class="jr-meta mono">' + esc(p.method || "") + "</span></div>"; }).join("");
+    if (turn) { var tp = turn.payload || {};
+      out += '<div class="dj-foot">' +
+        (tp.patch_applied ? '<span class="badge b-ok">패치 적용</span>' : '<span class="badge b-sys">패치 미적용</span>') +
+        (tp.healthcheck_passed ? '<span class="badge b-ok">서비스 정상</span>' : '<span class="badge b-atk">서비스 중단</span>') +
+        (tp.elapsed_sec ? '<span class="chip">' + Math.round(tp.elapsed_sec) + "s</span>" : "") +
+        (tp.note ? '<span class="dj-note">' + esc(tp.note) + "</span>" : "") +
+        (tp.error ? '<span class="dj-note" style="color:var(--atk)">오류: ' + esc(tp.error) + "</span>" : "") + "</div>";
+    }
+    return out || '<div class="tile-sub">이 라운드 방어 행동 기록 없음</div>';
+  }
+  function defLogAccordion(evs) {
+    var rounds = {}, rorder = [];
+    evs.forEach(function (e) { var r = e.round || 0; if (!rounds[r]) { rounds[r] = []; rorder.push(r); } rounds[r].push(e); });
+    if (!rorder.length) return '<div class="tile-sub">방어 행동 기록 없음</div>';
+    rorder.sort(function (a, b) { return b - a; });          // 최신 라운드 먼저
+    if (dlOpen == null) dlOpen = {};
+    var topKey = "r" + rorder[0];
+    if (dlOpen[topKey] === undefined) dlOpen[topKey] = true; // 최신 라운드 기본 펼침
+    return rorder.map(function (r) {
+      var evr = rounds[r], rkey = "r" + r, open = !!dlOpen[rkey];
+      var nd = evr.filter(function (e) { return e.type === "detection"; }).length;
+      var np = evr.filter(function (e) { return e.type === "patch" && (e.payload || {}).applied; }).length;
+      var turn = evr.filter(function (e) { return e.type === "defense_turn"; })[0];
+      var health = turn ? (turn.payload || {}).healthcheck_passed : null;
+      var head = '<button class="jacc-h jacc-r dj-rh' + (open ? " open" : "") + '" data-dltoggle="' + rkey + '">' +
+        '<span class="jacc-caret' + (open ? " open" : "") + '">▸</span><span class="jacc-t">R' + r + "</span>" +
+        '<span class="jacc-meta">탐지 ' + nd + " · 적용 패치 " + np +
+        (health === false ? ' <span class="badge b-atk">서비스 중단</span>' : "") + "</span></button>";
+      return '<div class="jacc dj-acc">' + head + (open ? '<div class="jacc-body">' + defLogRows(evr) + "</div>" : "") + "</div>";
+    }).join("");
+  }
+  function pageDefenseLog() {
+    var all = (S.events || []).filter(function (e) { return e.actor === "defender" || e.type === "verdict"; });
+    if (!all.length)
+      return (S.demo ? demoBanner() : "") + emptyState("🛡", "아직 방어 저널이 없습니다", "방어 턴이 끝나면 탐지·패치·검증 행동이 라운드별로 쌓입니다.", []);
+    var segs = runSegments(all), seg = pickSeg(segs, dlRun);
+    var evs = seg ? seg.records : all;
+    var nDet = 0, nPat = 0, nBlock = 0;
+    evs.forEach(function (e) {
+      if (e.type === "detection") nDet++;
+      else if (e.type === "patch" && (e.payload || {}).applied) nPat++;
+      else if (e.type === "verdict" && (e.payload || {}).verdict === "blocked") nBlock++;
+    });
+    return (S.demo ? demoBanner() : "") +
+      runPickerHtml(segs, dlRun, "data-dlrun") + runCfgHtml(seg) +
+      '<div class="jhead"><span class="jhead-m"><span class="jhead-k">탐지</span><span class="jhead-v">' + nDet + "건</span></span>" +
+      '<span class="jhead-m"><span class="jhead-k">적용 패치</span><span class="jhead-v">' + nPat + "건</span></span>" +
+      '<span class="jhead-m"><span class="jhead-k">차단</span><span class="jhead-v def">' + nBlock + "건</span></span>" +
+      '<span class="jhead-note">방어 턴 종료 시 반영 · 탐지→패치→검증</span></div>' +
+      defLogAccordion(evs);
+  }
+  function bindDefenseLog() {
+    Array.prototype.forEach.call(document.querySelectorAll("[data-dlrun]"), function (b) {
+      b.onclick = function () { dlRun = b.getAttribute("data-dlrun"); dlOpen = null; $("#view").innerHTML = pageDefenseLog(); bindDefenseLog(); };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-dltoggle]"), function (b) {
+      b.onclick = function () { var k = b.getAttribute("data-dltoggle"); dlOpen[k] = !dlOpen[k]; $("#view").innerHTML = pageDefenseLog(); bindDefenseLog(); };
+    });
+  }
+
   // ───────── 페이지: 공격 추적 그래프 ─────────
   function kindLabel(k) { return ({ goal: "Goal", intent: "Intent", fact: "Fact", finding: "Finding", hint: "Hint" })[k] || k; }
   function kindLabelKo(k) { return ({ goal: "목표", intent: "의도", fact: "사실", finding: "발견", hint: "힌트" })[k] || k; }
@@ -1940,6 +2029,7 @@
     setActiveNav();
     if (route === "events") { await loadEvents(); view.innerHTML = pageEvents(); bindEventTabs(); return; }
     if (route === "attack-log") { await loadJournal(); view.innerHTML = pageAttackLog(); bindAttackLog(); return; }
+    if (route === "defense-log") { await loadEvents(); view.innerHTML = pageDefenseLog(); bindDefenseLog(); return; }
     if (route === "defender-arch") { view.innerHTML = '<p class="page-intro">구성도 불러오는 중…</p>'; var topo = await loadTopology(); if (route === "defender-arch") view.innerHTML = pageArch(topo); return; }
     if (route === "defender-graph") { await pageDefGraphRender(); return; }
     if (route === "attack-graph") { await pageAttackGraphRender(); return; }
