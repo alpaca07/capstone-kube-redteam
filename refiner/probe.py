@@ -79,9 +79,12 @@ class HarnessProbe:
         snap = self._resolve_snapshot(basis)
         self.snapshot.revert_to(snap)            # 1) 대상 고정
 
+        # 2) 후보 프롬프트 주입. 기반이 비면(override 없음) VM A가 자기 라이브 프롬프트를 씀
+        #    — VM C sparse 체크아웃엔 attacker/ 가 없어 라이브 프롬프트 파일을 못 읽는 기준선 측정용.
+        effective = harness.effective_prompt()
         start_kwargs = dict(
             time_limit_sec=self.time_limit_sec,
-            system_prompt_override=harness.effective_prompt(),  # 2) 후보 프롬프트 주입
+            system_prompt_override=(effective if effective.strip() else None),
             max_tokens=self.max_tokens,
             foothold=self.foothold,
         )
