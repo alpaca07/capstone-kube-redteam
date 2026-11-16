@@ -55,7 +55,7 @@ def test_probe_reverts_clean_attacks_scores():
     snap = FakeSnapshot()
     atk = FakeAttacker(_ok_result())
     probe = HarnessProbe(snapshot=snap, attacker=atk,
-                         score_turn=lambda r: (0.42, {"end": r.end_reason.value}),
+                         score_turn=lambda r, t0, t1: (0.42, {"end": r.end_reason.value}),
                          clean_snapshot="clean-baseline",
                          foothold=Foothold(attack_endpoint="10.0.0.5"))
 
@@ -72,7 +72,7 @@ def test_probe_injects_candidate_prompt():
     """후보 하네스의 오버레이가 system_prompt_override 로 공격 턴에 실린다."""
     atk = FakeAttacker(_ok_result())
     probe = HarnessProbe(snapshot=FakeSnapshot(), attacker=atk,
-                         score_turn=lambda r: (1.0, {}))
+                         score_turn=lambda r, t0, t1: (1.0, {}))
 
     probe.probe(_harness(overlay_text="추가지침 XYZ"), basis="clean")
 
@@ -83,7 +83,7 @@ def test_probe_injects_candidate_prompt():
 def test_probe_patched_basis_uses_patched_snapshot():
     snap = FakeSnapshot()
     probe = HarnessProbe(snapshot=snap, attacker=FakeAttacker(_ok_result()),
-                         score_turn=lambda r: (0.1, {}),
+                         score_turn=lambda r, t0, t1: (0.1, {}),
                          clean_snapshot="clean-baseline",
                          patched_snapshot="patched-r3")
 
@@ -95,7 +95,7 @@ def test_probe_patched_callable_snapshot():
     """patched 스냅샷을 호출가능(최신 패치 스냅샷 getter)으로 줄 수 있다."""
     snap = FakeSnapshot()
     probe = HarnessProbe(snapshot=snap, attacker=FakeAttacker(_ok_result()),
-                         score_turn=lambda r: (0.1, {}),
+                         score_turn=lambda r, t0, t1: (0.1, {}),
                          patched_snapshot=lambda: "patched-latest")
     probe.probe(_harness(), basis="patched")
     assert snap.reverts == ["patched-latest"]
@@ -104,7 +104,7 @@ def test_probe_patched_callable_snapshot():
 def test_probe_patched_without_snapshot_falls_back_to_clean():
     snap = FakeSnapshot()
     probe = HarnessProbe(snapshot=snap, attacker=FakeAttacker(_ok_result()),
-                         score_turn=lambda r: (0.1, {}),
+                         score_turn=lambda r, t0, t1: (0.1, {}),
                          clean_snapshot="clean-baseline", patched_snapshot=None)
     probe.probe(_harness(), basis="patched")
     assert snap.reverts == ["clean-baseline"]        # 폴백
@@ -112,7 +112,7 @@ def test_probe_patched_without_snapshot_falls_back_to_clean():
 
 def test_probe_rejects_unknown_basis():
     probe = HarnessProbe(snapshot=FakeSnapshot(), attacker=FakeAttacker(_ok_result()),
-                         score_turn=lambda r: (0.1, {}))
+                         score_turn=lambda r, t0, t1: (0.1, {}))
     try:
         probe.probe(_harness(), basis="weird")
         assert False, "알 수 없는 basis 는 ValueError 여야"
@@ -123,11 +123,32 @@ def test_probe_rejects_unknown_basis():
 def test_probe_passes_time_limit_and_max_tokens():
     atk = FakeAttacker(_ok_result())
     probe = HarnessProbe(snapshot=FakeSnapshot(), attacker=atk,
-                         score_turn=lambda r: (0.1, {}),
+                         score_turn=lambda r, t0, t1: (0.1, {}),
                          time_limit_sec=123, max_tokens=2048)
     probe.probe(_harness(), basis="clean")
     assert atk.starts[0].time_limit_sec == 123
     assert atk.starts[0].max_tokens == 2048
+
+
+def test_probe_end_to_end_with_godview_scorer():
+    """되돌림→공격→god-view 채점 전체 고리를 실제 GodviewScorer 로 엮어 스칼라가 나오나."""
+    from common.app_signals import CROWN_INTERNAL_SECRETS
+    from orchestrator.objectives import default_objectives
+    from orchestrator.flags import default_registry
+    from refiner.score import GodviewScorer
+
+    class _Logs:
+        def techniques_in_window(self, *, since_ts, until_ts):
+            return {"T1552.001", "T1078"}        # 단계 2
+        def crowns_in_window(self, *, since_ts, until_ts):
+            return {CROWN_INTERNAL_SECRETS}      # 크라운 1
+
+    scorer = GodviewScorer(_Logs(), default_objectives(), default_registry())
+    probe = HarnessProbe(snapshot=FakeSnapshot(), attacker=FakeAttacker(_ok_result()),
+                         score_turn=scorer)
+    s = probe.probe(_harness(), basis="clean")
+    assert s.score == 2 * 1.0 + 1 * 10.0         # 단계깊이2 + 크라운1*10 = 12.0
+    assert "crown-secrets" in s.detail["crowns"]
 
 
 # ───────────── 자체 러너 ─────────────

@@ -16,13 +16,15 @@ ProbeRunner 이음새의 실 구현. 한 번의 probe():
 """
 from __future__ import annotations
 
+import time
 from typing import Callable, Optional
 
 from common.messages import AttackTurnResult, AttackTurnStart, Foothold
 from refiner.models import Harness, ProbeScore
 
-# god-view 채점 이음새: 공격 결과 → (점수, 상세). 높을수록 좋은 공격.
-ScoreTurn = Callable[[AttackTurnResult], tuple[float, dict]]
+# god-view 채점 이음새: (공격 결과, 공격 시작 ts, 공격 종료 ts) → (점수, 상세). 높을수록 좋은 공격.
+# 시간창(t0,t1)을 주는 이유: god-view 채점이 그 구간의 감사·Falco·DB 로그만 봐야 하므로.
+ScoreTurn = Callable[[AttackTurnResult, float, float], tuple[float, dict]]
 # patched 스냅샷 이름: 고정 문자열이거나, '직전 패치 스냅샷'을 돌려주는 호출가능.
 SnapshotRef = "str | Callable[[], str]"
 
@@ -43,6 +45,7 @@ class HarnessProbe:
         foothold: Optional[Foothold] = None,
         goal: Optional[str] = None,
         probe_episode: int = 9000,
+        settle_sec: float = 0.0,
         log: Optional[Callable[[str], None]] = None,
     ) -> None:
         self.snapshot = snapshot                 # SnapshotManager 이음새
@@ -55,6 +58,9 @@ class HarnessProbe:
         self.foothold = foothold
         self.goal = goal
         self.probe_episode = probe_episode       # 라이브 회차와 안 겹치게 높은 번호
+        # 공격 종료 후 god-view 로그 동기(kubectl logs 스트리밍 지연)를 흡수할 정착 대기.
+        # 실전은 config.experiment.crown_sync_grace 수준으로, 테스트는 0.
+        self.settle_sec = settle_sec
         self._log = log or (lambda m: None)
 
     def _resolve_snapshot(self, basis: str) -> str:
@@ -83,8 +89,12 @@ class HarnessProbe:
             start_kwargs["goal"] = self.goal
         start = AttackTurnStart(**start_kwargs)
 
+        t0 = time.time()
         result = self.attacker.attack_turn(start, episode=self.probe_episode, round=1)
-        score, detail = self.score_turn(result)  # 3) god-view 채점
+        t1 = time.time()
+        if self.settle_sec > 0:
+            time.sleep(self.settle_sec)          # god-view 로그 동기 대기
+        score, detail = self.score_turn(result, t0, t1)  # 3) god-view 채점(시간창 한정)
         return ProbeScore(edit_id=None, score=float(score), basis=basis, detail=dict(detail))
 
 

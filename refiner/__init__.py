@@ -23,8 +23,10 @@ from refiner.models import (
 from refiner.refiner import refine
 from refiner.seams import Editor, ProbeRunner, HarnessStore
 from refiner.probe import HarnessProbe
+from refiner.score import GodviewScorer
 
 __all__ = [
     "Component", "Harness", "HarnessEdit", "ProbeScore", "RefineResult",
     "refine", "Editor", "ProbeRunner", "HarnessStore", "HarnessProbe",
+    "GodviewScorer",
 ]
