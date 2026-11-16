@@ -125,9 +125,10 @@ def test_consecutive_defense_ends_episode():
     assert s.rounds == 2                                            # 2연속 방어 성공 후 종료
 
 
-def test_overblock_blocked_but_unhealthy_not_defense_success():
-    # 과잉차단(자멸): 공격 경로는 BLOCKED 이나 health=False(서비스를 죽여 얻은 차단)면
-    # 방어 성공으로 안 친다. 게이팅 사다리가 +1 안 해 2연속 조기종료가 아니라 max_rounds 까지 간다.
+def test_overblock_unhealthy_is_service_broken_not_blocked():
+    # 과잉차단(자멸): health=False(서비스를 죽여 얻은 차단)면 검증엔진이 BLOCKED 가 아니라
+    # SERVICE_BROKEN(무효 패치)으로 가른다 — 죽은 서비스에선 '경로 차단'이 검증 안 되므로.
+    # 방어 성공으로 안 쳐서 게이팅 사다리가 +1 안 하고 max_rounds 까지 간다.
     dead = DefenseTurnResult(
         patch_applied=True, end_reason=DefenseEndReason.PATCHED,
         detected=[Detection(technique="T1078", evidence="over-block")],
@@ -136,7 +137,8 @@ def test_overblock_blocked_but_unhealthy_not_defense_success():
     s = seq.run_episode(1)
     assert s.end_reason == "max_rounds"              # 자멸이 성공으로 안 세져 2연속 미달
     assert s.rounds == 3
-    assert s.verdict_counts.get("blocked") == 3      # verdict 표기는 BLOCKED 유지(경로는 닫힘)
+    assert s.verdict_counts.get("service_broken") == 3   # 거짓 차단 아님 — 무효 패치로 분류
+    assert s.verdict_counts.get("blocked") is None       # BLOCKED 로 집계되지 않음
     assert s.availability == 0.0                     # 가용성 지표엔 자멸이 0 으로 잡힘
 
 

@@ -89,6 +89,32 @@ def test_empty_post_is_inconclusive():
     assert r.verdict == Verdict.INCONCLUSIVE
 
 
+# ───────────── 가용성 가드(health=False → 자멸 패치) ─────────────
+def test_health_false_is_service_broken_and_skips_replay():
+    # 패치가 서비스를 죽이면(health=False) 재생 자체를 생략하고 무효 패치(자멸)로 판정 — 거짓 차단 방지.
+    eng, a, _, _ = _engine(post=_replay(), crowns=set())
+    r = eng.verify(_script(), episode=1, round=1, healthcheck_passed=False)
+    assert r.verdict == Verdict.SERVICE_BROKEN
+    assert r.method == "health"
+    assert a.replay_calls == []              # 죽은 서비스엔 재생 안 함(무의미 — 선행 단락)
+    assert not r.defense_succeeded()         # 방어 성공으로 치지 않음
+
+
+def test_health_false_overrides_would_be_blocked():
+    # 같은 조건(크라운 미도달)이라도 health 가 BLOCKED↔SERVICE_BROKEN 을 가른다.
+    eng, _, _, _ = _engine(post=_replay(), crowns=set())
+    blocked = eng.verify(_script(), episode=1, round=1, healthcheck_passed=True)
+    broken = eng.verify(_script(), episode=1, round=1, healthcheck_passed=False)
+    assert blocked.verdict == Verdict.BLOCKED and blocked.defense_succeeded()
+    assert broken.verdict == Verdict.SERVICE_BROKEN and not broken.defense_succeeded()
+
+
+def test_health_default_true_keeps_blocked():
+    # health 인자 미지정(기본 True)은 기존 동작 유지 — 하위호환.
+    eng, _, _, _ = _engine(post=_replay(), crowns=set())
+    assert eng.verify(_script(), episode=1, round=1).verdict == Verdict.BLOCKED
+
+
 def test_verify_does_not_reset_cluster():
     # 누적 유지 핵심: verify 는 리셋하지 않는다(패치가 라이브에 남아 다음 라운드가 상대).
     eng, _, _, b = _engine(post=_replay(), crowns=set())

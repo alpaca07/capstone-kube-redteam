@@ -317,7 +317,8 @@ class TurnSequencer:
                 verification = self._call(
                     lambda: self.verifier.verify(
                         script, episode=episode, round=rnd,
-                        target=self.params.attack_endpoint), "verify")
+                        target=self.params.attack_endpoint,
+                        healthcheck_passed=defense.healthcheck_passed), "verify")
                 self._log(f"[ep{episode} R{rnd}]    → 판정={verification.verdict.value} ({time.time() - _t:.0f}s)")
             else:
                 verification = VerificationResult(
@@ -358,12 +359,11 @@ class TurnSequencer:
         self._record_round(episode, rnd, attack, defense, verification,
                            detection_eval=scorer.last_detection_eval)
 
-        # 방어 성공 = 공격 경로 차단(BLOCKED) AND 서비스 가용성 유지. 서비스를 죽여 얻은
-        # BLOCKED(health=False, 과잉차단·자멸)은 성공으로 치지 않는다 → 게이팅 사다리·집계 제외.
-        # (verdict 표기는 BLOCKED 유지 — 경로는 실제로 닫혔으므로. availability 지표는 scorer 별도.)
+        # 방어 성공 = 공격 경로 차단(BLOCKED). 서비스를 죽여 얻은 거짓 차단은 검증엔진이 이미
+        # SERVICE_BROKEN(무효 패치·자멸)으로 가르므로(verify 가 health 를 선행 판정), verdict 하나로
+        # 성공 여부가 결정된다 → 여기서 health 를 다시 AND 할 필요 없다. availability 는 scorer 별도.
         return RoundOutcome(round=rnd, verdict=verification.verdict,
-                            defense_succeeded=(verification.defense_succeeded()
-                                               and defense.healthcheck_passed),
+                            defense_succeeded=verification.defense_succeeded(),
                             flags_reached=verification.flags_still_reachable,
                             flag_found=flag_found)
 

@@ -12,10 +12,17 @@
     증명한다 → 별도 PRE 재생/리셋 불필요. 결정론 재생이라 거짓 BLOCKED 위험도 낮다.
   - ★ 상태검증(①②③ '각 취약점이 열렸나')은 verdict 에서 제외: NetworkPolicy 패치는 ③만 닫고
     ①②는 열린 채라, 그걸 섞으면 거짓 NOT_BLOCKED 가 난다. god-view 상태는 §8 #6 탐지 채점용.
+  - ★ 가용성 가드(health): BLOCKED 는 '재생이 돌았는데 크라운이 안 빠졌다'로 경로 차단을 '검증'
+    한다. 그런데 패치가 서비스를 중단시켰으면(health=False) 재생이 죽은 서비스에 날아가, 크라운이
+    안 빠진 게 패치 때문인지 서비스가 죽어서인지 구분 불가 → '경로 차단'이 검증되지 않는다. 이걸
+    BLOCKED 로 집계하면 거짓 차단이다. 그래서 health=False 면 재생 전에 SERVICE_BROKEN(무효
+    패치·자멸)으로 끊는다. INCONCLUSIVE(측정 불능)와 달리 '패치가 서비스를 깼다'는 원인이 분명한
+    구체적 방어 실패라 별도 판정으로 둔다.
   - ★ 리셋 안 함 → 패치가 '라이브'에 남아 다음 라운드가 누적된 방어를 상대한다(공진화). 회차
     경계 리셋은 시퀀서 init·BaselineManager 담당.
 
 판정표:  POST 성공 = FAKE_PATCH / POST 실패 = BLOCKED / POST 재생 불능(빈 결과) = INCONCLUSIVE
+         / 패치가 서비스 중단(health=False) = SERVICE_BROKEN(무효 패치·자멸 — 재생 생략)
 판정 우선순위(해시 노이즈 대응): ① success 지표 → ② 정규화 해시(matched_baseline).
 """
 from __future__ import annotations
@@ -39,6 +46,7 @@ class Verdict(str, Enum):
     BLOCKED = "blocked"            # 진짜 차단 — 방어 성공
     FAKE_PATCH = "fake_patch"      # 가짜 패치(리플레이 여전히 성공) — 방어 실패
     NOT_BLOCKED = "not_blocked"    # 상태상 여전히 취약 — 방어 실패(상태기반 검증용, §8 #6)
+    SERVICE_BROKEN = "service_broken"  # 무효 패치 — 패치가 서비스 중단(health=False) → 차단 신뢰 불가(자멸)
     INCONCLUSIVE = "inconclusive"  # 검증 불능 — 판정 보류
 
 
@@ -85,12 +93,21 @@ class VerificationEngine:
 
     # ───────────── public 인터페이스 ─────────────
     def verify(self, script: ReplayScript, *, episode: int, round: int,
-               target: Optional[str] = None) -> VerificationResult:
+               target: Optional[str] = None,
+               healthcheck_passed: bool = True) -> VerificationResult:
         """패치된 라이브 클러스터에 공격 대본을 재생하고, 재생 창의 크라운 자백으로 판정(POST-only).
 
         재생 후에도 크라운이 또 빠지면 가짜 패치(FAKE_PATCH), 안 빠지면 진짜 차단(BLOCKED).
         재생이 한 스텝도 안 돌면 판정 보류(INCONCLUSIVE). 상태 리셋 없음(방어 누적).
+
+        healthcheck_passed=False(패치가 서비스를 중단): 죽은 서비스에 재생해봐야 '막힌 것처럼'
+        보일 뿐이라 차단을 검증할 수 없다 → 재생을 생략하고 SERVICE_BROKEN(무효 패치·자멸)으로
+        끊는다. 가용성이 선행 조건이므로 BLOCKED/FAKE_PATCH 판정보다 먼저 가른다.
         """
+        if not healthcheck_passed:
+            return VerificationResult(
+                verdict=Verdict.SERVICE_BROKEN, method="health",
+                detail="패치 후 서비스 중단(health=False) → 재생 생략, 차단 신뢰 불가(무효 패치·자멸)")
         t_pre = time.time()
         post = self.attacker.replay(
             ReplayRequest(replay_script=script, phase=ReplayPhase.POST, target=target),
