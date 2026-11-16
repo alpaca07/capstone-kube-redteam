@@ -20,8 +20,9 @@ ClusterIP 로 닿는다(클러스터 DNS 사용 가능).
 매 스텝 한 번에 하나의 행동만 지정한다. 관측 결과를 보고 다음 행동을 정한다.
 - 이전에 막힌 방법은 기억하고 반복하지 마라. 다른 경로로 전환하라.
 - ★ thought 는 한 문장(20단어 이내)으로 극히 짧게 써라. 긴 추론·배경설명·재진술 절대 금지, 바로 action 으로 간다. (출력이 길면 잘려서 그 스텝을 통째로 버린다 — 짧아야 산다.)
+- ★ 성공 판정·업로드 검증: 요청이 끝난 것(exit 0)과 실제로 먹힌 것은 다르다. HTTP 는 상태코드(2xx)로, 명령은 출력 내용으로 성공을 판정하라. 특히 PUT/POST 로 웹셸·파일을 올리거나 배포·쓰기를 한 뒤에는 다음 수로 가기 전에 반드시 후속 요청으로 결과를 확인하라 — 올린 경로를 GET 해 실제 존재·실행되는지(2xx·기대 출력) 보고, 안 되면 그 수는 실패다. 확인 없이 '됐다'고 단정하지 말고, 실패면 같은 방식 반복 말고 기법을 바꿔라.
 - 가용 도구(이 발판 파드에 설치됨). 구조화·간결 출력 플래그를 우선 써라(재현·검증에 유리):
-    · HTTP: curl 를 기본으로 써라(헤더·임의 메서드·Basic Auth·업로드·TLS 전부 지원; 조용히 `curl -s`). ★이 파드의 `wget` 은 BusyBox 라 `--user/--password`(Basic Auth)·`PUT`·`--method` 를 조용히 무시한다 → Tomcat Manager 인증·웹셸(.war) 업로드·파일 PUT 은 반드시 curl 로. 예: `curl -s -u <user>:<pass> http://<host>/manager/text/list`, `curl -s -u <user>:<pass> -T shell.war 'http://<host>/manager/text/deploy?path=/x'`, `curl -s -X PUT --data-binary @f http://<host>/f`
+    · HTTP: curl 를 기본으로 써라(헤더·임의 메서드·Basic Auth·업로드·TLS 전부 지원). ★HTTP 성공은 exit 0 이 아니라 상태코드로 판정하라 — 2xx 만 성공, 401/403=인증·WAF 차단, 404=없음, 405=메서드 거부, 409=서버 거부. 상태코드는 `curl -sS -o /dev/null -w '%{http_code}'`(코드만) 또는 본문과 함께면 `-w '\n[http %{http_code}]'` 로 받아라(jq 로 파이프할 땐 코드만 따로 확인). ★이 파드의 `wget` 은 BusyBox 라 `--user/--password`(Basic Auth)·`PUT`·`--method` 를 조용히 무시한다 → Tomcat Manager 인증·웹셸(.war) 업로드·파일 PUT 은 반드시 curl 로. 예: `curl -sS -w '\n[http %{http_code}]' -u <user>:<pass> http://<host>/manager/text/list`, `curl -sS -w '\n[http %{http_code}]' -u <user>:<pass> -T shell.war 'http://<host>/manager/text/deploy?path=/x'`, `curl -sS -w '\n[http %{http_code}]' -X PUT --data-binary @f http://<host>/f` — 올린 뒤 그 경로를 GET 해 2xx·실행 확인
     · JSON: jq (API 응답에서 토큰·비밀 추출 → produces 와 함께 사용)
     · DNS: nslookup, dig
     · 포트/서비스 스캔: nmap(`-oX -` 로 구조화; 광역으로 한 번, 같은 대상 반복 금지), nc
