@@ -31,7 +31,7 @@
 
   // ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (server.py 의 SERVER_BUILD 과 같은 값으로 함께 올린다).
   // 좌상단에 v<UI_BUILD> 를 표시하고, 서버가 보고한 server_build 와 다르면 '재시작 필요' 경고를 띄운다.
-  var UI_BUILD = 4;
+  var UI_BUILD = 5;
   function renderBuild(serverBuild) {
     var el = document.getElementById("build-tag");
     if (!el) return;
@@ -49,6 +49,7 @@
     blocked: { label: "차단", color: C.ok, cls: "b-ok" },
     fake_patch: { label: "무효 패치", color: C.atk, cls: "b-atk" },
     not_blocked: { label: "미차단", color: C.atk, cls: "b-atk" },
+    service_broken: { label: "무효 패치·서비스 중단", color: C.atk, cls: "b-atk" },
     inconclusive: { label: "판정 불가", color: C.sys, cls: "b-sys" }
   };
   // 핵심 자산 식별자 → 쉬운 말
@@ -415,7 +416,7 @@
     return list;
   }
   function verdictCounts() {
-    var vc = { blocked: 0, fake_patch: 0, not_blocked: 0, inconclusive: 0 };
+    var vc = { blocked: 0, fake_patch: 0, not_blocked: 0, service_broken: 0, inconclusive: 0 };
     S.rounds.forEach(function (r) { if (vc[r.verdict] != null) vc[r.verdict]++; });
     return vc;
   }
@@ -634,7 +635,7 @@
   function verdictItemsFromRounds() {
     var out = { blocked: [], fake: [], inconclusive: [] };
     S.rounds.forEach(function (r) {
-      var k = r.verdict === "blocked" ? "blocked" : (r.verdict === "fake_patch" || r.verdict === "not_blocked") ? "fake" : r.verdict === "inconclusive" ? "inconclusive" : null;
+      var k = r.verdict === "blocked" ? "blocked" : (r.verdict === "fake_patch" || r.verdict === "not_blocked" || r.verdict === "service_broken") ? "fake" : r.verdict === "inconclusive" ? "inconclusive" : null;
       if (k) out[k].push({ ep: r.episode || 1, round: r.round });
     });
     return out;
@@ -987,9 +988,9 @@
   function pageDefEpisode(ep, rounds) {
     var rs = rounds.filter(function (r) { return (r.episode || 1) === ep; });
     var chips = roundChipsHtml(rounds, "E" + ep, "data-rkey");
-    var vc = { blocked: 0, fake_patch: 0, not_blocked: 0, inconclusive: 0 }, patched = 0;
+    var vc = { blocked: 0, fake_patch: 0, not_blocked: 0, service_broken: 0, inconclusive: 0 }, patched = 0;
     rs.forEach(function (r) { if (vc[r.verdict] != null) vc[r.verdict]++; if (r.patch_applied) patched++; });
-    var last = rs[rs.length - 1] || {}, det = last.detection_cum || { tp: 0, fp: 0, fn: 0 }, fake = vc.fake_patch + vc.not_blocked, nAsset = (last.crowns_reached_cum || []).length;
+    var last = rs[rs.length - 1] || {}, det = last.detection_cum || { tp: 0, fp: 0, fn: 0 }, fake = vc.fake_patch + vc.not_blocked + vc.service_broken, nAsset = (last.crowns_reached_cum || []).length;
     var tiles = [
       ["라운드", rs.length + "회", "", C.teal, "accent-teal"],
       ["차단", vc.blocked + "회", "무효 패치 " + fake + "회", C.ok, "accent-ok"],
@@ -1703,7 +1704,7 @@
     var firstCrown = null; rs.forEach(function (r) { if (firstCrown == null && (r.crowns_reached_cum || []).length) firstCrown = r.round; });
 
     var vc = e.verdict_counts || {};
-    var blocked = vc.blocked || 0, fake = (vc.fake_patch || 0) + (vc.not_blocked || 0);
+    var blocked = vc.blocked || 0, fake = (vc.fake_patch || 0) + (vc.not_blocked || 0) + (vc.service_broken || 0);
     var det = e.detection || { tp: 0, fp: 0, fn: 0 };
     var recall = det.recall != null ? det.recall : (det.tp + det.fn ? det.tp / (det.tp + det.fn) : null);
     var crowns = e.crowns_reached || [], mttd = e.mttd || {};
@@ -1823,7 +1824,7 @@
   // 1) 핵심 수치 요약 헤더
   function briefSummary(e, rs, nodes) {
     var vc = { blocked: 0, fake: 0 };
-    rs.forEach(function (r) { if (r.verdict === "blocked") vc.blocked++; else if (r.verdict === "fake_patch" || r.verdict === "not_blocked") vc.fake++; });
+    rs.forEach(function (r) { if (r.verdict === "blocked") vc.blocked++; else if (r.verdict === "fake_patch" || r.verdict === "not_blocked" || r.verdict === "service_broken") vc.fake++; });
     var dec = vc.blocked + vc.fake;
     var lastDet = null; for (var i = rs.length - 1; i >= 0; i--) { if (rs[i].detection_cum) { lastDet = rs[i].detection_cum; break; } }
     var recall = lastDet && (lastDet.tp + lastDet.fn) ? lastDet.tp / (lastDet.tp + lastDet.fn) : null;
