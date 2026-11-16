@@ -167,7 +167,7 @@ customRules:
         베이스라인엔 없는 신호라 공격 결정적 — 프로세스 기동 레벨이라 크라운(실행) 달성 포착.
       # 조건의 모든 줄을 같은 8칸 들여쓰기로 유지(기준보다 깊이 들여쓰면 YAML 접힘이 줄바꿈을 literal 로 보존해 필터가 깨진 채 적재됨 — 그래서 그동안 미발화). proc.name 은 따옴표 없이 bare, 하이픈 변종은 startswith.
       condition: >-
-        spawned_process and container
+        evt.type in (execve, execveat) and evt.dir=< and container
         and (proc.name in (xmrig, minerd, cpuminer, ethminer, cgminer, bfgminer, nbminer, nanominer, phoenixminer)
         or proc.name startswith xmr
         or proc.name startswith cpuminer
@@ -179,3 +179,22 @@ customRules:
         proc=%proc.name cmd=%proc.cmdline image=%container.image.repository)
       priority: CRITICAL
       tags: [process, mitre_impact, T1496]
+    # ── [임시 디버그] 매크로 vs raw execve vs proc.name 매칭 분리(원인 확정 후 제거) ──
+    - rule: DEBUG macro spawn frontend
+      desc: 임시 — 커스텀 룰에서 spawned_process 매크로가 execve 를 잡나
+      condition: spawned_process and container and k8s.ns.name=frontend
+      output: "DEBUG MACRO spawn pod=%k8s.pod.name proc=%proc.name exe=%proc.exepath"
+      priority: CRITICAL
+      tags: [debug]
+    - rule: DEBUG raw execve frontend
+      desc: 임시 — raw evt.type execve 로 잡나
+      condition: evt.type in (execve, execveat) and evt.dir=< and container and k8s.ns.name=frontend
+      output: "DEBUG RAW execve pod=%k8s.pod.name proc=%proc.name exe=%proc.exepath"
+      priority: CRITICAL
+      tags: [debug]
+    - rule: DEBUG procname xmrig
+      desc: 임시 — raw execve + proc.name=xmrig 매칭이 되나
+      condition: evt.type in (execve, execveat) and evt.dir=< and container and proc.name=xmrig
+      output: "DEBUG XMRIG match pod=%k8s.pod.name proc=%proc.name"
+      priority: CRITICAL
+      tags: [debug]
