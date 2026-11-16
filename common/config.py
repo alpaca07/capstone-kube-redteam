@@ -140,6 +140,24 @@ class Neo4jConfig(BaseModel):
     database: Optional[str] = None
 
 
+class RefinerConfig(BaseModel):
+    """하네스² 자동개량 메타층 설정(독립 프로세스, ablation on/off).
+
+    편집자(제안 생성)는 정렬 모델 — 서빙 여유 있는 '두 번째 엔드포인트'에 태운다
+    (editor_host 비우면 dgx.defender_host 재사용). 시험실행 피험자는 탈옥 모델 동일본으로,
+    유일 탈옥 엔드포인트(dgx.attacker_*)를 에피소드 경계 시간분리로 쓴다 — 여기선 주소를
+    새로 두지 않는다. 탈옥 희소 → 상위 probe_top_k 만 실측.
+    """
+    enabled: bool = False                          # 켜야 메타 프로세스가 개량 수행(ablation 축)
+    editor_host: str = ""                          # 정렬 편집자 서빙 주소(비면 defender_host 재사용)
+    editor_model: str = ""                         # 편집자 모델(비면 defender_model 재사용)
+    n_candidates: int = 4                          # 편집자가 낼 수정안 수
+    probe_top_k: int = 2                           # 그중 탈옥으로 실측할 상위 수(탈옥 희소 → 작게)
+    probe_basis: str = "clean"                     # clean(베이스라인·통제안정) | patched(현 방어돌파)
+    min_gain: float = 0.02                         # 기준선 대비 이만큼 넘어야 승급(확률노이즈 거름)
+    cadence: str = "episode"                        # episode | round (개량 주기)
+
+
 class Config(BaseModel):
     dgx: DgxConfig
     network: NetworkConfig
@@ -150,6 +168,7 @@ class Config(BaseModel):
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     attack: AttackConfig = Field(default_factory=AttackConfig)
     neo4j: Neo4jConfig = Field(default_factory=Neo4jConfig)
+    refiner: RefinerConfig = Field(default_factory=RefinerConfig)
 
 
 # ───────────────────────── 로더 ─────────────────────────
@@ -188,6 +207,6 @@ def load_config(path: Optional[str | os.PathLike] = None) -> Config:
 
 __all__ = [
     "DgxConfig", "NetworkConfig", "TargetConfig", "AttackConfig", "VmwareConfig",
-    "ExperimentConfig", "FlagsConfig", "ObservabilityConfig", "Config",
-    "find_config", "load_config",
+    "ExperimentConfig", "FlagsConfig", "ObservabilityConfig", "Neo4jConfig",
+    "RefinerConfig", "Config", "find_config", "load_config",
 ]
