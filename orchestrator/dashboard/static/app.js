@@ -32,7 +32,7 @@
 
   // ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (server.py 의 SERVER_BUILD 과 같은 값으로 함께 올린다).
   // 좌상단에 v<UI_BUILD> 를 표시하고, 서버가 보고한 server_build 와 다르면 '재시작 필요' 경고를 띄운다.
-  var UI_BUILD = 5;
+  var UI_BUILD = 6;
   function renderBuild(serverBuild) {
     var el = document.getElementById("build-tag");
     if (!el) return;
@@ -1280,6 +1280,7 @@
       return (S.demo ? demoBanner() : "") + emptyState("📓", "아직 공격 저널이 없습니다", "공격 턴이 시작되면 실행한 명령과 결과가 실시간으로 쌓입니다.", []);
     var segs = runSegments(all), seg = pickSeg(segs, jRun);
     var evs = seg ? seg.records : all;
+    S.jlExport = evs;                               // 내보내기 대상(지금 보이는 실행의 레코드)
     var nSteps = 0, nFlag = 0, intents = {};
     evs.forEach(function (e) { if (e.type === "attack_step") { nSteps++; if ((e.payload || {}).flag) nFlag++; var k = (e.payload || {}).intent; if (k) intents[k] = 1; } });
     var nIntents = Object.keys(intents).length;
@@ -1291,6 +1292,7 @@
       '<div class="jhead"><span class="jhead-m"><span class="jhead-k">실행 명령</span><span class="jhead-v">' + nSteps + "건</span></span>" +
       (nIntents ? '<span class="jhead-m"><span class="jhead-k">의도</span><span class="jhead-v">' + nIntents + "개</span></span>" : "") +
       (nFlag ? '<span class="jhead-m"><span class="jhead-k">목표 획득</span><span class="jhead-v atk">' + nFlag + "건</span></span>" : "") +
+      exportBar("data-jexport") +
       '<span class="jhead-note">실행 중 자동 갱신(라운드 종료 시 반영)</span></div>' +
       (!S.journalLive ? '<div class="jwarn">실시간 저널 미연결 — 라운드 종료 집계만 표시되어 의도 정보가 없습니다. 오케스트레이터(VM C)가 최신 코드로 실행 중인지 확인하세요.</div>' : "") +
       tabs + body;
@@ -1304,6 +1306,9 @@
     });
     Array.prototype.forEach.call(document.querySelectorAll("[data-jtoggle]"), function (b) {
       b.onclick = function () { var k = b.getAttribute("data-jtoggle"); agLogOpen[k] = !agLogOpen[k]; $("#view").innerHTML = pageAttackLog(); bindAttackLog(); };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-jexport]"), function (b) {
+      b.onclick = function () { exportAttackJournal(b.getAttribute("data-jexport")); };
     });
   }
 
@@ -1372,6 +1377,7 @@
       return (S.demo ? demoBanner() : "") + emptyState("🛡", "아직 방어 저널이 없습니다", "방어 턴이 끝나면 탐지·패치·검증 행동이 라운드별로 쌓입니다.", []);
     var segs = runSegments(all), seg = pickSeg(segs, dlRun);
     var evs = seg ? seg.records : all;
+    S.dlExport = evs;                               // 내보내기 대상(지금 보이는 실행의 방어 레코드)
     var nDet = 0, nPat = 0, nBlock = 0;
     evs.forEach(function (e) {
       if (e.type === "detection") nDet++;
@@ -1383,6 +1389,7 @@
       '<div class="jhead"><span class="jhead-m"><span class="jhead-k">탐지</span><span class="jhead-v">' + nDet + "건</span></span>" +
       '<span class="jhead-m"><span class="jhead-k">적용 패치</span><span class="jhead-v">' + nPat + "건</span></span>" +
       '<span class="jhead-m"><span class="jhead-k">차단</span><span class="jhead-v def">' + nBlock + "건</span></span>" +
+      exportBar("data-dexport") +
       '<span class="jhead-note">방어 턴 종료 시 반영 · 탐지→패치→검증</span></div>' +
       defLogAccordion(evs);
   }
@@ -1393,6 +1400,86 @@
     Array.prototype.forEach.call(document.querySelectorAll("[data-dltoggle]"), function (b) {
       b.onclick = function () { var k = b.getAttribute("data-dltoggle"); dlOpen[k] = !dlOpen[k]; $("#view").innerHTML = pageDefenseLog(); bindDefenseLog(); };
     });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-dexport]"), function (b) {
+      b.onclick = function () { exportDefenseJournal(b.getAttribute("data-dexport")); };
+    });
+  }
+
+  // ───────── 저널 내보내기(파일 다운로드 — 공격·방어 공용) ─────────
+  // 지금 화면에 보이는(선택 실행) 저널 레코드를 CSV·JSON·Markdown 파일로 내려받는다.
+  // 자체 호스팅 대시보드라 브라우저 Blob 다운로드가 그대로 동작(아티팩트 CSP 아님).
+  function exportBar(attr) {
+    return '<span class="jhead-x"><span class="jx-lbl">내보내기</span>' +
+      '<button class="jx-btn" ' + attr + '="csv">CSV</button>' +
+      '<button class="jx-btn" ' + attr + '="json">JSON</button>' +
+      '<button class="jx-btn" ' + attr + '="md">MD</button></span>';
+  }
+  function _dl(name, content, mime) {
+    try {
+      var blob = new Blob([content], { type: (mime || "text/plain") + ";charset=utf-8" });
+      var url = URL.createObjectURL(blob), a = document.createElement("a");
+      a.href = url; a.download = name; document.body.appendChild(a); a.click();
+      setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url); }, 120);
+      return true;
+    } catch (e) { return false; }
+  }
+  function _csvCell(v) { v = (v == null ? "" : String(v)); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+  function _csv(headers, rows) {
+    return "﻿" + headers.map(_csvCell).join(",") + "\n" +   // BOM: 엑셀 한글 깨짐 방지
+      rows.map(function (r) { return r.map(_csvCell).join(","); }).join("\n") + "\n";
+  }
+  function _stamp() { var d = new Date(); function z(n) { return (n < 10 ? "0" : "") + n; } return "" + z(d.getMonth() + 1) + z(d.getDate()) + "-" + z(d.getHours()) + z(d.getMinutes()); }
+
+  function exportAttackJournal(fmt) {
+    var all = S.jlExport || [], steps = all.filter(function (e) { return e.type === "attack_step"; });
+    var base = "attack-journal-" + _stamp();
+    if (fmt === "json") return _dl(base + ".json", JSON.stringify(all, null, 2), "application/json");
+    if (fmt === "csv") {
+      var rows = steps.map(function (e) { var p = e.payload || {};
+        var cmd = (String(p.tool || "") + " " + (p.args || []).join(" ")).trim();
+        var res = p.flag ? "목표획득" : p.success ? "성공" : "실패";
+        return ["R" + (e.round || ""), hhmmss(e.ts), intentLabelOf(p), cmd, res, p.determinism || ""]; });
+      return _dl(base + ".csv", _csv(["라운드", "시각", "의도", "명령", "결과", "결정성"], rows), "text/csv");
+    }
+    var md = "# 공격 저널\n\n", byR = {}, ord = [];
+    steps.forEach(function (e) { var r = e.round || 0; if (!byR[r]) { byR[r] = []; ord.push(r); } byR[r].push(e); });
+    ord.sort(function (a, b) { return a - b; }).forEach(function (r) {
+      md += "## R" + r + "\n\n";
+      byR[r].forEach(function (e) { var p = e.payload || {}, cmd = (String(p.tool || "") + " " + (p.args || []).join(" ")).trim();
+        md += "- `" + hhmmss(e.ts) + "` [" + intentLabelOf(p) + "] `" + cmd + "` → " + (p.flag ? "목표획득" : p.success ? "성공" : "실패") + "\n"; });
+      md += "\n";
+    });
+    return _dl(base + ".md", md, "text/markdown");
+  }
+
+  var _DJ_PHASE = { detection: "탐지", patch: "패치", verdict: "검증", defense_turn: "턴요약" };
+  function _djContent(e) { var p = e.payload || {};
+    if (e.type === "detection") return (p.technique || "기법미상") + " · " + (p.evidence || "");
+    if (e.type === "patch") return p.detail || (patchKindLabel(p.kind) + " → " + (p.target || "") + (p.summary ? " " + p.summary : ""));
+    if (e.type === "verdict") return (p.verdict || "") + (p.detail ? " · " + p.detail : "");
+    if (e.type === "defense_turn") return "패치 " + (p.patch_applied ? "적용" : "미적용") + " · 서비스 " + (p.healthcheck_passed ? "정상" : "중단");
+    return ""; }
+  function _djResult(e) { var p = e.payload || {};
+    if (e.type === "detection") return p.confidence != null ? Math.round(p.confidence * 100) + "%" : "";
+    if (e.type === "patch") return p.applied ? "적용" : "스킵";
+    if (e.type === "verdict") return p.verdict || "";
+    if (e.type === "defense_turn") return p.healthcheck_passed ? "정상" : "중단";
+    return ""; }
+  function exportDefenseJournal(fmt) {
+    var evs = S.dlExport || [], base = "defense-journal-" + _stamp();
+    if (fmt === "json") return _dl(base + ".json", JSON.stringify(evs, null, 2), "application/json");
+    if (fmt === "csv") {
+      var rows = evs.map(function (e) { return ["R" + (e.round || ""), hhmmss(e.ts), _DJ_PHASE[e.type] || e.type, e.type, _djContent(e), _djResult(e)]; });
+      return _dl(base + ".csv", _csv(["라운드", "시각", "단계", "유형", "내용", "결과"], rows), "text/csv");
+    }
+    var md = "# 방어 저널\n\n", byR = {}, ord = [];
+    evs.forEach(function (e) { var r = e.round || 0; if (!byR[r]) { byR[r] = []; ord.push(r); } byR[r].push(e); });
+    ord.sort(function (a, b) { return a - b; }).forEach(function (r) {
+      md += "## R" + r + "\n\n";
+      byR[r].forEach(function (e) { md += "- `" + hhmmss(e.ts) + "` [" + (_DJ_PHASE[e.type] || e.type) + "] " + _djContent(e) + " → " + _djResult(e) + "\n"; });
+      md += "\n";
+    });
+    return _dl(base + ".md", md, "text/markdown");
   }
 
   // ───────── 페이지: 공격 추적 그래프 ─────────

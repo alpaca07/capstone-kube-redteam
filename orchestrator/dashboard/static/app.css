@@ -281,6 +281,11 @@ button { font-family: inherit; }
 .jhead-v { font-family: var(--font-mono); font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .jhead-v.atk { color: var(--atk); }
 .jhead-note { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+.jhead-x { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.jx-lbl { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--text-3); }
+.jx-btn { font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-2); background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 6px; padding: 3px 9px; cursor: pointer; }
+.jx-btn:hover { border-color: var(--def); color: var(--def); background: var(--def-soft); }
 .jwarn { font-size: 12px; color: #9a6a0c; background: var(--crown-soft); border: 1px solid #f3dca6; border-radius: var(--r-sm); padding: 8px 12px; margin-bottom: 12px; line-height: 1.5; }
 .journal { border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
 .jr { display: grid; grid-template-columns: 62px 40px 1fr auto; gap: 11px; align-items: baseline; padding: 7px 13px; border-bottom: 1px solid var(--surface-3); font-size: 12.5px; }
