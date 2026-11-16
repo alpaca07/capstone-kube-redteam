@@ -26,6 +26,7 @@ def build_probe(
     *,
     score_turn=None,
     stage_weight: float = 1.0,
+    flag_weight: float = 1.0,
     crown_bonus: float = 10.0,
     clean_snapshot: Optional[str] = None,
     patched_snapshot=None,
@@ -71,7 +72,7 @@ def build_probe(
 
     st = score_turn or GodviewScorer(
         logs, objectives, registry,
-        stage_weight=stage_weight, crown_bonus=crown_bonus,
+        stage_weight=stage_weight, flag_weight=flag_weight, crown_bonus=crown_bonus,
         skew_pad=cfg.experiment.crown_skew_pad_sec,
         grace_sec=cfg.experiment.crown_sync_grace_sec,
     )

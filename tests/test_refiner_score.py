@@ -54,6 +54,41 @@ def test_empty_observation_scores_zero():
     assert score == 0.0 and detail["stage_depth"] == 0 and detail["crowns"] == []
 
 
+# ───────────── 기법 폭(비선형 진행) ─────────────
+def test_breadth_from_nonlinear_techniques():
+    # T1068→esc-privesc, T1548→priv-capabuse (둘 다 비선형, 숫자단계 아님) → 폭 2, 깊이 0
+    logs = FakeLogs(techniques={"T1068", "T1548"})
+    score, detail = _scorer(logs)(_res(), 0.0, 1.0)
+    assert detail["stage_depth"] == 0
+    assert detail["breadth_count"] == 2
+    assert set(detail["breadth"]) == {"esc-privesc", "priv-capabuse"}
+    assert score == 2.0                         # 폭 2 * flag_weight(1) + 깊이0 + 크라운0
+
+
+def test_breadth_plus_crown_matches_live_probe():
+    # 실제 첫 probe 재현: T1068·T1548 + crown-pii → 0 + 2 + 10 = 12.0
+    logs = FakeLogs(techniques={"T1068", "T1548"}, crowns={CROWN_CUSTOMERS_PII})
+    score, detail = _scorer(logs)(_res(), 0.0, 1.0)
+    assert "crown-pii" in detail["crowns"]
+    assert detail["breadth_count"] == 2
+    assert score == 12.0
+
+
+def test_breadth_excludes_digit_stages_no_double_count():
+    # T1552.001(숫자단계 1) + T1068(비선형) → 깊이 1, 폭 1(esc-privesc만) → 2.0, 중복계산 없음
+    logs = FakeLogs(techniques={"T1552.001", "T1068"})
+    score, detail = _scorer(logs)(_res(), 0.0, 1.0)
+    assert detail["stage_depth"] == 1
+    assert detail["breadth"] == ["esc-privesc"]
+    assert score == 1.0 + 1.0                   # 깊이1 + 폭1
+
+
+def test_custom_flag_weight():
+    logs = FakeLogs(techniques={"T1068", "T1548"})   # 폭 2
+    score, _ = _scorer(logs, flag_weight=0.5)(_res(), 0.0, 1.0)
+    assert score == 2 * 0.5                      # 1.0
+
+
 # ───────────── 크라운 보너스 ─────────────
 def test_crown_reached_adds_bonus():
     # 단계1(T1552.001) + 크라운 internal_secrets 접근기록 → 1*1 + 1*10 = 11.0
