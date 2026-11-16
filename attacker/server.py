@@ -169,9 +169,25 @@ class AttackHarness:
         with self._turn_lock:
             self._journal_reset(round)          # 새 턴 = 새 저널(폴러 since=0 정합)
             self._maybe_switch_foothold(start)  # 대시보드 타깃 발판 override(런타임 exec 전환)
-            if self.mode == "parallel" and self.planner_llm is not None:
-                return self._attack_turn_parallel(start, episode=episode, round=round)
-            return self._attack_turn_single(start, episode=episode, round=round)
+            # 하네스²(refiner) 시험실행: 이 턴에만 후보 시스템 프롬프트로 교체(단일·병렬 공통).
+            # 턴 락이 직렬화하므로 임시 교체 후 finally 복원이 안전 — 라이브 기본 프롬프트 보존.
+            override = getattr(start, "system_prompt_override", None)
+            prev = None
+            if override:
+                prev_round = getattr(self.round_cfg, "system_prompt", None) if self.round_cfg is not None else None
+                prev = (self.system_prompt, prev_round)
+                self.system_prompt = override
+                if self.round_cfg is not None:
+                    self.round_cfg.system_prompt = override
+            try:
+                if self.mode == "parallel" and self.planner_llm is not None:
+                    return self._attack_turn_parallel(start, episode=episode, round=round)
+                return self._attack_turn_single(start, episode=episode, round=round)
+            finally:
+                if prev is not None:
+                    self.system_prompt = prev[0]
+                    if self.round_cfg is not None and prev[1] is not None:
+                        self.round_cfg.system_prompt = prev[1]
 
     def _maybe_switch_foothold(self, start: AttackTurnStart) -> None:
         """StartTurn 의 exec_namespace/pod 가 오면 exec 러너를 그 발판으로 재조립(값이 바뀔 때만).

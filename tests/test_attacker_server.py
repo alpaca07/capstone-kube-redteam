@@ -46,6 +46,18 @@ class _LLM:
         return self.chat_text_meta(system, user, **kw)[0]
 
 
+class _SysLLM(_LLM):
+    """system 프롬프트도 기록(하네스² override 유출 관측용)."""
+
+    def __init__(self):
+        super().__init__()
+        self.systems_seen: list[str] = []
+
+    def chat_text_meta(self, system, user, *, timeout=None, max_tokens=None, **kw):
+        self.systems_seen.append(system)
+        return super().chat_text_meta(system, user, timeout=timeout, max_tokens=max_tokens, **kw)
+
+
 def _harness(llm):
     return AttackHarness(llm=llm, runner=_Runner(), scope_policy=default_policy(),
                          system_prompt="s", max_steps=1)
@@ -66,6 +78,21 @@ def test_round1_resets_stale_carryforward():
     assert llm.users_seen, "LLM 호출이 없음"
     assert _STALE not in llm.users_seen[0], \
         f"R1 인데 이전 런 기억이 새어나옴(리셋 실패): {llm.users_seen[0][:200]}"
+
+
+def test_system_prompt_override_applies_then_restores():
+    # 하네스²: system_prompt_override 가 이 턴에만 쓰이고, 턴 후 기본 프롬프트로 복원돼야.
+    llm = _SysLLM()
+    h = _harness(llm)                                 # 기본 system_prompt="s"
+    h.attack_turn(AttackTurnStart(time_limit_sec=300, system_prompt_override="OVERRIDE_PROMPT"),
+                  episode=1, round=1)
+    assert llm.systems_seen and llm.systems_seen[0] == "OVERRIDE_PROMPT", \
+        f"override 가 LLM system 에 안 실림: {llm.systems_seen[:1]}"
+    assert h.system_prompt == "s", "턴 후 기본 프롬프트로 복원 안 됨"
+
+    # override 없는 다음 턴은 기본 프롬프트를 써야(누수 없음).
+    h.attack_turn(AttackTurnStart(time_limit_sec=300), episode=2, round=1)
+    assert llm.systems_seen[-1] == "s", "override 가 다음 턴에 샜음"
 
 
 def test_round2_keeps_carryforward():

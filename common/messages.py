@@ -103,6 +103,9 @@ class AttackTurnStart(Payload):
     # in-cluster exec 발판 override(대시보드 타깃 선택 → 발판 자동전환). None이면 공격자 서버 config.attack 기본 유지(하위호환).
     exec_namespace: Optional[str] = None  # 발판 파드 네임스페이스(예: frontend / corp-ext)
     exec_pod: Optional[str] = None        # kubectl exec 대상(deploy/… 또는 파드명)
+    # 하네스²(refiner) 시험실행용 시스템 프롬프트 override. 이 턴에만 공격자 서버가 자기 기본
+    # 프롬프트 대신 이 값을 쓴다(턴 락이 직렬화 → 임시 교체 안전). None이면 서버 기본 프롬프트(하위호환).
+    system_prompt_override: Optional[str] = None
 
 
 # ───────────────── ② attack_turn_result (A→C) ─────────────────
