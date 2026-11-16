@@ -165,11 +165,13 @@ customRules:
         컨테이너에서 암호화폐 채굴 프로세스 기동 = T1496 리소스 탈취. 모델망 격리(채굴풀
         연결 불가)라 네트워크 대신 프로세스 시그니처로 포착(마이너 바이너리명·채굴 인자).
         베이스라인엔 없는 신호라 공격 결정적 — 프로세스 기동 레벨이라 크라운(실행) 달성 포착.
+      # proc.name 은 반드시 따옴표 없이(bare): Falco in(...) 리스트는 따옴표를 문자 그대로 비교해 매칭 실패. 하이픈 변종은 startswith 로.
       condition: >-
         spawned_process and container
-        and (proc.name in ("xmrig", "minerd", "cpuminer", "cpuminer-multi", "ethminer",
-                           "cgminer", "bfgminer", "xmr-stak", "nbminer", "t-rex",
-                           "phoenixminer", "nanominer")
+        and (proc.name in (xmrig, minerd, cpuminer, ethminer, cgminer, bfgminer,
+                           nbminer, nanominer, phoenixminer)
+             or proc.name startswith xmr
+             or proc.name startswith cpuminer
              or proc.cmdline contains "stratum+tcp"
              or proc.cmdline contains "--donate-level"
              or (proc.cmdline contains "--algo" and proc.cmdline contains "--pool"))
