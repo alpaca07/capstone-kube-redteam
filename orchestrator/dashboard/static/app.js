@@ -32,7 +32,7 @@
 
   // ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (server.py 의 SERVER_BUILD 과 같은 값으로 함께 올린다).
   // 좌상단에 v<UI_BUILD> 를 표시하고, 서버가 보고한 server_build 와 다르면 '재시작 필요' 경고를 띄운다.
-  var UI_BUILD = 10;
+  var UI_BUILD = 11;
   function renderBuild(serverBuild) {
     var el = document.getElementById("build-tag");
     if (!el) return;
@@ -905,9 +905,14 @@
   async function loadTopology() {
     var topo = null;
     if (!S.demo && S.rounds.length) {
-      var last = S.rounds[S.rounds.length - 1];
-      var r = await jget("/api/topology/" + (last.episode || 1) + "/" + (last.round || 1));
-      if (r && r.topology) topo = r.topology;
+      // 최신 라운드부터 역순 — 진행 중(공격 턴) 라운드엔 방어 턴 전이라 토폴로지가 아직 없다.
+      // 토폴로지가 있는 가장 최근 라운드로 폴백해, 공격 턴 중에도 직전 구성도를 유지한다
+      // (예전엔 현재 라운드만 읽어 공격 턴마다 예시로 떨어졌다).
+      for (var i = S.rounds.length - 1; i >= 0 && i >= S.rounds.length - 10; i--) {
+        var rr = S.rounds[i];
+        var r = await jget("/api/topology/" + (rr.episode || 1) + "/" + rr.round);
+        if (r && r.topology && r.topology.namespaces && r.topology.namespaces.length) { topo = r.topology; break; }
+      }
     }
     return (topo && topo.namespaces && topo.namespaces.length) ? topo : demoTopology();
   }
