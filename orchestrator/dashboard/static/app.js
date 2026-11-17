@@ -32,7 +32,7 @@
 
   // ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (server.py 의 SERVER_BUILD 과 같은 값으로 함께 올린다).
   // 좌상단에 v<UI_BUILD> 를 표시하고, 서버가 보고한 server_build 와 다르면 '재시작 필요' 경고를 띄운다.
-  var UI_BUILD = 9;
+  var UI_BUILD = 10;
   function renderBuild(serverBuild) {
     var el = document.getElementById("build-tag");
     if (!el) return;
@@ -628,8 +628,8 @@
       ? chartCard("공격 기법 다양성 추이", lineChart([{ color: C.atk, points: tdSer }], xmax, { ymax: Math.max.apply(null, [1].concat(tdSer)) }), "라운드별 god-view 누적 고유 기법 수")
       : noDataCard("공격 기법 다양성 추이", TNOTE);
 
-    // ── 탐지·검증 추세 ──
-    var dcard = detectionCard(), vcard = verdictCard();
+    // ── 탐지·검증 추세 ── (드릴 카드는 와이드에서 2칸 차지)
+    var dcard = detectionCard("span-2"), vcard = verdictCard("span-2");
     var pSer = [], rSer = [];
     rs.forEach(function (r) { var c = r.detection_cum || {}, tp = c.tp || 0, fp = c.fp || 0, fn = c.fn || 0; pSer.push(tp + fp ? tp / (tp + fp) : 0); rSer.push(tp + fn ? tp / (tp + fn) : 0); });
     var prCard = chartCard("정밀도 · 재현율 추이",
@@ -666,16 +666,12 @@
 
     return (S.demo ? demoBanner() : "") +
       '<div class="grid cols-6">' + kpiHtml + "</div>" +
-      '<div class="section-label">목표 자산 침해</div>' +
-      '<div class="grid cols-2">' + newBreachCard + breachLatencyCard + "</div>" +
-      '<div class="section-label">위험도 · 공격 전개</div>' +
-      '<div class="grid cols-2">' + cvssCard + killchainCard + "</div>" +
-      '<div class="grid cols-2">' + chainDistCard + techDivCard + "</div>" +
-      '<div class="section-label">탐지 정확도 · 검증</div>' + dcard +
-      '<div class="grid cols-2">' + prCard + vcard + "</div>" +
-      '<div class="section-label">소요 시간 · 기법 분포</div>' +
-      '<div class="grid cols-2">' + elapsedCard + techFreqCard + "</div>" +
-      '<div class="grid cols-2">' + missedCard + fpCard + "</div>";
+      '<div class="section-label">목표 자산 침해 · 공격 전개</div>' +
+      '<div class="grid cols-3 dense">' + newBreachCard + breachLatencyCard + cvssCard + killchainCard + chainDistCard + techDivCard + "</div>" +
+      '<div class="section-label">탐지 정확도 · 검증</div>' +
+      '<div class="grid cols-3 dense">' + dcard + prCard + vcard + elapsedCard + "</div>" +
+      '<div class="section-label">기법 분포</div>' +
+      '<div class="grid cols-3 dense">' + techFreqCard + missedCard + fpCard + "</div>";
   }
   // ── 드릴 차트(막대 호버 → 발생 라운드 팝업 → 상세보기 점프). 탐지·검증 공용, 카드별 스코프 ──
   function drillCard(opts) {
@@ -688,7 +684,7 @@
         '<div class="det-colv" style="color:' + c[2] + '">' + v + "</div>" +
         '<div class="det-coll">' + c[1] + '</div><div class="det-cols">' + c[3] + "</div></div>";
     }).join("");
-    return '<div class="card det-card" data-drillcard="' + opts.id + '"><div class="card-h">' + opts.title + "</div>" +
+    return '<div class="card det-card' + (opts.cardClass ? " " + opts.cardClass : "") + '" data-drillcard="' + opts.id + '"><div class="card-h">' + opts.title + "</div>" +
       '<div class="det-wrap"><div class="det-colrow">' + colsHtml + "</div>" +
       '<div class="det-pop">' + opts.hint + "</div></div>" +
       (opts.footer ? '<div class="tile-sub" style="margin-top:10px">' + opts.footer + "</div>" : "") + "</div>";
@@ -742,7 +738,7 @@
   function overBlockCount() {   // 과잉차단 — 패치했으나 서비스 중단(health 실패)된 라운드 수
     var n = 0; S.rounds.forEach(function (r) { if (r.patch_applied && r.healthcheck_passed === false) n++; }); return n;
   }
-  function detectionCard() {
+  function detectionCard(cardClass) {
     var counts = detectionTotals(), recall = (counts.tp + counts.fn) ? counts.tp / (counts.tp + counts.fn) : null;
     var ob = overBlockCount();
     var hint = '<div class="det-pop-hint">막대를 클릭하면 발생 라운드가 표시됩니다 · 상세보기 → 해당 라운드 탐지 근거</div>';
@@ -753,7 +749,7 @@
       foot += '<div class="det-note">정탐 0 — 보고한 탐지가 god-view 실제 공격 기법과 하나도 맞지 않음(전부 오경보). 탐지(기법 식별)와 패치·차단(검증)은 별개 축이라, 경로를 막아도 기법을 못 맞히면 정탐은 0입니다.</div>';
     if (ob > 0)   // 과잉차단 — '패치 잘한다' 착시 교정
       foot += '<div class="det-note det-warn">과잉차단 ' + ob + '회 — 서비스 중단(health 실패)을 감수하고 얻은 차단. 채점에선 방어 성공으로 치지 않습니다.</div>';
-    return drillCard({ id: "detection", title: "공격 탐지 정확도", hint: hint,
+    return drillCard({ id: "detection", title: "공격 탐지 정확도", hint: hint, cardClass: cardClass,
       cats: [["tp", "정탐", C.ok, "실제 공격 식별"], ["fp", "오탐", C.crown, "오경보"], ["fn", "미탐", C.atk, "공격 미식별"]],
       counts: counts, footer: foot });
   }
@@ -766,14 +762,14 @@
     });
     return out;
   }
-  function verdictCard() {
+  function verdictCard(cardClass) {
     var items = verdictItemsFromRounds();
     var counts = { blocked: items.blocked.length, fake: items.fake.length, inconclusive: items.inconclusive.length };
     var dec = counts.blocked + counts.fake;
     var hint = '<div class="det-pop-hint">막대를 클릭하면 해당 판정 라운드가 표시됩니다 · 상세보기 → 해당 라운드 검증 근거</div>';
     S.drill = S.drill || {};
     S.drill.verdict = { items: items, names: { blocked: "차단", fake: "무효 패치", inconclusive: "판정 불가" }, section: "verify", hint: hint };
-    return drillCard({ id: "verdict", title: "검증 결과", hint: hint,
+    return drillCard({ id: "verdict", title: "검증 결과", hint: hint, cardClass: cardClass,
       cats: [["blocked", "차단", C.ok, "실질 차단"], ["fake", "무효 패치", C.atk, "패치 우회"], ["inconclusive", "판정 불가", C.sys, "미확정"]],
       counts: counts, footer: "차단율 " + pct(dec ? counts.blocked / dec : null) + " · 무효 패치 " + counts.fake + "건" });
   }

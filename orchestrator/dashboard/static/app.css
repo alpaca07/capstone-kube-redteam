@@ -154,8 +154,10 @@ button { font-family: inherit; }
 .cols-3 { grid-template-columns: repeat(3, 1fr); }
 .cols-4 { grid-template-columns: repeat(4, 1fr); }
 .cols-6 { grid-template-columns: repeat(6, 1fr); }
-@media (max-width: 1100px) { .cols-6 { grid-template-columns: repeat(3,1fr); } .cols-4 { grid-template-columns: repeat(2,1fr); } }
-@media (max-width: 760px) { .cols-2,.cols-3,.cols-4,.cols-6 { grid-template-columns: 1fr; } }
+.span-2 { grid-column: span 2; }     /* 와이드 조밀 배치 — 드릴 카드가 2칸 차지 */
+.grid.dense { align-items: start; }  /* 1칸 차트가 2칸 드릴 높이에 늘어나 생기는 하단 여백 방지 */
+@media (max-width: 1100px) { .cols-6 { grid-template-columns: repeat(3,1fr); } .cols-4 { grid-template-columns: repeat(2,1fr); } .cols-3 { grid-template-columns: repeat(2,1fr); } }
+@media (max-width: 760px) { .cols-2,.cols-3,.cols-4,.cols-6 { grid-template-columns: 1fr; } .span-2 { grid-column: auto; } }
 
 /* KPI 타일 */
 .tile {
