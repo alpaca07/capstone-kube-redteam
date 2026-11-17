@@ -40,7 +40,7 @@ class RoundConfig:
     intent_budget_sec: float = 120.0         # 의도 하나당 시간 예산
     intent_max_steps: int = 20
     react_max_tokens: Optional[int] = None
-    planner_max_tokens: int = 3000
+    planner_max_tokens: int = 6000           # 정렬=추론 모델 + 라운드 누적으로 커진 태세 → 잘림 방지(시간예산은 넉넉)
     max_waves: int = 6                        # 라운드당 플래너 웨이브 상한(안전장치)
 
 
