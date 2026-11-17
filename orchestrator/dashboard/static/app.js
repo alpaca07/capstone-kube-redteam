@@ -32,7 +32,7 @@
 
   // ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (server.py 의 SERVER_BUILD 과 같은 값으로 함께 올린다).
   // 좌상단에 v<UI_BUILD> 를 표시하고, 서버가 보고한 server_build 와 다르면 '재시작 필요' 경고를 띄운다.
-  var UI_BUILD = 8;
+  var UI_BUILD = 9;
   function renderBuild(serverBuild) {
     var el = document.getElementById("build-tag");
     if (!el) return;
@@ -534,23 +534,148 @@
     return out.slice(0, 5);
   }
 
+  // ───────── 통계 공용 헬퍼 ─────────
+  function baseTech(t) { return String(t || "").split(".")[0]; }   // 서브기법→부모(T1078.004→T1078)
+  function chartCard(title, body, sub) {
+    return '<div class="card"><div class="card-h">' + title + "</div>" + body +
+      (sub ? '<div class="tile-sub" style="margin-top:8px">' + sub + "</div>" : "") + "</div>";
+  }
+  function chartLegend(items) {
+    return '<div class="chart-leg">' + items.map(function (x) {
+      return '<span class="chart-leg-i"><span class="chart-leg-dot" style="background:' + x.color + '"></span>' + esc(x.label) + "</span>";
+    }).join("") + "</div>";
+  }
+  function noDataCard(title, msg) {
+    return chartCard(title, '<div class="tile-sub" style="padding:24px 4px;text-align:center">' + msg + "</div>");
+  }
+
   // ───────── 페이지: 공격·방어 통계 ─────────
   function pageStats() {
-    var a = agg();
-    var vcard = verdictCard();
+    var a = agg(), ga = goalAgg(), rs = S.rounds || [], eps = S.episodes || [];
+    var xmax = Math.max(rs.length, 1);
+    var hasTruth = rs.some(function (r) { return (r.truth_techniques_cum || []).length; });
+    var TNOTE = "god-view 기법 데이터는 v9 이후 수집분부터 — 런 재실행 필요";
 
-    var dcard = detectionCard();
+    // 회차별 최초 침해(돌파) 라운드 {ep: round|null}
+    function episodeBreachRounds() {
+      var first = {}, eset = {};
+      rs.forEach(function (r) { var ep = r.episode || 1; eset[ep] = 1; if ((r.crowns_reached_cum || []).length && first[ep] == null) first[ep] = r.round; });
+      eps.forEach(function (e) { if (eset[e.episode] == null) eset[e.episode] = 1; });
+      var out = {}; Object.keys(eset).forEach(function (ep) { out[ep] = first[ep] != null ? first[ep] : null; });
+      return out;
+    }
+    // base 기법 → 등장(지속) 라운드 수. cum 이라 최초 등장 이후 끝까지 지속 → 지속성 지표.
+    function truthFreq() {
+      var m = {}; rs.forEach(function (r) { var seen = {}; (r.truth_techniques_cum || []).forEach(function (t) { var b = baseTech(t); if (!seen[b]) { seen[b] = 1; m[b] = (m[b] || 0) + 1; } }); });
+      return Object.keys(m).map(function (k) { return { k: k, v: m[k] }; }).sort(function (x, y) { return y.v - x.v; });
+    }
 
-    // 목표 자산 침해 추이 — 전체 실행에서 그 라운드까지 침해된 고유 핵심 자산 종 수(단조 증가).
-    // 선형 침투 단계 대신 자산 축: 타깃이 N개여도 '침해 자산 종 수'로 그대로 확장된다.
-    var ga = goalAgg(), ser = ga.series, ymx = Math.max.apply(null, [1].concat(ser));
-    var fcard = '<div class="card"><div class="card-h">목표 자산 침해 추이</div>' +
-      lineChart([{ color: C.atk, points: ser }], Math.max(ser.length, 1), { ymax: ymx }) +
-      '<div class="tile-sub" style="margin-top:8px">누적 침해 핵심 자산 ' + ga.crowns.length + "종" + (ga.crowns.length ? " · " + ga.crowns.map(crownLabel).join(", ") : "") + "</div></div>";
+    // ── 종합 지표(KPI) ──
+    var CROWN_TOTAL = 4;                                  // 환경 정의 핵심 자산 4종(pii·secrets·resource-hijack·container-deploy)
+    var crownsN = ga.crowns.length;
+    var haveD = (a.recall != null) || (a.blockRate != null) || (a.avail != null);
+    var defScore = haveD ? ((a.recall == null ? 0 : a.recall) * 0.4 + (a.blockRate == null ? 0 : a.blockRate) * 0.3 + (a.avail == null ? 0 : a.avail) * 0.3) : null;
+    var mv = [], mdet = 0, mtot = 0; eps.forEach(function (e) { var m = e.mttd || {}; if (m.mean_rounds != null) mv.push(m.mean_rounds); mdet += m.detected || 0; mtot += m.total_true || 0; });
+    var mttdAvg = mv.length ? mv.reduce(function (s, x) { return s + x; }, 0) / mv.length : null;
+    var br = episodeBreachRounds();
+    var brVals = Object.keys(br).map(function (k) { return br[k]; }).filter(function (v) { return v != null; });
+    var brAvg = brVals.length ? brVals.reduce(function (s, x) { return s + x; }, 0) / brVals.length : null;
+    var unbreached = Object.keys(br).filter(function (ep) { return br[ep] == null; }).length;
+    var techN = truthFreq().length, ob = overBlockCount();
+    var kpis = [
+      { k: "공격 성공률", v: pct(crownsN / CROWN_TOTAL), sub: "핵심 자산 " + crownsN + "/" + CROWN_TOTAL + "종 반출", cls: crownsN ? "accent-atk" : "accent-ok", dot: crownsN ? C.atk : C.ok },
+      { k: "방어 종합점수", v: pct(defScore), sub: "탐지·차단·가용성 가중", cls: "accent-def", dot: C.def },
+      { k: "평균 탐지지연", v: mttdAvg != null ? mttdAvg.toFixed(1) + "R" : "—", sub: "탐지 기법 " + mdet + "/" + mtot, cls: "accent-teal", dot: C.teal },
+      { k: "평균 돌파 라운드", v: brAvg != null ? brAvg.toFixed(1) + "R" : "—", sub: unbreached ? ("미돌파 " + unbreached + "회차") : "전 회차 돌파", cls: "accent-crown", dot: C.crown },
+      { k: "공격 기법 수", v: hasTruth ? (techN + "종") : "—", sub: "god-view 누적 고유 기법", cls: "accent-atk", dot: C.atk },
+      { k: "과잉차단", v: ob + "회", sub: "패치했으나 서비스 중단", cls: ob ? "accent-crown" : "accent-ok", dot: ob ? C.crown : C.ok }
+    ];
+    var kpiHtml = kpis.map(function (t) {
+      return '<div class="tile ' + t.cls + '"><div class="tile-k"><span class="tag-dot" style="background:' + t.dot + '"></span>' + t.k + "</div>" +
+        '<div class="tile-v">' + t.v + '</div><div class="tile-sub">' + t.sub + "</div></div>";
+    }).join("");
+
+    // ── 침해: (a)라운드별 신규 침해 막대, (b)회차별 돌파까지 라운드 ──
+    var seenCr = {}, nbItems = rs.map(function (r) {
+      var before = Object.keys(seenCr).length; (r.crowns_reached_cum || []).forEach(function (c) { seenCr[c] = 1; });
+      return { value: Object.keys(seenCr).length - before, label: ((r.episode || 1) > 1 ? (r.episode) + "-" : "") + "R" + r.round, color: C.atk };
+    });
+    var newBreachCard = nbItems.length
+      ? chartCard("라운드별 신규 침해", barChart(nbItems), "그 라운드에 새로 반출된 핵심 자산 종 수 (누적 아님 — 압박이 터진 지점)")
+      : noDataCard("라운드별 신규 침해", "라운드 데이터 없음");
+    var brKeys = Object.keys(br).sort(function (x, y) { return x - y; });
+    var brItems = brKeys.map(function (ep) { return { value: br[ep] || 0, label: "E" + ep, color: br[ep] ? C.crown : C.ok, sub: br[ep] ? null : "미돌파" }; });
+    var breachLatencyCard = brItems.length
+      ? chartCard("회차별 돌파까지 라운드", barChart(brItems), "방어가 버틴 라운드 수 — 값이 클수록(늦을수록) 방어 우세")
+      : noDataCard("회차별 돌파까지 라운드", "회차 데이터 없음");
+
+    // ── 위험도·공격 전개 ──
+    var cvSer = rs.map(function (r) { var b = r.breach_cvss || {}, s = 0; Object.keys(b).forEach(function (k) { s += (b[k] && b[k].score) || 0; }); return s; });
+    var cvssCard = chartCard("CVSS 가중 침해 점수 추이",
+      lineChart([{ color: C.crown, points: cvSer }], xmax, { ymax: Math.max.apply(null, [1].concat(cvSer)) }),
+      "라운드별 침해 크라운 CVSS 합 — 개수 대신 심각도 가중");
+    var kcSer = rs.map(function (r) { var s = r.stages_reached || []; return s.length ? Math.max.apply(null, s) : 0; });
+    var kcMax = Math.max.apply(null, [1].concat(kcSer));
+    var killchainCard = chartCard("킬체인 단계 추이",
+      lineChart([{ color: C.atk, points: kcSer }], xmax, { ymax: kcMax }),
+      "라운드별 god-view 최고 도달 단계 (최대 " + kcMax + "단계)");
+    var distItems = []; for (var k = 1; k <= kcMax; k++) { (function (k) { var c = 0; kcSer.forEach(function (v) { if (v >= k) c++; }); distItems.push({ value: c, label: "①②③④⑤⑥".charAt(k - 1) || ("L" + k), color: C.atk }); })(k); }
+    var chainDistCard = distItems.length
+      ? chartCard("킬체인 단계별 도달 라운드", barChart(distItems), "각 단계 이상 도달한 라운드 수 — 어디서 막혔나")
+      : noDataCard("킬체인 단계별 도달 라운드", "단계 데이터 없음");
+    var tdSer = rs.map(function (r) { var s = {}; (r.truth_techniques_cum || []).forEach(function (t) { s[baseTech(t)] = 1; }); return Object.keys(s).length; });
+    var techDivCard = hasTruth
+      ? chartCard("공격 기법 다양성 추이", lineChart([{ color: C.atk, points: tdSer }], xmax, { ymax: Math.max.apply(null, [1].concat(tdSer)) }), "라운드별 god-view 누적 고유 기법 수")
+      : noDataCard("공격 기법 다양성 추이", TNOTE);
+
+    // ── 탐지·검증 추세 ──
+    var dcard = detectionCard(), vcard = verdictCard();
+    var pSer = [], rSer = [];
+    rs.forEach(function (r) { var c = r.detection_cum || {}, tp = c.tp || 0, fp = c.fp || 0, fn = c.fn || 0; pSer.push(tp + fp ? tp / (tp + fp) : 0); rSer.push(tp + fn ? tp / (tp + fn) : 0); });
+    var prCard = chartCard("정밀도 · 재현율 추이",
+      chartLegend([{ color: C.teal, label: "정밀도" }, { color: C.def, label: "재현율" }]) +
+      lineChart([{ color: C.teal, points: pSer }, { color: C.def, points: rSer }], xmax, { ymax: 1, pct: true }),
+      "누적 혼동행렬 기준 — 탐지 품질이 라운드 진행에 따라 느는가");
+
+    // ── 소요 시간 ──
+    var aSec = rs.map(function (r) { return Math.round(r.elapsed_attack_sec || 0); }), dSec = rs.map(function (r) { return Math.round(r.elapsed_defense_sec || 0); });
+    var secMax = Math.max.apply(null, [1].concat(aSec, dSec));
+    var elapsedCard = chartCard("라운드 소요 시간(초) 추이",
+      chartLegend([{ color: C.atk, label: "공격" }, { color: C.def, label: "방어" }]) +
+      lineChart([{ color: C.atk, points: aSec }, { color: C.def, points: dSec }], xmax, { ymax: secMax }),
+      "에이전트 턴 소요 — 병목·비용 추적");
+
+    // ── 기법 분포 ──
+    var tf = truthFreq();
+    var techFreqCard = hasTruth
+      ? chartCard("공격 기법별 지속 라운드", barChart(tf.slice(0, 8).map(function (x) { return { value: x.v, label: x.k, color: C.atk }; })), "god-view 기법이 활성이던 라운드 수(상위 8)")
+      : noDataCard("공격 기법별 지속 라운드", TNOTE);
+    var repBase = {}; rs.forEach(function (r) { (r.reported_techniques || []).forEach(function (t) { repBase[baseTech(t)] = 1; }); });
+    var missed = tf.filter(function (x) { return !repBase[x.k]; });
+    var missedCard = hasTruth
+      ? (missed.length ? chartCard("미탐 기법 Top-8", barChart(missed.slice(0, 8).map(function (x) { return { value: x.v, label: x.k, color: C.crown }; })), "실제 발생했으나 한 번도 탐지 못한 기법 — 방어 공백")
+        : noDataCard("미탐 기법 Top-8", "미탐 기법 없음 — 발생 기법 전부 탐지됨"))
+      : noDataCard("미탐 기법 Top-8", TNOTE);
+    var truthBase = {}; rs.forEach(function (r) { (r.truth_techniques_cum || []).forEach(function (t) { truthBase[baseTech(t)] = 1; }); });
+    var fpm = {}; rs.forEach(function (r) { var seen = {}; (r.reported_techniques || []).forEach(function (t) { var b = baseTech(t); if (!truthBase[b] && !seen[b]) { seen[b] = 1; fpm[b] = (fpm[b] || 0) + 1; } }); });
+    var fpArr = Object.keys(fpm).map(function (k) { return { k: k, v: fpm[k] }; }).sort(function (x, y) { return y.v - x.v; });
+    var fpCard = hasTruth
+      ? (fpArr.length ? chartCard("오탐 유발 기법 Top-8", barChart(fpArr.slice(0, 8).map(function (x) { return { value: x.v, label: x.k, color: C.crown }; })), "god-view 실제 기법에 없는데 보고된 기법(오경보) — 보고 라운드 수")
+        : noDataCard("오탐 유발 기법 Top-8", "오탐 유발 기법 없음"))
+      : noDataCard("오탐 유발 기법 Top-8", TNOTE);
 
     return (S.demo ? demoBanner() : "") +
-      '<div class="section-label">탐지 정확도 · 미탐 추적</div>' + dcard +
-      '<div class="section-label">검증 · 목표 자산 침해</div><div class="grid cols-2">' + vcard + fcard + "</div>";
+      '<div class="grid cols-6">' + kpiHtml + "</div>" +
+      '<div class="section-label">목표 자산 침해</div>' +
+      '<div class="grid cols-2">' + newBreachCard + breachLatencyCard + "</div>" +
+      '<div class="section-label">위험도 · 공격 전개</div>' +
+      '<div class="grid cols-2">' + cvssCard + killchainCard + "</div>" +
+      '<div class="grid cols-2">' + chainDistCard + techDivCard + "</div>" +
+      '<div class="section-label">탐지 정확도 · 검증</div>' + dcard +
+      '<div class="grid cols-2">' + prCard + vcard + "</div>" +
+      '<div class="section-label">소요 시간 · 기법 분포</div>' +
+      '<div class="grid cols-2">' + elapsedCard + techFreqCard + "</div>" +
+      '<div class="grid cols-2">' + missedCard + fpCard + "</div>";
   }
   // ── 드릴 차트(막대 호버 → 발생 라운드 팝업 → 상세보기 점프). 탐지·검증 공용, 카드별 스코프 ──
   function drillCard(opts) {

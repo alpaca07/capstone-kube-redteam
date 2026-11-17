@@ -216,6 +216,8 @@ class RoundRecord:
     crowns_by_channel_cum: dict = field(default_factory=dict)
     # 크라운별 CVSS v3.1 공인 등급(심판 god-view 산정) — {crown_id: {score, severity, vector, basis}}
     breach_cvss: dict = field(default_factory=dict)
+    # god-view 누적 공격 기법(MITRE ID, 서브기법 포함) — 기법 다양성·빈도·미탐/오탐 기법 차트용.
+    truth_techniques_cum: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -319,6 +321,7 @@ class Scorer:
             goals_reached_cum=goals,
             crowns_by_channel_cum=crowns_by_channel,
             breach_cvss=cvss_by_crown,
+            truth_techniques_cum=sorted(truth_cum),
         )
         self._records.append(rec)
         if self.sink is not None:

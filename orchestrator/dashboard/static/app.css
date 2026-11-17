@@ -206,6 +206,9 @@ button { font-family: inherit; }
 /* 차트 */
 .chart { width: 100%; height: auto; display: block; }
 .chart text { font-family: var(--font-mono); fill: var(--text-3); }
+.chart-leg { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 6px; font-size: 11px; color: var(--text-2); }
+.chart-leg-i { display: inline-flex; align-items: center; gap: 5px; }
+.chart-leg-dot { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
 .gauge-wrap { display: flex; align-items: center; gap: 14px; }
 .gauge-v { font-family: var(--font-mono); font-size: 22px; font-weight: 700; }
 
