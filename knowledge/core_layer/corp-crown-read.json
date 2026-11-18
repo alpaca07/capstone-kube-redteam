@@ -1,0 +1,39 @@
+{
+  "_note": "핵심층 환경 — corp 킬체인 크라운(최종 목표). 탈취한 자격증명(postgres:postgres)으로 corp-crown PostgreSQL 11.2 에 접속해 customers(PII)·ops_secrets 를 SELECT 반출. killchain-4(ShopFlow)와 같은 T1213·같은 크라운 채점 언어(crown.asset in 크라운 상수) — corp 자산은 ops_secrets·customers_pii(common/app_signals). 대안 CVE-2019-9193(COPY FROM PROGRAM)은 postgres.json 절차 재사용. 조건 문법은 postgres.json(canonical).",
+  "env": "corp-crown-read",
+  "technique": "T1213",
+  "cwe": "CWE-522",
+  "procedure": {
+    "id": "PROC-corp-crown-read",
+    "name": "corp PostgreSQL 민감 테이블 read",
+    "description": "★에서 탈취한 자격증명(postgres:postgres)으로 postgres.corp-crown.svc.cluster.local:5432 에 psql 로 접속해 customers·ops_secrets 테이블을 SELECT 한다. 접속은 서비스 DNS 이름으로, 약한 슈퍼유저 인증(postgres/postgres)을 그대로 쓴다 — 비밀번호 추측 스텝 불필요. 채점은 플래그 없이 DB 접근로그의 해당 테이블 read 흔적(crown_of_sql)으로 선다. k8s Secret·SA 토큰 열거는 자격증명 수집일 뿐 크라운이 아니다.",
+    "status": "AUTHORED",
+    "steps": [
+      {"id": "STEP-corp-crown-pii", "seq": 1,
+       "command": "psql 'postgresql://postgres:postgres@postgres.corp-crown.svc.cluster.local:5432/postgres' -c 'SELECT * FROM customers LIMIT 5;'",
+       "description": "고객 PII 조회(customers_pii)"},
+      {"id": "STEP-corp-crown-ops", "seq": 2,
+       "command": "psql 'postgresql://postgres:postgres@postgres.corp-crown.svc.cluster.local:5432/postgres' -c 'SELECT * FROM ops_secrets;'",
+       "description": "운영 비밀 반출(ops_secrets, 크라운)"}
+    ]
+  },
+  "preconditions": [
+    {"id": "PRE-corp-crown-creds-network",
+     "name": "크라운 자격증명 + 네트워크 경로",
+     "description": "★에서 corp-db.properties 자격증명을 얻고 내부(zone:internal)에서 corp-crown 으로의 네트워크 접근(존 격리상 internal→crown 만 개방)을 확보해 PostgreSQL 접속 가능."}
+  ],
+  "expected_results": [
+    {"id": "ER-corp-crown-read",
+     "name": "민감 자산 실제 반출 (크라운)",
+     "kind": "crown",
+     "outcome": {"id": "AO-data-exposure", "name": "민감 데이터 유출"},
+     "conditions": [
+       {"channel": "crown", "field": "asset", "operator": "in", "expected": ["ops_secrets", "customers_pii"]}
+     ]}
+  ],
+  "cleanup_actions": [
+    {"id": "CLN-corp-crown-read",
+     "name": "DB 반출 흔적 축소",
+     "description": "발판에서 psql 히스토리(~/.psql_history)·셸 히스토리(~/.bash_history)를 지우고 반출 결과 임시 파일을 제거해 크라운 read 흔적을 줄인다(T1070 흔적 제거)."}
+  ]
+}

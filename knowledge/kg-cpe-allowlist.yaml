@@ -25,6 +25,7 @@ products:
   # 앱서버 / 런타임
   - {vendor: apache,            product: tomcat,            category: app_server}
   - {vendor: eclipse,           product: jetty,             category: app_server}
+  - {vendor: apache,            product: solr,              category: search}        # corp-dmz Log4Shell 타깃
 
   # 웹 프레임워크
   - {vendor: vmware,            product: spring_framework,  category: web_framework}
@@ -41,6 +42,7 @@ products:
   # 메시지큐 / 캐시
   - {vendor: redis,             product: redis,             category: mq_cache}
   - {vendor: memcached,         product: memcached,         category: mq_cache}
+  - {vendor: samba,             product: samba,             category: file_share}    # corp-internal SambaCry 타깃
   - {vendor: apache,            product: kafka,             category: mq_cache}
   - {vendor: pivotal_software,  product: rabbitmq,          category: mq_cache}      # rabbitmq 는 두 vendor 병기
   - {vendor: vmware,            product: rabbitmq,          category: mq_cache}

@@ -242,12 +242,13 @@ def test_core_real_all_envs_valid():
     # killchain-1 은 SubTechnique(T1552.001) — from_label 이 SubTechnique 여야 적재 때 MATCH(고아 방지)
     kc1 = [r for r in rels if r["type"] == "REALIZED_BY" and r["from_id"] == "T1552.001"]
     assert kc1 and kc1[0]["from_label"] == "SubTechnique"
-    # 크라운 조건은 크라운 상수만(internal_secrets·customers_pii) — 실제 app_signals 와 일치
-    from common.app_signals import CROWN_INTERNAL_SECRETS, CROWN_CUSTOMERS_PII
+    # 크라운 조건은 크라운 상수만(internal_secrets·customers_pii·ops_secrets) — 실제 app_signals 와 일치
+    from common.app_signals import (
+        CROWN_INTERNAL_SECRETS, CROWN_CUSTOMERS_PII, CROWN_OPS_SECRETS)
     crown_exp = [n["props"]["expected"] for n in nodes
                  if n["label"] == "ResultCondition" and n["props"]["channel"] == "crown"]
     for exp in crown_exp:
-        assert set(exp) <= {CROWN_INTERNAL_SECRETS, CROWN_CUSTOMERS_PII}
+        assert set(exp) <= {CROWN_INTERNAL_SECRETS, CROWN_CUSTOMERS_PII, CROWN_OPS_SECRETS}
     # RCE 3환경 크라운 = T1611(Escape to host filesystem, log_source 매핑 실재)
     rce_crowns = [n for n in nodes if n["label"] == "ResultCondition"
                   and n["props"]["channel"] == "falco" and n["props"]["expected"] == "T1611"]

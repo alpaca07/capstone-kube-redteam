@@ -1,0 +1,34 @@
+{
+  "_note": "핵심층 환경 — corp 킬체인 ② DMZ→내부. Redis 4.0.14 미인증 노출 RCE(공개 CVE 아닌 설정 취약 → cwe 만). MODULE LOAD 또는 config set dir + dbfilename 로 임의 파일/모듈 기록→실행. 조건 문법은 postgres.json(canonical) 참고. 진행도 선저작.",
+  "env": "corp-redis-rce",
+  "technique": "T1210",
+  "cwe": "CWE-306",
+  "procedure": {
+    "id": "PROC-corp-redis-rce",
+    "name": "Redis 미인증 MODULE LOAD / 파일쓰기 RCE",
+    "description": "인증 없이 열린 redis(redis.corp-internal.svc.cluster.local:6379)에 접속해 (a) MODULE LOAD 로 악성 모듈을 적재하거나, (b) config set dir + config set dbfilename 으로 cron/authorized_keys/웹루트에 임의 파일을 기록해 코드를 실행한다.",
+    "status": "AUTHORED",
+    "steps": [
+      {"id": "STEP-corp-redis-connect", "seq": 1,
+       "command": "redis-cli -h redis.corp-internal.svc.cluster.local -p 6379 INFO server",
+       "description": "미인증 접속 확인(인증 없이 INFO 응답)"},
+      {"id": "STEP-corp-redis-module", "seq": 2,
+       "command": "redis-cli -h redis.corp-internal.svc.cluster.local -p 6379 MODULE LOAD /tmp/exp.so",
+       "description": "악성 모듈 적재 → RCE(또는 config set dir+dbfilename 파일쓰기)"}
+    ]
+  },
+  "preconditions": [
+    {"id": "PRE-corp-redis-noauth",
+     "name": "미인증 Redis 내부 도달",
+     "description": "DMZ 피벗으로 corp-internal redis(:6379)에 도달 가능하고 requirepass 가 없어 임의 명령 실행이 가능."}
+  ],
+  "expected_results": [
+    {"id": "ER-corp-redis-progress",
+     "name": "내부 측면이동 RCE 흔적 (진행도)",
+     "kind": "progress",
+     "outcome": {"id": "AO-lateral-movement", "name": "측면이동(내부 RCE)"},
+     "conditions": [
+       {"channel": "falco", "field": "technique", "operator": "eq", "expected": "T1210"}
+     ]}
+  ]
+}
