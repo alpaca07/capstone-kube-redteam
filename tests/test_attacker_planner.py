@@ -21,17 +21,26 @@ from attacker.planner import (  # noqa: E402
 
 
 class _FakeLLM:
-    """미리 심은 응답을 순서대로 돌려주고, 받은 (system,user)를 기록."""
+    """미리 심은 응답을 순서대로 돌려주고, 받은 (system,user,kw)를 기록.
+    replies 항목은 평문 텍스트(finish=None) 또는 (텍스트, finish_reason) 튜플 —
+    사고(thinking) overflow 재시도 진단(finish=='length')을 테스트하려면 후자로 심는다."""
 
     def __init__(self, replies):
         self._replies = list(replies)
-        self.calls: list[tuple[str, str]] = []
+        self.calls: list[tuple[str, str, dict]] = []
+
+    def _pop(self, system, user, kw) -> tuple[str, "Optional[str]"]:
+        self.calls.append((system, user, kw))
+        if not self._replies:
+            return '{"intents": []}', None
+        r = self._replies.pop(0)
+        return r if isinstance(r, tuple) else (r, None)
 
     def chat_text(self, system, user, **kw):
-        self.calls.append((system, user))
-        if not self._replies:
-            return '{"intents": []}'
-        return self._replies.pop(0)
+        return self._pop(system, user, kw)[0]
+
+    def chat_text_meta(self, system, user, **kw):
+        return self._pop(system, user, kw)
 
 
 _TWO_INTENTS = ('{"intents": ['
@@ -203,6 +212,35 @@ def test_plan_recovers_on_retry():
     g = InMemoryGraph()
     res = Planner(llm, goal="x", retries=1).plan(g)
     assert res.proposed == 2 and len(g.frontier()) == 2
+
+
+# ── plan: 사고(thinking) overflow — 빈 content+finish=='length' → cap 축소+/no_think 로 복구 ──
+# 실제 사고(VM-A 2026-11-17 로그): 자산이 늘어난 라운드부터 reasoning_effort='none' 이 간헐적으로
+# 안 먹혀 <think> 가 max_tokens(3000)를 다 먹고 content 가 '{' 만 연 채 끊김(finish='length') →
+# "JSON 객체가 닫히지 않음" 이 재시도까지 포함해 라운드 내내 재현(r7~r10 4라운드 연속 플래너 0개).
+def test_plan_recovers_from_thinking_overflow_truncation():
+    llm = _FakeLLM([
+        ("", "length"),       # 사고 overflow — <think> 가 상한을 다 먹어 content 완전히 빈 채 잘림
+        (_TWO_INTENTS, None),  # /no_think 폴백 후 정상 완료
+    ])
+    g = InMemoryGraph()
+    res = Planner(llm, goal="x", retries=1).plan(g)
+    assert res.proposed == 2 and len(g.frontier()) == 2
+    assert "/no_think" in llm.calls[1][1]            # 2차 호출 프롬프트에 폴백 스위치가 들어감
+    assert llm.calls[1][2].get("max_tokens") == 512  # cap 을 줄여 재시도 낭비를 줄임
+
+
+# ── plan: 내용 있는 잘림(장황함)은 cap 유지 + '짧게' 나그만 ──
+def test_plan_length_truncation_with_content_keeps_cap():
+    llm = _FakeLLM([
+        ('{"intents": [{"summary": "deploy webshell", "target": "x", "why": "y"', "length"),
+        (_TWO_INTENTS, None),
+    ])
+    g = InMemoryGraph()
+    res = Planner(llm, goal="x", retries=1, max_tokens=3000).plan(g)
+    assert res.proposed == 2
+    assert llm.calls[1][2].get("max_tokens") == 3000  # overflow 아니므로 cap 유지(안 줄임)
+    assert "너무 길어 잘렸다" in llm.calls[1][1]
 
 
 # ── plan: 빈 intents = 목표달성/막다른 신호(에러 아님) ──

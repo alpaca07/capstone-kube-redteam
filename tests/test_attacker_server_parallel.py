@@ -42,12 +42,15 @@ class _PlanLLM:
         self.calls = 0
 
     def chat_text(self, system, user, **kw):
+        return self.chat_text_meta(system, user, **kw)[0]
+
+    def chat_text_meta(self, system, user, **kw):
         self.calls += 1
         # 홀수 호출(각 라운드 첫 웨이브)에만 의도, 짝수(종료확인)엔 빈
         if self.calls % 2 == 1:
             return ('{"intents":[{"summary":"probe pg","target":"pg","technique":"T1046"},'
-                    '{"summary":"enum sa","target":"sa","technique":"T1078"}]}')
-        return '{"intents": []}'
+                    '{"summary":"enum sa","target":"sa","technique":"T1078"}]}', None)
+        return '{"intents": []}', None
 
 
 def _harness(mode="parallel"):
@@ -213,14 +216,17 @@ def test_turns_are_serialized():
             self.calls = 0
 
         def chat_text(self, system, user, **kw):
+            return self.chat_text_meta(system, user, **kw)[0]
+
+        def chat_text_meta(self, system, user, **kw):
             self.calls += 1
             if self.calls == 1:         # 첫 턴의 첫 플랜 호출에서 붙잡음(락 보유 중)
                 entered.set()
                 gate.wait(5.0)
             if self.calls % 2 == 1:
                 return ('{"intents":[{"summary":"probe","target":"t",'
-                        '"technique":"T1046"}]}')
-            return '{"intents": []}'
+                        '"technique":"T1046"}]}', None)
+            return '{"intents": []}', None
 
     h = AttackHarness(
         llm=_WorkLLM(), runner=_R(), scope_policy=default_policy(),

@@ -25,6 +25,27 @@ from .graph import ExplorationGraph, Node, NodeKind
 
 _re_int = re.compile(r"\d+")
 
+# ── 파싱 재시도 진단 — attacker/react_loop.py 의 3분기 전략과 동일 계약(finish_reason 기반) ──
+# Qwen3 계열은 Ollama /v1 에서 reasoning_effort='none' 이 간헐적으로 안 먹혀 <think> 가 토큰
+# 상한을 다 먹고 content 가 '{' 만 연 채 끊긴다(finish=='length', 내용은 있지만 사고가 대부분) →
+# 매 라운드 똑같이 재현되는 "JSON 객체가 닫히지 않음" 연속 실패의 근본 원인. cap 을 키워봐도
+# 더 길게 생각할 뿐이라 — 빈 content 면 cap 을 확 줄여 빨리 자르고 /no_think 로 전환한다.
+_FORMAT_RETRY_NOTE = "\n\n(직전 응답이 올바른 JSON이 아니었다. 설명 없이 지정된 JSON 객체 하나만 출력하라.)"
+_LENGTH_RETRY_NOTE = ("\n\n(직전 응답이 너무 길어 잘렸다. 설명 문장을 쓰지 말고 "
+                      "JSON 객체 하나만 출력하라.)")
+_NO_THINK_NOTE = "\n\n/no_think"
+_OVERFLOW_CAP = 512   # 사고 overflow(빈 content) 감지 시 — 재시도 낭비 줄이려 확 줄임
+
+
+def _next_retry(finish: Optional[str], text: str, cap: int) -> tuple[int, str]:
+    """파싱 실패 1건을 보고 (다음 호출 max_tokens, 다음 프롬프트에 덧붙일 문구) 를 고른다.
+    cap 은 '잘렸다고 키우지 않는다'(장황함만 조장) — 사고 overflow(빈 content)일 때만 줄인다."""
+    if finish == "length" and not text.strip():      # 사고 overflow(빈 content) → cap 축소+폴백
+        return _OVERFLOW_CAP, _NO_THINK_NOTE
+    if finish == "length":                            # 내용 있는 잘림(장황함) → cap 유지 + '짧게'
+        return cap, _LENGTH_RETRY_NOTE
+    return cap, _FORMAT_RETRY_NOTE                     # 형식 위반 → cap 유지 + 형식 재지시
+
 
 # ───────────── 1차: 지식 선별(knowledge triage) ─────────────
 SELECT_SYSTEM = """\
@@ -151,6 +172,9 @@ class PlannerIntent:
 
 class _LLM(Protocol):
     def chat_text(self, system: str, user: str, **kw) -> str:
+        ...
+
+    def chat_text_meta(self, system: str, user: str, **kw) -> tuple[str, Optional[str]]:
         ...
 
 
@@ -348,9 +372,13 @@ class Planner:
         self.retries = retries
         self.target_intents = max(1, int(target_intents))   # 웨이브당 의도 목표 수(=워커 수)
 
-    def _chat(self, system: str, user: str, timeout: Optional[float]) -> str:
-        return self.llm.chat_text(system, user, max_tokens=self.max_tokens,
-                                  timeout=timeout, extra={"reasoning_effort": "none"})
+    def _chat_meta(self, system: str, user: str, timeout: Optional[float], *,
+                   max_tokens: Optional[int] = None) -> tuple[str, Optional[str]]:
+        """(응답, finish_reason) — finish=='length' 면 토큰 상한에 '잘림'(ReAct 루프와 동일 계약).
+        max_tokens 를 호출마다 override 가능 — 사고(thinking) overflow 감지 시 cap 을 줄여 재시도."""
+        return self.llm.chat_text_meta(
+            system, user, max_tokens=max_tokens if max_tokens is not None else self.max_tokens,
+            timeout=timeout, extra={"reasoning_effort": "none"})
 
     # ── 1차: 지식 선별 ──
     def select_knowledge(self, graph: ExplorationGraph, *, assets_block: str = "",
@@ -363,18 +391,21 @@ class Planner:
         user = build_situation(graph, goal=self.goal, assets_block=assets_block,
                                kg_block=kg_block, prior_findings_block=prior_findings_block)
         last_err = ""
+        cap = self.max_tokens
+        retry_note = _FORMAT_RETRY_NOTE
         for attempt in range(self.retries + 1):
-            prompt = user if attempt == 0 else user + (
-                "\n\n(직전 응답이 올바른 JSON이 아니었다. 설명 없이 지정된 JSON 객체 하나만 출력하라.)")
+            prompt = user if attempt == 0 else user + retry_note
             try:
-                text = self._chat(SELECT_SYSTEM, prompt, timeout)
+                text, finish = self._chat_meta(SELECT_SYSTEM, prompt, timeout, max_tokens=cap)
             except Exception as e:  # noqa: BLE001 — 호출 실패는 선별 실패(2차가 폴백)
                 last_err = f"llm 호출 실패: {type(e).__name__}: {e}"
                 continue
             try:
                 return SelectResult(selected=parse_selection(text or ""), error="")
             except LLMJsonError as e:
-                last_err = f"파싱 실패: {e}"
+                t = text or ""
+                last_err = f"파싱 실패: {e} (finish={finish} len={len(t)})"
+                cap, retry_note = _next_retry(finish, t, cap)
                 continue
         return SelectResult(selected=[], error=last_err)
 
@@ -400,18 +431,21 @@ class Planner:
         valid |= {n.id for n in graph.running_intents()}
         valid_findings = {n.id for n in graph.recent_findings(limit=10_000)}  # enables 검증용
         last_err = ""
+        cap = self.max_tokens
+        retry_note = _FORMAT_RETRY_NOTE
         for attempt in range(self.retries + 1):
-            prompt = user if attempt == 0 else user + (
-                "\n\n(직전 응답이 올바른 JSON이 아니었다. 설명 없이 지정된 JSON 객체 하나만 출력하라.)")
+            prompt = user if attempt == 0 else user + retry_note
             try:
-                text = self._chat(PLANNER_SYSTEM, prompt, timeout)
+                text, finish = self._chat_meta(PLANNER_SYSTEM, prompt, timeout, max_tokens=cap)
             except Exception as e:  # noqa: BLE001 — 호출 실패는 이 라운드 계획 실패로(엔진이 판단)
                 last_err = f"llm 호출 실패: {type(e).__name__}: {e}"
                 continue
             try:
                 intents = parse_intents(text or "")
             except LLMJsonError as e:
-                last_err = f"파싱 실패: {e}"
+                t = text or ""
+                last_err = f"파싱 실패: {e} (finish={finish} len={len(t)})"
+                cap, retry_note = _next_retry(finish, t, cap)
                 continue
             # 워커 겹침 방지: 같은 자산(target)을 '동시에' 겨냥하는 의도는 떨군다.
             #   - 이미 떠 있는(open/running) 의도의 target + 이번 배치 내 target 으로 중복 차단.

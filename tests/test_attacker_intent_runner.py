@@ -312,8 +312,11 @@ def test_full_stack_planner_pool_runner():
     # 플래너 LLM: 의도 2개 생성
     class _PlanLLM:
         def chat_text(self, system, user, **kw):
+            return self.chat_text_meta(system, user, **kw)[0]
+
+        def chat_text_meta(self, system, user, **kw):
             return ('{"intents":[{"summary":"probe pg","target":"postgres","technique":"T1046"},'
-                    '{"summary":"enum SA","target":"admin","technique":"T1078"}]}')
+                    '{"summary":"enum SA","target":"admin","technique":"T1078"}]}', None)
     Planner(_PlanLLM(), goal="read PII").plan(g)
     assert len(g.frontier()) == 2
 

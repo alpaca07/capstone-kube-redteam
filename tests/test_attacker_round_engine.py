@@ -34,10 +34,13 @@ class _PlanLLM:
         self.calls = 0
 
     def chat_text(self, system, user, **kw):
+        return self.chat_text_meta(system, user, **kw)[0]
+
+    def chat_text_meta(self, system, user, **kw):
         self.calls += 1
         if self._waves:
-            return self._waves.pop(0)
-        return '{"intents": []}'
+            return self._waves.pop(0), None
+        return '{"intents": []}', None
 
 
 class _WorkLLM:
@@ -156,8 +159,10 @@ def test_max_waves_cap():
     class _InfPlan:
         calls = 0
         def chat_text(self, system, user, **kw):
+            return self.chat_text_meta(system, user, **kw)[0]
+        def chat_text_meta(self, system, user, **kw):
             type(self).calls += 1
-            return '{"intents":[{"summary":"more","target":"x"}]}'
+            return '{"intents":[{"summary":"more","target":"x"}]}', None
     plan = _InfPlan()
     rnd = AttackRound(attacker_llm=_WorkLLM(), planner_llm=plan, runner=_R(),
                       scope_policy=default_policy(), cfg=_cfg(max_waves=3))
@@ -201,8 +206,10 @@ def test_round2_marks_touched_assets_in_situation():
 
     class _CapPlan:
         def chat_text(self, system, user, **kw):
+            return self.chat_text_meta(system, user, **kw)[0]
+        def chat_text_meta(self, system, user, **kw):
             captured["user"] = user
-            return '{"intents": []}'
+            return '{"intents": []}', None
 
     g = InMemoryGraph(episode=1)
     ag = InMemoryAssetGraph(episode=1)
@@ -225,12 +232,14 @@ def test_kg_visibility_in_situation_log():
 
     class _P:                                   # 1차=선별(STAGE 1), 2차=빈 의도(웨이브 1회 종료)
         def chat_text(self, system, user, **kw):
+            return self.chat_text_meta(system, user, **kw)[0]
+        def chat_text_meta(self, system, user, **kw):
             if "STAGE 1" in system:
                 return ('{"selected":[{"technique":"T1552","assets":["internal-wiki"],'
                         '"why":"runbook creds","applicability":"high"},'
                         '{"technique":"T1078","assets":["internal-wiki"],'
-                        '"why":"valid acct","applicability":"medium"}]}')
-            return '{"intents": []}'
+                        '"why":"valid acct","applicability":"medium"}]}', None)
+            return '{"intents": []}', None
 
     # (1) kg_lookup 미연결 → "KG미연결"
     logs1: list = []
@@ -261,12 +270,14 @@ def test_kg_candidates_reach_planner_prompt():
 
     class _CapPlan:
         def chat_text(self, system, user, **kw):
+            return self.chat_text_meta(system, user, **kw)[0]
+        def chat_text_meta(self, system, user, **kw):
             if "STAGE 1" in system:
                 captured["select"] = user
                 return ('{"selected":[{"technique":"T1190","assets":["gitlab.frontend.svc"],'
-                        '"why":"public RCE","applicability":"high"}]}')
+                        '"why":"public RCE","applicability":"high"}]}', None)
             captured["plan"] = user
-            return '{"intents": []}'          # 2차 1웨이브로 종료
+            return '{"intents": []}', None     # 2차 1웨이브로 종료
 
     g = InMemoryGraph(episode=1)
     ag = InMemoryAssetGraph(episode=1)
@@ -318,8 +329,10 @@ def test_planner_sees_assets_and_prior_breach_in_round2():
 
     class _CapPlan:
         def chat_text(self, system, user, **kw):
+            return self.chat_text_meta(system, user, **kw)[0]
+        def chat_text_meta(self, system, user, **kw):
             captured["user"] = user
-            return '{"intents": []}'          # 즉시 종료(1웨이브)
+            return '{"intents": []}', None    # 즉시 종료(1웨이브)
 
     g = InMemoryGraph(episode=1)
     ag = InMemoryAssetGraph(episode=1)
@@ -342,8 +355,10 @@ def test_round1_has_no_prior_breach_section():
 
     class _CapPlan:
         def chat_text(self, system, user, **kw):
+            return self.chat_text_meta(system, user, **kw)[0]
+        def chat_text_meta(self, system, user, **kw):
             captured.setdefault("user", user)
-            return '{"intents": []}'
+            return '{"intents": []}', None
 
     g = InMemoryGraph(episode=1)
     ag = InMemoryAssetGraph(episode=1)

@@ -26,6 +26,9 @@ class _LLM:
     def chat_text(self, system, user, **kw):
         return self.reply
 
+    def chat_text_meta(self, system, user, **kw):
+        return self.reply, None
+
 
 # ── 'from' 파싱: int·"#12"·"12" 허용, 잡값 버림 ──
 def test_parse_from_ids():
@@ -100,6 +103,9 @@ def test_round_builds_connected_tree():
         def __init__(self):
             self.n = 0
         def chat_text(self, system, user, **kw):
+            return self.chat_text_meta(system, user, **kw)[0]
+
+        def chat_text_meta(self, system, user, **kw):
             r = plan_replies[min(self.n, len(plan_replies) - 1)]
             self.n += 1
             if "__FACT__" in r:
@@ -108,7 +114,7 @@ def test_round_builds_connected_tree():
                 m = _re.findall(r"#(\d+)", user)
                 fid = m[-1] if m else "1"
                 r = r.replace("__FACT__", fid)
-            return r
+            return r, None
 
     class _WorkLLM:
         def chat_text_meta(self, system, user, **kw):
