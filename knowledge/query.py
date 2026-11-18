@@ -314,20 +314,30 @@ def procedure_for_technique(session: Session, tech_id: str) -> list[dict]:
                     "cve": r.get("cve"), "cwe": r.get("cwe"), "status": r.get("status"),
                     "preconditions": pres, "expected_results": ers, "steps": steps,
                     "cleanup": cleans, "advisory": advs})
+    # AUTHORED(실행가능·타깃정합 핵심층 절차) 우선 — THEORETICAL(nvd 스텁)이 상한에서 핵심 절차를
+    # 밀어내지 않게. 안정 정렬이라 같은 상태끼리는 원래 순서 유지.
+    out.sort(key=lambda p: 0 if (p.get("status") or "").upper() == "AUTHORED" else 1)
     return out
 
 
-def render_procedures(procedures: list[dict], *, limit: int = 6) -> str:
+def render_procedures(procedures: list[dict], *, limit: int = 6, theoretical_cap: int = 2) -> str:
     """procedure_for_technique 결과 → 워커 프롬프트용 텍스트 블록(없으면 빈 문자열).
 
     '이 기법의 알려진 절차+스텝+전제+목표'를 간결히 나열 — 워커가 관측에 맞는 걸 골라 payload 작성에 참고.
     스텝이 있으면 명령 레시피($VAR 자리는 워커가 관측으로 채움), 없으면 워커가 명령을 스스로 쓴다.
+
+    노이즈 억제(큐레이션): AUTHORED(실행가능·타깃정합 핵심층 절차)를 먼저 채우고, THEORETICAL
+    (nvd 유래 CVE 스텁 — 스텝 없음)은 상위 theoretical_cap 개만 덧붙인다. 전체는 limit 개로 자른다.
+    브리핑이 버전 안 맞는 최신 CVE 스텁으로 뒤덮여 핵심 절차가 묻히는 걸 막는다.
     """
-    procs = (procedures or [])[:limit]
-    if not procs:
+    procs = procedures or []
+    authored = [p for p in procs if (p.get("status") or "").upper() == "AUTHORED"]
+    theoretical = [p for p in procs if (p.get("status") or "").upper() != "AUTHORED"]
+    chosen = (authored + theoretical[:max(0, theoretical_cap)])[:limit]
+    if not chosen:
         return ""
     lines = []
-    for p in procs:
+    for p in chosen:
         env = f" [{p['env']}]" if p.get("env") else ""
         desc = p.get("description") or p.get("name") or ""
         lines.append(f"- {p['procedure']}{env}: {desc}")

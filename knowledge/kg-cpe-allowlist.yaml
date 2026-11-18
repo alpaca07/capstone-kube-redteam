@@ -23,9 +23,9 @@ products:
   - {vendor: traefik,           product: traefik,           category: web_server}
 
   # 앱서버 / 런타임
-  - {vendor: apache,            product: tomcat,            category: app_server}
+  - {vendor: apache,            product: tomcat,            category: app_server, version: 8.5.19}   # corp-dmz 배포버전
   - {vendor: eclipse,           product: jetty,             category: app_server}
-  - {vendor: apache,            product: solr,              category: search}        # corp-dmz Log4Shell 타깃
+  - {vendor: apache,            product: solr,              category: search, version: 8.11.0}        # corp-dmz Log4Shell 타깃
 
   # 웹 프레임워크
   - {vendor: vmware,            product: spring_framework,  category: web_framework}
@@ -42,7 +42,7 @@ products:
   # 메시지큐 / 캐시
   - {vendor: redis,             product: redis,             category: mq_cache}
   - {vendor: memcached,         product: memcached,         category: mq_cache}
-  - {vendor: samba,             product: samba,             category: file_share}    # corp-internal SambaCry 타깃
+  - {vendor: samba,             product: samba,             category: file_share, version: 4.6.3}    # corp-internal SambaCry 타깃
   - {vendor: apache,            product: kafka,             category: mq_cache}
   - {vendor: pivotal_software,  product: rabbitmq,          category: mq_cache}      # rabbitmq 는 두 vendor 병기
   - {vendor: vmware,            product: rabbitmq,          category: mq_cache}
@@ -55,7 +55,7 @@ products:
   - {vendor: etcd,              product: etcd,              category: container}
 
   # CI/CD / 개발도구
-  - {vendor: jenkins,           product: jenkins,           category: cicd}
+  - {vendor: jenkins,           product: jenkins,           category: cicd, version: 2.138}   # corp-internal 배포버전
   - {vendor: gitlab,            product: gitlab,            category: cicd}
   - {vendor: gitea,             product: gitea,             category: cicd}
   - {vendor: sonarsource,       product: sonarqube,         category: cicd}

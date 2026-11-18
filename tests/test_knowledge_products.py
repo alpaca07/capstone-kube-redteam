@@ -83,6 +83,22 @@ def test_emit_nvd_targets():
     assert "cpe:2.3:a:oracle:mysql" in tgt["cpe_matches"]
 
 
+def test_emit_nvd_targets_version_specific():
+    # version 있으면 버전 특정 CPE(그 버전 CVE만) — 노이즈 억제. 없으면 제품 전체 매치 유지.
+    tgt = emit_nvd_targets([{"vendor": "apache", "product": "tomcat", "version": "8.5.19"},
+                            {"vendor": "redis", "product": "redis"}])
+    assert "cpe:2.3:a:apache:tomcat:8.5.19" in tgt["cpe_matches"]
+    assert "cpe:2.3:a:apache:tomcat" not in tgt["cpe_matches"]       # 버전 박으면 광역 매치는 안 씀
+    assert "cpe:2.3:a:redis:redis" in tgt["cpe_matches"]             # version 없으면 종전대로
+
+
+def test_load_allowlist_carries_version():
+    # 실파일에서 corp 타깃은 배포 버전을 달고 로드돼야(멀티버전 제품은 공란).
+    products = {(p["vendor"], p["product"]): p.get("version", "") for p in load_allowlist()}
+    assert products[("apache", "tomcat")] == "8.5.19"
+    assert products[("samba", "samba")] == "4.6.3"
+
+
 def test_link_pairs_needle():
     pairs = _link_pairs([{"vendor": "gitlab", "product": "gitlab"}])
     assert pairs[0] == {"vp": "gitlab:gitlab", "needle": ":gitlab:gitlab:"}

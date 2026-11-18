@@ -227,6 +227,19 @@ def test_render_procedures():
     assert render_procedures([]) == ""
 
 
+def test_render_procedures_curates_authored_first():
+    # 노이즈 억제: AUTHORED(실행가능) 우선 포함, THEORETICAL(nvd 스텁)은 상위 theoretical_cap 개만.
+    def mk(pid, status):
+        return {"procedure": pid, "name": pid, "description": "d", "env": "e", "status": status,
+                "preconditions": [], "expected_results": [], "steps": [], "cleanup": [], "advisory": []}
+    procs = [mk(f"PROC-th{i}", "THEORETICAL") for i in range(5)] + [mk("PROC-auth", "AUTHORED")]
+    block = render_procedures(procs, theoretical_cap=2)
+    assert "PROC-auth" in block                                         # AUTHORED 항상 포함
+    th_in = [i for i in range(5) if f"PROC-th{i}" in block]
+    assert len(th_in) == 2                                              # THEORETICAL 은 2개로 캡
+    assert block.index("PROC-auth") < min(block.index(f"PROC-th{i}") for i in th_in)   # AUTHORED 먼저
+
+
 def _run() -> int:
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

@@ -28,7 +28,11 @@ _DEFAULT_TECH = os.path.join(os.path.dirname(__file__), "kg-technologies.yaml")
 
 
 def load_allowlist(path: str = _DEFAULT_ALLOWLIST) -> list[dict]:
-    """allowlist YAML → [{vendor, product, category}, ...]. 중복 쌍 제거."""
+    """allowlist YAML → [{vendor, product, category, version}, ...]. 중복 쌍 제거.
+
+    version 은 배포된 단일 버전이 분명한 제품에만 선택적으로 단다(예: tomcat 8.5.19). 있으면
+    emit_nvd_targets 가 버전 특정 CPE 로 펴 NVD 가 그 버전에 해당하는 CVE 만 돌려주게 한다(노이즈 억제).
+    """
     import yaml  # 지연 import
     data = yaml.safe_load(open(path, encoding="utf-8")) or {}
     out: list[dict] = []
@@ -38,7 +42,9 @@ def load_allowlist(path: str = _DEFAULT_ALLOWLIST) -> list[dict]:
         if not vendor or not product or (vendor, product) in seen:
             continue
         seen.add((vendor, product))
-        out.append({"vendor": vendor, "product": product, "category": (p.get("category") or "").strip()})
+        out.append({"vendor": vendor, "product": product,
+                    "category": (p.get("category") or "").strip(),
+                    "version": (str(p["version"]).strip() if p.get("version") is not None else "")})
     return out
 
 
@@ -115,13 +121,17 @@ def technology_nodes_and_rels(technologies: Iterable[dict]) -> tuple[list[dict],
 
 
 def emit_nvd_targets(products: Iterable[dict]) -> dict:
-    """allowlist → nvd 입력 {cve_ids:[], cpe_matches:[cpe:2.3:a:vendor:product, ...]}.
+    """allowlist → nvd 입력 {cve_ids:[], cpe_matches:[cpe:2.3:a:vendor:product(:version), ...]}.
 
-    virtualMatchString 은 접미 와일드카드가 생략돼도 그 제품 전체 CVE 를 받는다. 중복 제거.
+    version 이 있으면 버전 특정 CPE(cpe:2.3:a:vendor:product:version)로 펴 NVD virtualMatchString 이
+    그 버전에 해당하는 CVE 만 돌려준다 — 배포 버전과 안 맞는 최신 CVE 노이즈를 원천에서 거른다.
+    version 없는 제품은 종전대로 제품 전체 CVE 를 받는다(멀티버전 배포·버전 미상). 중복 제거.
     """
     seen, matches = set(), []
     for p in products:
-        m = f"cpe:2.3:a:{p['vendor']}:{p['product']}"
+        ver = (p.get("version") or "").strip()
+        m = (f"cpe:2.3:a:{p['vendor']}:{p['product']}:{ver}" if ver
+             else f"cpe:2.3:a:{p['vendor']}:{p['product']}")
         if m not in seen:
             seen.add(m)
             matches.append(m)
