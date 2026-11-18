@@ -32,7 +32,7 @@
 
   // ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (server.py 의 SERVER_BUILD 과 같은 값으로 함께 올린다).
   // 좌상단에 v<UI_BUILD> 를 표시하고, 서버가 보고한 server_build 와 다르면 '재시작 필요' 경고를 띄운다.
-  var UI_BUILD = 11;
+  var UI_BUILD = 12;
   function renderBuild(serverBuild) {
     var el = document.getElementById("build-tag");
     if (!el) return;
@@ -1706,16 +1706,20 @@
       var f = nodes.filter(function (n) { return n.kind === "finding"; });
       agSel = f.length ? f[0].id : (nodes[0] ? nodes[0].id : null);
     }
-    // 변화 서명 — 같으면 재렌더 생략(폴링 중 깜빡임·재애니메이션 방지)
+    // 변화 서명 — 같으면 재렌더 생략(폴링 중 깜빡임·재애니메이션·스크롤 점프 방지).
+    // agMode 포함 + 두 뷰 공유 컨테이너(.ag-layout)로 확인 — 리스트 뷰엔 .ag-svg 가 없어
+    // 매 폴링마다 재렌더되며 스크롤이 맨 위로 튀던 문제 교정.
     var sig = nodes.map(function (n) { return n.id + ":" + (n.state || ""); }).join(",") + "|" +
-      (g.edges || []).map(function (e) { return e.src + ">" + e.dst; }).join(",") + "|" + agSel + "|" + agTab + "|" + selKey;
-    if (sig === S.agSig && document.querySelector(".ag-svg")) return;
+      (g.edges || []).map(function (e) { return e.src + ">" + e.dst; }).join(",") + "|" + agSel + "|" + agTab + "|" + selKey + "|" + agMode;
+    if (sig === S.agSig && document.querySelector(".ag-layout")) return;
     var seen = S.agSeen || {};
     nodes.forEach(function (n) { n._new = !seen[n.id]; });   // 새로 생긴 노드만 등장 애니메이션
+    var _scroll = view.scrollTop;                            // 재렌더로 리셋되는 스크롤 보존(라이브 노드 추가 시)
     view.innerHTML = pageAttackGraph(g, rounds, rec, aggEp, selKey);
     nodes.forEach(function (n) { seen[n.id] = 1; });
     S.agSeen = seen; S.agSig = sig;
     bindAttackGraph();
+    view.scrollTop = _scroll;                                // 복원
   }
   function bindAttackGraph() {
     Array.prototype.forEach.call(document.querySelectorAll("[data-agtab]"), function (b) {
