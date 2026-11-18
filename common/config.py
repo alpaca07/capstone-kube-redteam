@@ -50,6 +50,10 @@ class NetworkConfig(BaseModel):
 class TargetConfig(BaseModel):
     attack_endpoint: str               # 공격망에서 본 대상(발판용)
     kubeconfig: str                    # VM C god-view 조회용
+    # 타깃 구성도(대시보드)에 열거할 네임스페이스. 미지정이면 현 corp 시나리오 기본 5종만
+    # 깔끔하게 표시. 명시적으로 빈 목록([])을 주면 클러스터에서 자동 탐색(인프라·구시나리오 포함).
+    topo_namespaces: list[str] = Field(
+        default_factory=lambda: ["corp-ext", "corp-dmz", "corp-internal", "corp-crown", "corp-defense"])
 
 
 class AttackConfig(BaseModel):

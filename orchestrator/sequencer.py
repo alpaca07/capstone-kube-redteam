@@ -118,6 +118,7 @@ class TurnSequencer:
                  episode_sink: Optional[Callable[[dict], None]] = None,
                  kill_switch: Optional[Callable[[], bool]] = None,
                  topo_reader=None,
+                 topo_namespaces=None,
                  sleeper: Callable[[float], None] = time.sleep) -> None:
         self.attacker = attacker
         self.defender = defender
@@ -136,6 +137,7 @@ class TurnSequencer:
         self.episode_sink = episode_sink  # 회차 요약 sink(episodes.jsonl) — 회차 종료 즉시 기록, 없으면 무시
         self.kill_switch = kill_switch
         self._topo_reader = topo_reader   # god-view 토폴로지 스캐너 — 게이팅(방어 미개입) 라운드에도 구성도 보존
+        self._topo_namespaces = topo_namespaces  # 타깃 구성도 열거 네임스페이스(비면 자동 탐색) — config.target.topo_namespaces
         self._topo_cache = None           # 스캔 결과 캐시(게이팅 중엔 패치 없어 정적)
         self._sleep = sleeper              # 테스트에서 주입 가능(실제론 time.sleep)
 
@@ -382,7 +384,7 @@ class TurnSequencer:
             return self._topo_cache
         try:
             from defender.topology import enumerate_topology
-            topo = enumerate_topology(r)
+            topo = enumerate_topology(r, namespaces=(self._topo_namespaces or None))
             topo = topo if (topo and topo.get("namespaces")) else None
             self._topo_cache = topo
             return topo

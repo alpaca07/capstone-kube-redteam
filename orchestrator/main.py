@@ -128,7 +128,7 @@ def build_sequencer(cfg: Config, *, sink=None, progress=None, events=None,
                          params=params, sink=sink, off_kg_sink=off_kg_sink,
                          progress=progress, events=events, detail_dir=detail_dir,
                          episode_sink=episode_sink, kill_switch=kill_switch,
-                         topo_reader=topo_reader)
+                         topo_reader=topo_reader, topo_namespaces=cfg.target.topo_namespaces)
 
 
 def _params_from_args(cfg: Config, args: argparse.Namespace) -> RunParams:
