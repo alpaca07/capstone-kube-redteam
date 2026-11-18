@@ -39,6 +39,7 @@ class HarnessEdit:
     kind: str                          # invariant | domain
     rationale: str                     # 왜 이 수정이 도움 되는지(편집자 설명)
     overlay_text: str                  # 하네스에 덧댈 텍스트 블록
+    priority: float = 0.0              # 편집자 자체 기대효과(0~1). rank가 이걸로 정렬(추가 호출 없이 상위 k 선별)
 
 
 @dataclass(frozen=True)

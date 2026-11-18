@@ -98,4 +98,23 @@ def build_probe(
     )
 
 
-__all__ = ["build_probe"]
+def build_editor(cfg: Config, *, log: Optional[Callable[[str], None]] = None):
+    """config 로 RefinerEditor 조립 — 정렬 모델(편집 엔드포인트)에 붙인다(I/O 없음).
+
+    편집 엔드포인트 = refiner.editor_host(비면 dgx.defender_host), 모델 = refiner.editor_model
+    (비면 dgx.defender_model). 서빙 여유 있는 '두 번째 엔드포인트'에 태워 라이브 공격 디코드와
+    경합 안 함. 추론(thinking) 모델이라 JSON 잘림 방지로 max_tokens 비움(무제한).
+    """
+    from common.llm_client import OllamaClient
+    from refiner.editor import RefinerEditor
+
+    host = cfg.refiner.editor_host or cfg.dgx.defender_host
+    model = cfg.refiner.editor_model or cfg.dgx.defender_model
+    base_url = f"http://{host}:{cfg.dgx.port}/v1"
+    req_timeout = cfg.dgx.request_timeout_sec or float(cfg.experiment.time_limit_sec)
+    llm = OllamaClient(base_url, model, temperature=cfg.dgx.temperature,
+                       timeout=req_timeout, max_tokens=None)
+    return RefinerEditor(llm, log=log)
+
+
+__all__ = ["build_probe", "build_editor"]
