@@ -36,8 +36,13 @@ def refine(
     baseline: ProbeScore = probe.probe(harness, basis=basis)
     baseline.edit_id = None
 
+    # 기준선 실측 결과를 편집자 digest 에 합침 — '직전 교전에서 뭘 달성/못 했나'(크라운·단계·
+    # 기법)를 편집자가 보고 제안하게. 호출자 digest 는 안 건드림(복사본에 baseline_probe 추가).
+    editor_digest = dict(digest)
+    editor_digest["baseline_probe"] = {"score": baseline.score, **baseline.detail}
+
     # 2) 제안 — 정렬 모델이 수정안 생성.
-    candidates = editor.propose(digest, harness, n=n_candidates)
+    candidates = editor.propose(editor_digest, harness, n=n_candidates)
     if not candidates:
         return RefineResult(
             baseline=baseline, probe_scores=[], chosen=None, promoted=False,
@@ -45,7 +50,7 @@ def refine(
         )
 
     # 3) 선별 — 정렬 모델 순위로 상위 k만(탈옥 실측 아끼기).
-    ranked = editor.rank(digest, candidates)[: max(0, probe_top_k)]
+    ranked = editor.rank(editor_digest, candidates)[: max(0, probe_top_k)]
 
     # 4) 시험실행 — 상위 각 수정안을 탈옥 모델로 실측.
     scores: list[ProbeScore] = []

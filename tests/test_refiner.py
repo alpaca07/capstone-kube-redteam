@@ -105,6 +105,21 @@ def test_proposes_requested_candidate_count():
     assert editor.rank_calls == 1
 
 
+def test_baseline_probe_injected_into_editor_digest():
+    """refine 이 기준선 실측 결과를 편집자 digest 에 합쳐 넘긴다(깜깜이 제안 방지)."""
+    store = FakeHarnessStore(base_prompt="BASE")
+    editor = FakeEditor([_edit("e1")])
+    probe = FakeProbe({None: 0.3, "e1": 0.5})
+
+    refine({"round": 7}, store=store, editor=editor, probe=probe,
+           n_candidates=1, probe_top_k=1)
+
+    d = editor.last_digest
+    assert d["round"] == 7                        # 호출자 digest 보존
+    assert "baseline_probe" in d                  # 기준선 주입
+    assert d["baseline_probe"]["score"] == 0.3    # 기준선 점수가 편집자에게 전달
+
+
 def test_no_candidates_keeps_harness():
     """편집자가 수정안을 안 내면(빈 목록) 승급 없이 안전 종료."""
     store = FakeHarnessStore(base_prompt="BASE")

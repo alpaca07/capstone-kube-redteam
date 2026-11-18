@@ -18,9 +18,11 @@ class FakeEditor:
         self._order = order                      # edit id 순서(없으면 propose 순서 유지)
         self.propose_calls: list[int] = []       # 요청받은 n 기록
         self.rank_calls = 0
+        self.last_digest: Optional[dict] = None  # propose가 받은 digest(기준선 주입 검증용)
 
     def propose(self, digest: dict, harness: Harness, *, n: int) -> list[HarnessEdit]:
         self.propose_calls.append(n)
+        self.last_digest = digest
         return list(self._candidates[:n])
 
     def rank(self, digest: dict, edits: list[HarnessEdit]) -> list[HarnessEdit]:
