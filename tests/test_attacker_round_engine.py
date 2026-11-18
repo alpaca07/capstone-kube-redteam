@@ -199,6 +199,95 @@ def test_asset_situation_marks_explored_untouched():
     assert "[explored]" not in s2 and "[untouched]" not in s2
 
 
+# ── _asset_situation: closure 는 세 번째 상태로 explored/untouched 덮어씀 ──
+def test_asset_situation_marks_closed():
+    from attacker.assets_fake import InMemoryAssetGraph
+    from attacker.round_engine import _asset_situation
+    ag = InMemoryAssetGraph(episode=1)
+    open_a = ag.add_asset("endpoint", "solr/all")
+    closed_a = ag.add_asset("endpoint", "solr/demo")
+    ag.add_closure(closed_a, round=17, reason="schema read; no PII")
+    s = _asset_situation(ag, touched={open_a, closed_a})
+    # closed 자산은 [closed:R17 ...] 로 표기(사유 노출), explored 표시는 덮어쓰임
+    assert "[closed:R17: schema read; no PII]" in s
+    assert "solr/demo [explored]" not in s
+    # 열린 자산은 기존대로
+    assert "solr/all [explored]" in s
+
+
+# ── R2 통합: 승격된 closure 사실 → 자산이 [closed] → 플래너 태세에 그렇게 뜸 ──
+def test_round2_promotes_closure_and_renders_closed():
+    from attacker.assets_fake import InMemoryAssetGraph
+    captured = {}
+
+    # 플래너: R2 '승격 심사' 에선 fact_id N 을 승격, R2 '계획' 에선 빈 의도(1웨이브 종료)
+    class _TwoShotPlan:
+        def __init__(self):
+            self.calls = 0
+            self.closure_fact_id = None
+        def chat_text(self, system, user, **kw):
+            return self.chat_text_meta(system, user, **kw)[0]
+        def chat_text_meta(self, system, user, **kw):
+            self.calls += 1
+            # 승격 심사 — CLOSURE_SYSTEM 이 system 에 들어있음. user 에서 F<id> 를 찾아 승격
+            if "CLOSURE REVIEWER" in system:
+                import re
+                m = re.search(r"F(\d+)\s+on", user)
+                fid = int(m.group(1)) if m else 0
+                return ('{"closures":[{"fact_id":%d,"reason":"schema read; no PII"}]}' % fid,
+                        None)
+            # 계획 단계 — 1차(STAGE 1)·2차 공히 빈 응답으로 1웨이브에 종료
+            if "STAGE 1" in system:
+                return '{"selected":[]}', None
+            captured["plan_user"] = user
+            return '{"intents":[]}', None
+
+    g = InMemoryGraph(episode=1)
+    ag = InMemoryAssetGraph(episode=1)
+    # R1 결과로 자산·사실이 이미 그래프에 있다고 가정 — 자산은 touched, 사실엔 closure_candidate
+    a_solr = ag.add_asset("endpoint", "solr/demo")
+    iid = g.add_intent({"summary": "probe solr"}, anchors=[a_solr])
+    fid = g.add_fact({"summary": "solr demo no PII fields",
+                      "closure_candidate": True,
+                      "evidence": "luke schema shows product_name only"},
+                     intent_id=iid, anchors=[a_solr])
+
+    plan = _TwoShotPlan()
+    rnd = AttackRound(attacker_llm=_WorkLLM(), planner_llm=plan, runner=_R(),
+                      scope_policy=default_policy(), cfg=_cfg())
+    rnd.run(_start(), episode=1, round=2, graph=g, asset_graph=ag)
+
+    # 자산에 폐쇄 태그가 달림(승격됨)
+    assert ag.get_asset(a_solr).is_closed
+    assert ag.get_asset(a_solr).closed_at_round == 2
+    assert "no PII" in ag.get_asset(a_solr).closure_reason
+    # R2 계획 프롬프트의 KNOWN ASSETS 에 [closed:R2: ...] 가 떠야(태세에 영구 반영)
+    assert "[closed:R2:" in captured.get("plan_user", "")
+
+
+# ── R1 은 폐쇄 승격 스킵(지난 라운드가 없음 → 심사 자체 안 함) ──
+def test_round1_skips_closure_promotion():
+    from attacker.assets_fake import InMemoryAssetGraph
+
+    class _CountPlan:
+        def __init__(self):
+            self.saw_closure_system = False
+        def chat_text(self, system, user, **kw):
+            return self.chat_text_meta(system, user, **kw)[0]
+        def chat_text_meta(self, system, user, **kw):
+            if "CLOSURE REVIEWER" in system:
+                self.saw_closure_system = True
+            return '{"intents":[]}', None
+
+    plan = _CountPlan()
+    g = InMemoryGraph(episode=1)
+    ag = InMemoryAssetGraph(episode=1)
+    rnd = AttackRound(attacker_llm=_WorkLLM(), planner_llm=plan, runner=_R(),
+                      scope_policy=default_policy(), cfg=_cfg())
+    rnd.run(_start(), episode=1, round=1, graph=g, asset_graph=ag)
+    assert plan.saw_closure_system is False       # R1 엔 승격 심사 호출 안 함
+
+
 # ── R2 통합: 앵커된 자산은 explored, 안 친 자산은 untouched 로 플래너 태세에 뜬다 ──
 def test_round2_marks_touched_assets_in_situation():
     from attacker.assets_fake import InMemoryAssetGraph

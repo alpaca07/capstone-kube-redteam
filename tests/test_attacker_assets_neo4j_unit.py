@@ -59,6 +59,37 @@ def test_contains_uses_merge_not_duplicate():
     assert "MERGE (p)-[:CONTAINS]->(c)" in an._CONTAINS
 
 
+# ── closure ──
+def test_closure_fields_roundtrip():
+    node = AssetNode(id=7, kind="endpoint", name="solr/demo", episode=1,
+                     closed_at_round=17, closure_reason="schema read; no PII")
+    p = _asset_set_props(node)
+    # set_props 는 closure 를 포함 안 해도 됨(별도 Cypher 로 세팅) — 복원 경로는 반드시 전달
+    full = {**p, "id": 7, "episode": 1,
+            "closed_at_round": 17, "closure_reason": "schema read; no PII"}
+    back = _asset_from_props(full)
+    assert back.is_closed and back.closed_at_round == 17
+    assert back.closure_reason == "schema read; no PII"
+
+
+def test_asset_from_props_no_closure_defaults():
+    # 과거 데이터(폐쇄 필드 없음) 는 '안 닫힘' 으로 복원
+    n = _asset_from_props({"id": 9, "kind": "k", "name": "n"})
+    assert n.is_closed is False and n.closed_at_round == 0
+
+
+def test_closure_cypher_idempotent_guard():
+    # 최초 닫힘만 신뢰 — WHERE coalesce(closed_at_round,0)=0 가드로 재진입 막힘
+    assert "coalesce(n.closed_at_round, 0) = 0" in an._CLOSE
+    # 결과 반환으로 '실제 닫혔는지' 판정
+    assert "RETURN n.id AS id" in an._CLOSE
+
+
+def test_closures_cypher_orders_by_round_desc():
+    assert "ORDER BY n.closed_at_round DESC" in an._CLOSED
+    assert "coalesce(n.closed_at_round,0) > 0" in an._CLOSED
+
+
 def _run() -> int:
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

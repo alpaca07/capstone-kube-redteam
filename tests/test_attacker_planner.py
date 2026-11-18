@@ -13,6 +13,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from attacker.assets_fake import InMemoryAssetGraph  # noqa: E402
 from attacker.graph import IntentState, NodeKind, Rel  # noqa: E402
 from attacker.graph_fake import InMemoryGraph  # noqa: E402
 from attacker.planner import (  # noqa: E402
@@ -340,6 +341,93 @@ def test_plan_spawned_by_links_edge():
     for child in res.added_ids:
         edges = g.edges_from(parent, Rel.SPAWNS)
         assert any(e.dst_id == child for e in edges)
+
+
+# ── promote_closures: 승인된 후보만 자산에 폐쇄, 거부도 promoted 플래그로 재심사 방지 ──
+def test_promote_closures_approves_and_marks():
+    g = InMemoryGraph()
+    ag = InMemoryAssetGraph()
+    a_solr = ag.add_asset("endpoint", "solr/demo")
+    a_api = ag.add_asset("endpoint", "api/customers")
+    g.add_goal({"summary": "pii"})
+    iid_solr = g.add_intent({"summary": "query solr demo"}, anchors=[a_solr])
+    iid_api = g.add_intent({"summary": "query api"}, anchors=[a_api])
+    # 둘 다 closure_candidate — 플래너가 solr 는 승격·api 는 거부
+    f_solr = g.add_fact({"summary": "solr demo has no PII fields",
+                         "closure_candidate": True,
+                         "evidence": "luke schema shows only product_name"},
+                        intent_id=iid_solr, anchors=[a_solr])
+    f_api = g.add_fact({"summary": "api timed out",
+                        "closure_candidate": True,
+                        "evidence": "curl: timeout"},
+                       intent_id=iid_api, anchors=[a_api])
+
+    reply = ('{"closures": [{"fact_id": %d, "reason": "schema read; no PII fields"}]}'
+             % f_solr)
+    llm = _FakeLLM([reply])
+    p = Planner(llm, goal="pii")
+    res = p.promote_closures(g, ag, round=5)
+
+    assert res.reviewed == 2 and res.rejected == 1 and res.closed_ids == [a_solr]
+    assert ag.get_asset(a_solr).is_closed and ag.get_asset(a_solr).closed_at_round == 5
+    assert "no PII fields" in ag.get_asset(a_solr).closure_reason
+    assert ag.get_asset(a_api).is_closed is False
+    # 두 후보 모두 재심사 방지(promoted 플래그)
+    assert g.get_node(f_solr).payload.get("promoted") == 5
+    assert g.get_node(f_api).payload.get("promoted") == 5
+
+
+# ── promote_closures: 심사 완료된 후보는 두 번 호출해도 자산에 영향 없음(멱등) ──
+def test_promote_closures_skips_already_promoted():
+    g = InMemoryGraph()
+    ag = InMemoryAssetGraph()
+    a = ag.add_asset("endpoint", "x")
+    f = g.add_fact({"summary": "empty", "closure_candidate": True,
+                    "evidence": "read success, no target", "promoted": 1},
+                   anchors=[a])
+    llm = _FakeLLM([])      # LLM 호출 안 돼야 함 — 후보 없음
+    res = Planner(llm, goal="g").promote_closures(g, ag, round=2)
+    assert res.reviewed == 0 and res.closed_ids == []
+    assert len(llm.calls) == 0            # 후보 0 → LLM 아예 안 부름
+
+
+# ── promote_closures: asset_graph 없음·round 0 은 즉시 반환(안전장치) ──
+def test_promote_closures_noop_guards():
+    g = InMemoryGraph()
+    llm = _FakeLLM([])
+    assert Planner(llm, goal="g").promote_closures(g, None, round=2).reviewed == 0
+    assert Planner(llm, goal="g").promote_closures(g, InMemoryAssetGraph(),
+                                                   round=0).reviewed == 0
+    assert len(llm.calls) == 0
+
+
+# ── promote_closures: 심사 실패(JSON 깨짐)는 promoted 안 찍고 라운드 계속 ──
+def test_promote_closures_parse_failure_leaves_candidates():
+    g = InMemoryGraph()
+    ag = InMemoryAssetGraph()
+    a = ag.add_asset("endpoint", "x")
+    f = g.add_fact({"summary": "empty", "closure_candidate": True,
+                    "evidence": "read success"},
+                   anchors=[a])
+    llm = _FakeLLM(["garbage"])
+    res = Planner(llm, goal="g", retries=0).promote_closures(g, ag, round=3)
+    assert res.error and res.closed_ids == []
+    # 파싱 실패엔 재심사 가능해야 — promoted 안 찍힘
+    assert "promoted" not in g.get_node(f).payload
+
+
+# ── promote_closures: 승격된 LLM 출력의 fact_id 가 후보 밖이면 무시(안전장치) ──
+def test_promote_closures_ignores_unknown_fact_ids():
+    g = InMemoryGraph()
+    ag = InMemoryAssetGraph()
+    a = ag.add_asset("endpoint", "x")
+    f = g.add_fact({"summary": "empty", "closure_candidate": True,
+                    "evidence": "read success"},
+                   anchors=[a])
+    llm = _FakeLLM(['{"closures":[{"fact_id":9999,"reason":"made up"},'
+                    '{"fact_id":%d,"reason":"real"}]}' % f])
+    res = Planner(llm, goal="g").promote_closures(g, ag, round=3)
+    assert res.closed_ids == [a]           # 가짜 id 는 조용히 무시
 
 
 # ── 이벤트 구동 폐곡선(통합): 플래너→풀→플래너 재계획으로 그래프가 자란다 ──

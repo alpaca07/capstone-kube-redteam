@@ -40,14 +40,23 @@ direction, merging related observations.
 Output ONLY a JSON object, no prose:
 {"facts": [{"summary": "<one-line conclusion>", "detail": "<specifics, optional>", \
 "evidence": "<command + the key output line that supports it>", \
-"confidence": "observed|inferred"}], \
+"confidence": "observed|inferred", \
+"closure_candidate": <true if this fact PROVES the target asset/endpoint does NOT hold \
+goal data (you successfully READ it and the goal data is not there) — NOT for transient \
+errors (DNS fail, timeout, 404, auth-required); false otherwise>}], \
 "finding": {"summary": "<the breach, if one was achieved>", "severity": "<low|medium|high|critical>", \
 "evidence": "<what proves it>", "technique": "<MITRE id of what was ACHIEVED>"}}
 Set "finding" to null unless this direction actually achieved a concrete compromise. \
 The finding's "technique" MUST describe what was ACHIEVED, not how you searched — e.g. \
 retrieving credentials is T1552 (Unsecured Credentials) even if you found them while \
 enumerating services; using stolen creds is T1078; reading data from a DB is T1213/T1005. \
-Pick the technique of the compromise itself."""
+Pick the technique of the compromise itself.
+closure_candidate guidance: set true ONLY when you had READ access to the asset AND \
+confirmed the goal data is not there (e.g. queried a Solr core successfully and its \
+schema has no PII fields; read a DB table successfully and it is empty of target rows). \
+Set false for: DNS-unreachable, timeout, 403/404, "not authenticated", any transient \
+failure, and when you only READ A PART (e.g. only queried the 'demo' core of a Solr that \
+may have other cores). Being wrong here permanently closes a real lead — err toward false."""
 
 
 @dataclass
@@ -56,6 +65,11 @@ class FactDraft:
     detail: str = ""
     evidence: str = ""
     confidence: str = ""
+    # closure_candidate: 이 사실이 '해당 자산에 목표 없음' 을 (긍정적으로) 증명한다는
+    # 워커의 신호 — 플래너 1차가 다음 라운드에 '승격' 판정해 asset_graph.add_closure() 를
+    # 호출하면 자산 그래프에 영구 폐쇄 태그가 달린다(동일 자산 재발견 방지). 승격은
+    # 플래너 책임 — 워커가 바로 닫지 않는다(과도한 폐쇄 방지 2단 게이트).
+    closure_candidate: bool = False
 
     def to_payload(self, source_step_ids: list[str]) -> dict:
         p: dict = {"summary": self.summary}
@@ -65,6 +79,8 @@ class FactDraft:
             p["evidence"] = self.evidence
         if self.confidence:
             p["confidence"] = self.confidence
+        if self.closure_candidate:
+            p["closure_candidate"] = True       # 플래너 1차가 다음 라운드에 승격 판정
         if source_step_ids:
             p["source_step_ids"] = source_step_ids
         return p
@@ -107,7 +123,8 @@ def parse_settlement(text: str) -> tuple[list[FactDraft], Optional[FindingDraft]
             summary=summary,
             detail=str(it.get("detail", "")).strip(),
             evidence=str(it.get("evidence", "")).strip(),
-            confidence=str(it.get("confidence", "")).strip()))
+            confidence=str(it.get("confidence", "")).strip(),
+            closure_candidate=bool(it.get("closure_candidate"))))
     finding = None
     f = obj.get("finding")
     if isinstance(f, dict) and str(f.get("summary", "")).strip():
@@ -205,11 +222,14 @@ class IntentRunner:
 
         # 자산 기계 포집(하이브리드 D 1단계) — 관측 자산을 미식별로 쌓고 의도를 거기 앵커
         asset_ids = self._capture_assets(graph, intent, history, tag=tag)
+        # 의도의 앵커(= '겨냥한 자산' 만, 우연 발견은 제외)를 사실 앵커로 전달 → closure 승격이
+        # 자산 id 로 해소 가능. graph.anchor_to(intent.id, probed) 가 이미 지나간 뒤라 재조회로 읽음.
+        probed_ids = list(graph.get_node(intent.id).anchors) if intent.id else []
 
         # 정착은 고정 여유(_SETTLE_MAX)를 준다 — finding 생성이 핵심이라 마감 임박에도
         # 쥐어짜지 않는다. 마지막 정착이 마감을 다소 넘겨도 클라이언트 턴 버퍼(120초)가 흡수.
         self._settle(graph, intent, history, source_step_ids, tag=tag,
-                     asset_ids=asset_ids, timeout=_SETTLE_MAX)
+                     asset_ids=asset_ids, intent_anchors=probed_ids, timeout=_SETTLE_MAX)
 
         # 종료사유 → 의도 정착 상태. TIMEOUT만 EXHAUSTED(부분결과 보존), 나머지는 DONE.
         state = (IntentState.EXHAUSTED if result.end_reason == AttackEndReason.TIMEOUT
@@ -261,6 +281,7 @@ class IntentRunner:
     def _settle(self, graph: ExplorationGraph, intent: Node, history: AttackHistory,
                 source_step_ids: list[str], *, tag: str = "",
                 asset_ids: Optional[list[int]] = None,
+                intent_anchors: Optional[list[int]] = None,
                 timeout: Optional[float] = None) -> None:
         """정착 호출(방식 B): 결론을 fact/finding으로 그래프에 쓴다. 실패해도 의도는 안 잃고
         히스토리 요약을 폴백 fact로 남긴다. timeout=남은 라운드 시간(초과 방지)."""
@@ -293,7 +314,13 @@ class IntentRunner:
         # 의도가 소득 없이 끝나면(사실·침해 모두 없음) 자리표시 사실 노드를 만들지 않는다 —
         # 그래프에 '의도 #N 탐색 결과' 같은 빈 노드가 쌓이지 않게. 음성 결론은 저널·off-KG 에
         # 남고, 자식 사실 없는 의도 노드 자체가 '탐색했으나 소득 없음'을 나타낸다.
-        fact_ids = [graph.add_fact(fd.to_payload(source_step_ids), intent_id=intent.id)
+        # 사실에도 '의도의 앵커'(= 겨냥한 자산만, 우연 발견 제외) 를 전달 → closure_candidate
+        # 사실을 자산 id 로 해소 가능. 포집 자산 전체(asset_ids)가 아니라 intent_anchors 만 — 안
+        # 그러면 우연 발견 자산까지 fact.anchors 로 들어가 anchored_asset_ids()의 [explored] 판정이
+        # 오염된다('우연 발견 자산이 explored 로 둔갑' 회귀 테스트가 있다).
+        fact_ids = [graph.add_fact(fd.to_payload(source_step_ids),
+                                   intent_id=intent.id,
+                                   anchors=intent_anchors or None)
                     for fd in facts]
         if finding is not None:
             # 발견 자신의 기법(달성한 것) 우선, 없으면 의도 기법으로 폴백

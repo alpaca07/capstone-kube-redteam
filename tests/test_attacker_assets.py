@@ -107,6 +107,59 @@ def test_returns_copies():
     assert g.get_asset(a).attrs["p"] == 1 and g.get_asset(a).cpe == ""
 
 
+# ── 폐쇄(closure): 기본 CRUD ──
+def test_closure_basic():
+    g = InMemoryAssetGraph()
+    a = g.add_asset("service", "solr.corp-dmz.svc")
+    n = g.get_asset(a)
+    assert n.is_closed is False and n.closed_at_round == 0
+    ok = g.add_closure(a, round=17, reason="demo core read; no PII fields")
+    assert ok is True
+    n = g.get_asset(a)
+    assert n.is_closed and n.closed_at_round == 17 and "no PII" in n.closure_reason
+
+
+# ── 폐쇄: 멱등성 — 이미 닫힌 자산을 다시 닫으려 하면 False 반환, 최초 닫힘 유지 ──
+def test_closure_idempotent():
+    g = InMemoryAssetGraph()
+    a = g.add_asset("service", "solr.corp-dmz.svc")
+    assert g.add_closure(a, round=17, reason="r17 reason") is True
+    assert g.add_closure(a, round=20, reason="r20 reason") is False     # 최초 닫힘만 신뢰
+    n = g.get_asset(a)
+    assert n.closed_at_round == 17 and n.closure_reason == "r17 reason"
+
+
+# ── 폐쇄: 잘못된 라운드·없는 id 는 거부(안전장치) ──
+def test_closure_rejects_bad_input():
+    g = InMemoryAssetGraph()
+    a = g.add_asset("service", "x")
+    assert g.add_closure(a, round=0, reason="r") is False       # 라운드 0 거부
+    assert g.add_closure(a, round=-1, reason="r") is False      # 음수 거부
+    assert g.add_closure(99999, round=1, reason="r") is False   # 없는 id
+
+
+# ── 폐쇄: closures() 가 round 역순 반환 ──
+def test_closures_listing_order():
+    g = InMemoryAssetGraph()
+    a1 = g.add_asset("service", "a1")
+    a2 = g.add_asset("service", "a2")
+    a3 = g.add_asset("service", "a3")       # 안 닫음
+    g.add_closure(a1, round=3, reason="r")
+    g.add_closure(a2, round=7, reason="r")
+    cs = g.closures()
+    assert [c.id for c in cs] == [a2, a1] and a3 not in {c.id for c in cs}
+
+
+# ── 폐쇄: _copy 가 closure 필드를 전달(바깥 변이 격리) ──
+def test_closure_fields_copied_out():
+    g = InMemoryAssetGraph()
+    a = g.add_asset("service", "x")
+    g.add_closure(a, round=5, reason="original")
+    n = g.get_asset(a)
+    n.closure_reason = "mutated"                 # 복사본만 바뀜
+    assert g.get_asset(a).closure_reason == "original"
+
+
 # ── 동시성: 여러 워커가 같은 자산 관측 → 노드 하나, 중복 없음 ──
 def test_concurrent_dedup():
     g = InMemoryAssetGraph()

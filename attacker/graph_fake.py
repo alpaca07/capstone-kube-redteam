@@ -176,6 +176,14 @@ class InMemoryGraph(ExplorationGraph):
                 if t and t not in sel:
                     sel.append(t)
 
+    def annotate_fact(self, fact_id: int, patch: dict) -> bool:
+        with self._lock:
+            n = self._nodes.get(fact_id)
+            if n is None or n.kind != NodeKind.FACT or not isinstance(patch, dict):
+                return False
+            n.payload = {**n.payload, **patch}
+            return True
+
     # ── 읽기 ──
     def _copy(self, n: Node) -> Node:
         """호출자에게 내부 노드의 사본을 준다(바깥 변이가 저장소를 안 건드리게)."""
@@ -243,6 +251,10 @@ class InMemoryGraph(ExplorationGraph):
                     "severity": p.get("severity", ""), "confidence": p.get("confidence"),
                     "occurrences": p.get("occurrences"), "anchors": list(n.anchors),
                     "round": p.get("_round"),             # 생성 라운드(대시보드 라운드별 추가 강조)
+                    # 폐쇄 신호(fact 전용) — 대시보드가 노드에 '데드엔드 후보/승격' 표식을 띄울 수
+                    # 있도록 노출. closure_candidate: 워커가 단 신호, promoted: 플래너가 승격한 라운드.
+                    "closure_candidate": bool(p.get("closure_candidate")),
+                    "promoted": p.get("promoted"),
                 })
             edges = [{"src": e.src_id,
                       "rel": e.rel.value if hasattr(e.rel, "value") else str(e.rel),

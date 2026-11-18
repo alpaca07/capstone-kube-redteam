@@ -302,6 +302,26 @@ class Neo4jGraph(ExplorationGraph):
             "MERGE (n)-[:SELECTED]->(t)",
             id=node_id, tids=tids)
 
+    def annotate_fact(self, fact_id: int, patch: dict) -> bool:
+        if not isinstance(patch, dict) or not patch:
+            return False
+        # 트랜잭션 안에서 payload_json 읽어 머지 후 재기록(원자적). kind 검사도 같은 TX 안에서.
+        with self._driver.session(database=self._db) as s:
+            return bool(s.execute_write(self._annotate_fact_tx, fact_id, patch))
+
+    def _annotate_fact_tx(self, tx, fact_id: int, patch: dict) -> bool:
+        rec = tx.run(
+            "MATCH (n:Fact {episode:$episode, id:$id}) RETURN n.payload_json AS pj",
+            episode=self._episode, id=int(fact_id)).single()
+        if rec is None:
+            return False
+        pay = json.loads(rec.get("pj") or "{}")
+        pay.update(patch)
+        tx.run("MATCH (n:Fact {episode:$episode, id:$id}) SET n.payload_json = $pj",
+               episode=self._episode, id=int(fact_id),
+               pj=json.dumps(pay, ensure_ascii=False))
+        return True
+
     # ── 읽기 ──
     def get_node(self, node_id: int) -> Optional[Node]:
         rows = self._run(_GET, id=node_id)
@@ -347,6 +367,9 @@ class Neo4jGraph(ExplorationGraph):
                 "severity": p.get("severity", ""), "confidence": p.get("confidence"),
                 "occurrences": p.get("occurrences"), "anchors": list(n.anchors),
                 "round": p.get("_round"),             # 생성 라운드(대시보드 라운드별 추가 강조)
+                # 폐쇄 신호(fact 전용) — 대시보드 표식(데드엔드 후보/승격)용
+                "closure_candidate": bool(p.get("closure_candidate")),
+                "promoted": p.get("promoted"),
             })
         edges = [{"src": int(r["src"]), "rel": str(r["rel"]).lower(), "dst": int(r["dst"])}
                  for r in self._run(_SNAP_EDGES)]

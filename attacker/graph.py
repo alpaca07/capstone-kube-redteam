@@ -160,6 +160,12 @@ class ExplorationGraph(Protocol):
         Technique 노드로 SELECTED 엣지를 MERGE(존재하는 기법만). memory 백엔드는 payload 만."""
         ...
 
+    def annotate_fact(self, fact_id: int, patch: dict) -> bool:
+        """사실 노드 payload 에 키-값을 '덧붙임'(기존 키 덮어씀, 기타 키 유지). 반환: 적용 여부.
+        용도: 폐쇄 승격이 심사 완료 후보에 promoted=<round> 를 찍어 다음 라운드 재심사 방지 등
+        '라운드 간 메타데이터' 전용. 사실의 핵심 필드(summary/evidence)는 건드리지 않는 것이 관례."""
+        ...
+
     # ── 읽기 ──
     def get_node(self, node_id: int) -> Optional[Node]:
         ...

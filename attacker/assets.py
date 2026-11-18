@@ -39,11 +39,22 @@ class AssetNode:
     confidence: str = ""                 # 신뢰값(observed/inferred 등 — 자유)
     attrs: dict = field(default_factory=dict)   # port·proto·title·status 등 자유 속성
     episode: int = 0
+    # ── 폐쇄(closure) — '여기엔 목표 없음'으로 확인된 자산 ──
+    # 이번 라운드에 플래너가 '승격'(workers 의 closure_candidate → 플래너 1차 판정)해 닫힘.
+    # 닫힌 자산은 _asset_situation 에 [closed:R<N> <reason>] 로 표시되고 PLANNER_SYSTEM 룰이
+    # 여기에 새 의도 생성을 금지한다(명시적 재검증 지시 제외). 대칭: ENABLES(발견→후속) 이
+    # '성공한 리드' 를 영구 추적하듯 closure 는 '막다른 리드' 를 영구 추적한다 → 데드엔드 재발견 방지.
+    closed_at_round: int = 0             # 0 = 열려있음. 양수면 그 라운드에 닫힘.
+    closure_reason: str = ""              # 플래너가 승격 시 적는 짧은 사유(렌더에 그대로 뜸)
 
     @property
     def identified(self) -> bool:
         """CPE가 있으면 '식별된(=공격 가능 후보)' 자산."""
         return bool(self.cpe)
+
+    @property
+    def is_closed(self) -> bool:
+        return self.closed_at_round > 0
 
 
 def merge_asset_fields(existing: AssetNode, *, kind: str = "", cpe: str = "",
@@ -108,6 +119,17 @@ class AssetGraph(Protocol):
 
     def unidentified(self, limit: int = 100) -> list[AssetNode]:
         """CPE 없는 자산들 = 아직 '정찰 필요'(플래너가 식별 의도를 낼 후보)."""
+        ...
+
+    # ── 폐쇄(closure) — '여기엔 목표 없음' 영구 추적 ──
+    def add_closure(self, asset_id: int, *, round: int, reason: str) -> bool:
+        """자산을 '목표 없음'으로 닫는다. round>0 필수(renderer 가 R<N> 로 띄움).
+        이미 닫혀있으면 False(갱신 없음) — 최초 닫힘만 신뢰(겹친 승격 방지).
+        없는 id 면 False. 플래너 1차 승격 경로 전용 — 워커는 closure_candidate 만 남긴다."""
+        ...
+
+    def closures(self, limit: int = 100) -> list[AssetNode]:
+        """닫힌 자산들(round 역순). 대시보드·통계용."""
         ...
 
 

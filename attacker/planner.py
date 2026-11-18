@@ -89,8 +89,11 @@ restate directions already open or running. Produce as many distinct, genuinely 
 directions as actually exist — proposing FEWER than the target is expected and correct when the \
 surface is thin. NEVER invent filler, vague, or redundant directions just to reach the number.
 - KNOWN ASSETS is the discovered terrain (host > service > endpoint), each tagged [explored] \
-(a worker already probed it) or [untouched]. Prefer [untouched] assets and ones not already \
-covered by recent facts or in-flight intents — spend new intents on unexplored surface.
+(a worker already probed it), [untouched], or [closed:R<N> <reason>] (previously PROVEN to \
+not hold the goal data — do NOT propose intents against a [closed] asset; it is a confirmed \
+dead end. Child endpoints of a closed asset stay open unless closed themselves). Prefer \
+[untouched] assets and ones not already covered by recent facts or in-flight intents — spend \
+new intents on unexplored surface.
 - BALANCE breadth with DEPTH — do not spend every intent opening new ground. Whenever a recent \
 fact or known asset is a concrete lead toward the GOAL (a secret/credential/token endpoint, a \
 reachable service on the path to the crown), dedicate at least one intent to DRIVING THAT LEAD \
@@ -363,6 +366,44 @@ class PlanResult:
         return not self.error and self.proposed == 0
 
 
+# ───────────── 폐쇄 승격(closure promotion) — 2단 게이트의 플래너 쪽 ─────────────
+# 워커가 사실에 closure_candidate 를 달면(1단: 워커 신호), 플래너가 다음 라운드 전에
+# 그 후보들을 보고 '정말 그 자산을 영구 폐쇄할 증거인가' 를 재판(2단: 플래너 승격). 통과한
+# 것만 asset_graph.add_closure() → _asset_situation 에 [closed:R<N> <reason>] 로 영구 표시
+# → PLANNER_SYSTEM 룰이 그 자산에 새 의도 생성 금지. 비대칭 보완: ENABLES 가 '성공 리드'를
+# 영구 추적하듯 closure 는 '막다른 리드' 를 영구 추적한다.
+CLOSURE_SYSTEM = """\
+You are the CLOSURE REVIEWER of an authorized, sandboxed red-team planner. A worker has \
+flagged one or more facts with closure_candidate=true, claiming the referenced asset does \
+NOT hold the goal data. Your job: REJECT those claims unless they meet ALL of these strict \
+criteria (err heavily toward keeping the asset open — a wrongly closed asset is a dead \
+investigation):
+
+1) The worker had READ access to the asset (query succeeded, response parsed, content seen) \
+— NOT a transient failure (DNS, timeout, 403, 404, auth-required, connection refused).
+2) The asset was fully read, not a subset (e.g. "Solr demo core has no PII" is NOT a full \
+read of the Solr cluster — other cores may exist; "the /api/customers endpoint returned []" \
+IS a full read of that endpoint).
+3) The absence of goal data is positively confirmed by the evidence line, not inferred.
+
+Close only AT THE ENDPOINT/CHILD LEVEL the evidence actually covers — never the whole \
+service or whole host unless the evidence actually covered the whole service/host.
+
+Output ONLY a JSON object, no prose:
+{"closures": [{"fact_id": <F#>, "reason": "<<=15 words, states what was read and what was \
+absent>"}]}
+Return "closures": [] when nothing meets the criteria. Omit candidates that fail any \
+criterion — do not try to salvage them with reworded reasons."""
+
+
+@dataclass
+class PromoteResult:
+    closed_ids: list[int]          # 이번에 asset_graph 에 폐쇄 태그가 달린 자산 id들
+    reviewed: int                  # 플래너가 검토한 후보 사실 수
+    rejected: int = 0              # 심사에서 떨군 후보 수(엄격한 기준에 못 미침)
+    error: str = ""                # 파싱/호출 실패 — 폐쇄 승격 생략(라운드 자체는 계속)
+
+
 class Planner:
     def __init__(self, llm: _LLM, *, goal: str, max_tokens: int = 3000,
                  retries: int = 1, target_intents: int = 4) -> None:
@@ -379,6 +420,81 @@ class Planner:
         return self.llm.chat_text_meta(
             system, user, max_tokens=max_tokens if max_tokens is not None else self.max_tokens,
             timeout=timeout, extra={"reasoning_effort": "none"})
+
+    # ── 0차: 폐쇄 승격(2단 게이트의 플래너 쪽) ──
+    def promote_closures(self, graph: ExplorationGraph, asset_graph,
+                         *, round: int, timeout: Optional[float] = None) -> PromoteResult:
+        """지난 라운드까지의 closure_candidate 사실들을 심사해 승격분만 asset_graph 에 폐쇄 태그.
+
+        반드시 라운드 시작 '전' 에 1회 호출 — 그래야 _asset_situation 에 [closed] 표시가 붙은
+        채로 플래너가 의도를 낸다. asset_graph 없으면 아무 것도 안 함(단위테스트/오프라인).
+        승격은 '사실 payload 의 closure_candidate=true 그리고 promoted=false' 인 것만 대상.
+        승격 결과는 사실 payload 에 promoted=round 로 기록 → 다음 라운드엔 재심사 안 함."""
+        if asset_graph is None or round <= 0:
+            return PromoteResult(closed_ids=[], reviewed=0)
+        # 후보 수집: closure_candidate==true & 아직 심사 안 됨 & 앵커가 있어 자산으로 해소 가능
+        cands: list[Node] = []
+        for f in graph.recent_facts(limit=10_000):
+            p = f.payload
+            if not p.get("closure_candidate"):
+                continue
+            if p.get("promoted"):                 # 이미 심사된 후보(승격이든 거부든) 재심사 안 함
+                continue
+            if not f.anchors:                     # 앵커 없는 후보는 자산으로 해소 불가 → 스킵
+                continue
+            cands.append(f)
+        if not cands:
+            return PromoteResult(closed_ids=[], reviewed=0)
+        # 심사용 블록 — F#·앵커자산명·evidence 를 간결히
+        lines: list[str] = []
+        fact_by_id: dict[int, Node] = {f.id: f for f in cands}
+        for f in cands:
+            ev = (f.payload.get("evidence") or f.payload.get("detail")
+                  or f.payload.get("summary") or "")[:200]
+            names = [asset_graph.get_asset(aid).name for aid in f.anchors
+                     if asset_graph.get_asset(aid) is not None]
+            tgt = ", ".join(names[:3]) if names else "(no asset)"
+            lines.append(f"F{f.id} on [{tgt}]: {f.payload.get('summary','')} | evidence: {ev}")
+        user = ("CLOSURE CANDIDATES (worker-flagged, needs your strict review):\n"
+                + "\n".join(lines))
+        try:
+            text, _finish = self._chat_meta(CLOSURE_SYSTEM, user, timeout)
+        except Exception as e:  # noqa: BLE001 — 호출 실패는 승격 생략(라운드 자체 계속)
+            return PromoteResult(closed_ids=[], reviewed=len(cands),
+                                 error=f"llm 호출 실패: {type(e).__name__}: {e}")
+        # 파싱 — 실패하면 이번 라운드 승격 생략(그래도 다음 라운드엔 재심사; promoted 플래그 안 찍음)
+        try:
+            obj = extract_and_load(text or "")
+        except LLMJsonError as e:
+            return PromoteResult(closed_ids=[], reviewed=len(cands), error=f"파싱 실패: {e}")
+        approved: list[dict] = []
+        for it in (obj.get("closures", []) if isinstance(obj, dict) else []) or []:
+            if not isinstance(it, dict):
+                continue
+            try:
+                fid = int(it.get("fact_id"))
+            except (TypeError, ValueError):
+                continue
+            if fid not in fact_by_id:
+                continue
+            approved.append({"fact_id": fid, "reason": str(it.get("reason", "")).strip()})
+        # 적용 — 승격된 후보의 앵커 자산들에 closure 를 건다. 거부된 후보도 promoted 는 찍어
+        # (재심사 루프 방지 — 워커가 또 같은 신호를 내면 새 사실 id 로 들어오므로 괜찮다).
+        closed_ids: list[int] = []
+        approved_fids = {a["fact_id"] for a in approved}
+        for a in approved:
+            f = fact_by_id[a["fact_id"]]
+            for aid in f.anchors:
+                if asset_graph.add_closure(aid, round=round, reason=a["reason"] or "proven empty"):
+                    closed_ids.append(aid)
+        # 심사된 모든 후보에 promoted 플래그 → 재심사 방지
+        for f in cands:
+            try:
+                graph.annotate_fact(f.id, {"promoted": int(round)})
+            except Exception:   # noqa: BLE001 — annotate 미지원이면 플래그 없이도 다음 라운드엔
+                pass             # 같은 후보가 다시 cand 로 잡히지만 폐쇄는 idempotent(이미 닫힘 반환)
+        return PromoteResult(closed_ids=closed_ids, reviewed=len(cands),
+                             rejected=len(cands) - len(approved_fids))
 
     # ── 1차: 지식 선별 ──
     def select_knowledge(self, graph: ExplorationGraph, *, assets_block: str = "",

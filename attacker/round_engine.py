@@ -88,7 +88,12 @@ def _asset_situation(asset_graph, *, foothold_line: str = "", touched=None,
         seen.add(a.id)
         ident = " ✓id" if a.identified else ""
         mark = ""
-        if touched is not None:                  # 앵커 기록으로 explored/untouched 표시
+        # 폐쇄 상태 우선 — [closed] 가 [explored]/[untouched] 를 덮어쓴다(플래너 룰: closed 에
+        # 의도 생성 금지. 명시 재검증이 아니면 지나가야 함). 사유는 토큰 아껴 짧게.
+        if a.is_closed:
+            why = f": {a.closure_reason}" if a.closure_reason else ""
+            mark = f" [closed:R{a.closed_at_round}{why}]"
+        elif touched is not None:                # 앵커 기록으로 explored/untouched 표시
             mark = " [explored]" if a.id in touched else " [untouched]"
         lines.append(f"{'  ' * depth}- [{a.kind}] {a.name}{ident}{mark}")
         for c in kids.get(a.id, []):
@@ -204,6 +209,20 @@ class AttackRound:
 
         # 목표(goal) 노드 — 개막 의도의 루트. 그래프를 하나로 잇는다(의도 따로따로 방지).
         goal_id = graph.add_goal({"summary": start.goal})
+
+        # 폐쇄 승격(2단 게이트의 플래너 쪽) — 지난 라운드 워커가 달아둔 closure_candidate 사실들을
+        # 라운드 '시작 전' 에 플래너가 엄격 심사. 통과한 자산만 asset_graph 에 [closed] 태그 →
+        # 이번 라운드 _asset_situation 에 표시돼 PLANNER_SYSTEM 룰이 그 자산 재발견을 막는다.
+        # R1 은 지난 라운드가 없어 스킵. asset_graph 없으면 스킵(InMemory 테스트).
+        if round > 1 and asset_graph is not None:
+            prom = planner.promote_closures(graph, asset_graph, round=round,
+                                            timeout=max(5.0, deadline - self.clock()))
+            if prom.reviewed:
+                if prom.error:
+                    self.log(f"[round r{round}] 폐쇄 승격 심사 실패({prom.error}) — 승격 생략(라운드 계속)")
+                else:
+                    self.log(f"[round r{round}] 폐쇄 승격 심사: 후보 {prom.reviewed} · "
+                             f"승격 {len(prom.closed_ids)} · 거부 {prom.rejected}")
 
         waves = 0
         planner_empty = False

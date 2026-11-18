@@ -22,7 +22,8 @@ class InMemoryAssetGraph(AssetGraph):
 
     def _copy(self, n: AssetNode) -> AssetNode:
         return AssetNode(id=n.id, kind=n.kind, name=n.name, cpe=n.cpe,
-                         confidence=n.confidence, attrs=dict(n.attrs), episode=n.episode)
+                         confidence=n.confidence, attrs=dict(n.attrs), episode=n.episode,
+                         closed_at_round=n.closed_at_round, closure_reason=n.closure_reason)
 
     # ── 쓰기 ──
     def add_asset(self, kind: str, name: str, *, cpe: str = "", confidence: str = "",
@@ -84,6 +85,22 @@ class InMemoryAssetGraph(AssetGraph):
         with self._lock:
             ns = [n for n in self._nodes.values() if not n.cpe]
             ns.sort(key=lambda n: n.id, reverse=True)
+            return [self._copy(n) for n in ns[:limit]]
+
+    # ── 폐쇄(closure) ──
+    def add_closure(self, asset_id: int, *, round: int, reason: str) -> bool:
+        with self._lock:
+            n = self._nodes.get(asset_id)
+            if n is None or n.closed_at_round > 0 or round <= 0:
+                return False             # 없음/이미닫힘/잘못된 라운드 — 변경 없음
+            n.closed_at_round = int(round)
+            n.closure_reason = (reason or "").strip()[:200]   # 렌더에 그대로 뜨므로 길이 제한
+            return True
+
+    def closures(self, limit: int = 100) -> list[AssetNode]:
+        with self._lock:
+            ns = [n for n in self._nodes.values() if n.closed_at_round > 0]
+            ns.sort(key=lambda n: n.closed_at_round, reverse=True)
             return [self._copy(n) for n in ns[:limit]]
 
     # ── 테스트 편의 ──

@@ -24,7 +24,9 @@ def _asset_from_props(p: dict) -> AssetNode:
         id=int(p["id"]), kind=p.get("kind", "") or "", name=p.get("name", "") or "",
         cpe=p.get("cpe", "") or "", confidence=p.get("confidence", "") or "",
         attrs=json.loads(p.get("attrs_json") or "{}"),
-        episode=int(p.get("episode", 0) or 0))
+        episode=int(p.get("episode", 0) or 0),
+        closed_at_round=int(p.get("closed_at_round", 0) or 0),
+        closure_reason=p.get("closure_reason", "") or "")
 
 
 def _asset_set_props(n: AssetNode) -> dict:
@@ -44,6 +46,13 @@ _UNID = ("MATCH (n:Asset {episode:$episode}) WHERE n.cpe = '' OR n.cpe IS NULL "
          "RETURN n{.*} AS props ORDER BY n.id DESC LIMIT $limit")
 _CHILDREN = ("MATCH (:Asset {episode:$episode, id:$id})-[:CONTAINS]->(c:Asset {episode:$episode}) "
              "RETURN c{.*} AS props")
+# 폐쇄 — closed_at_round 0(기본)이면 안 닫힘으로 취급. 이미 닫혔으면 아무 것도 안 함(최초 닫힘만 신뢰).
+_CLOSE = ("MATCH (n:Asset {episode:$episode, id:$id}) "
+          "WHERE coalesce(n.closed_at_round, 0) = 0 "
+          "SET n.closed_at_round = $round, n.closure_reason = $reason "
+          "RETURN n.id AS id")
+_CLOSED = ("MATCH (n:Asset {episode:$episode}) WHERE coalesce(n.closed_at_round,0) > 0 "
+           "RETURN n{.*} AS props ORDER BY n.closed_at_round DESC LIMIT $limit")
 _RESET = "MATCH (n:Asset {episode:$episode}) DETACH DELETE n"
 _SCHEMA = [
     "CREATE INDEX asset_id IF NOT EXISTS FOR (n:Asset) ON (n.episode, n.id)",
@@ -157,6 +166,16 @@ class Neo4jAssetGraph(AssetGraph):
 
     def unidentified(self, limit: int = 100) -> list[AssetNode]:
         return [_asset_from_props(r["props"]) for r in self._run(_UNID, limit=limit)]
+
+    def add_closure(self, asset_id: int, *, round: int, reason: str) -> bool:
+        if round <= 0:
+            return False
+        rows = self._run(_CLOSE, id=int(asset_id), round=int(round),
+                         reason=(reason or "").strip()[:200])
+        return bool(rows)                 # 쿼리 WHERE 로 인한 '이미 닫힘'·'없음' 은 빈 결과
+
+    def closures(self, limit: int = 100) -> list[AssetNode]:
+        return [_asset_from_props(r["props"]) for r in self._run(_CLOSED, limit=limit)]
 
 
 __all__ = ["Neo4jAssetGraph", "_asset_from_props", "_asset_set_props"]

@@ -194,6 +194,25 @@ def test_snapshot_flattens_nodes_and_edges():
     assert isinstance(json.dumps(snap), str)          # 교차망 전송 직렬화 가능
 
 
+# ── annotate_fact: payload 덧붙이기(기존 키 덮어씀, 다른 키 유지), fact 만 ──
+def test_annotate_fact_merges_payload():
+    g = InMemoryGraph()
+    fid = g.add_fact({"summary": "x", "evidence": "y", "closure_candidate": True})
+    assert g.annotate_fact(fid, {"promoted": 5, "evidence": "overwritten"}) is True
+    p = g.get_node(fid).payload
+    assert p["promoted"] == 5                   # 새 키 추가
+    assert p["evidence"] == "overwritten"       # 기존 키 덮어씀
+    assert p["summary"] == "x"                   # 안 건드린 키 유지
+    assert p["closure_candidate"] is True
+
+
+def test_annotate_fact_refuses_non_fact_or_missing():
+    g = InMemoryGraph()
+    iid = g.add_intent({"summary": "x"})
+    assert g.annotate_fact(iid, {"promoted": 1}) is False     # intent 는 거부
+    assert g.annotate_fact(99999, {"promoted": 1}) is False   # 없는 id
+
+
 def _run() -> int:
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

@@ -32,7 +32,7 @@
 
   // ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (server.py 의 SERVER_BUILD 과 같은 값으로 함께 올린다).
   // 좌상단에 v<UI_BUILD> 를 표시하고, 서버가 보고한 server_build 와 다르면 '재시작 필요' 경고를 띄운다.
-  var UI_BUILD = 12;
+  var UI_BUILD = 13;
   function renderBuild(serverBuild) {
     var el = document.getElementById("build-tag");
     if (!el) return;
@@ -1823,9 +1823,19 @@
     var rawParts = n.godview ? "" : (
       (n.summary && n.summary !== curation ? '<div class="ag-raw-k">summary</div><div class="ag-sum">' + esc(n.summary) + "</div>" : "") +
       (n.detail && n.detail !== n.summary && n.detail !== curation ? '<div class="ag-raw-k">detail</div><div class="ag-sum">' + esc(n.detail) + "</div>" : ""));
+    // 폐쇄(closure) 뱃지 — 승격되면 '데드엔드 확정'(빨강), 후보만 있으면 '데드엔드 후보'(앰버).
+    // 대상 자산이 '목표 없음'으로 입증돼 플래너가 더 이상 거기 의도를 내지 않게 하는 신호.
+    var clsBadge = "";
+    if (n.kind === "fact" && n.promoted) {
+      clsBadge = '<span class="badge" style="background:#dc2626;color:#fff" title="이 사실이 플래너 심사를 통과해 대상 자산을 R'
+        + n.promoted + '에 폐쇄로 승격. 이후 라운드부터 그 자산엔 새 의도 금지.">데드엔드 R' + n.promoted + '</span>';
+    } else if (n.kind === "fact" && n.closure_candidate) {
+      clsBadge = '<span class="badge" style="background:#f59e0b;color:#0b0f1a" title="워커가 대상 자산을 데드엔드 후보로 표시. 다음 라운드 전에 플래너가 심사해 승격·거부를 결정.">데드엔드 후보</span>';
+    }
     var head = '<div class="ag-ph"><span class="badge" style="background:' + col.bg + ";color:" + col.line + '">' + kindLabelFull(n.kind) + "</span>" +
       (n.godview ? '<span class="badge b-ok" title="심판 god-view 접근기록으로 확정된 침해">god-view 확정</span>' : "") +
       (n.technique ? '<span class="badge b-atk">' + esc(n.technique) + "</span>" : "") +
+      clsBadge +
       (n.state && n.state !== "exhausted" ? '<span class="chip ag-state" style="color:' + stateColor(n.state) + ';border-color:' + stateColor(n.state) + '33">' + esc(stateKo(n.state)) + "</span>" : "") + "</div>" +
       (_fc ? agCvssBlock(_fc, n) : "") +
       (curation ? '<div class="ag-desc ag-desc-main">' + esc(curation) + "</div>" : "") +
@@ -1975,6 +1985,20 @@
       var gvTag = n.godview ? '<g class="ag-gv"><rect x="' + (p.x + NW - 62) + '" y="' + (p.y - 8) +
         '" width="58" height="15" rx="7.5" fill="#0ea371"/><text x="' + (p.x + NW - 33) + '" y="' + (p.y + 3) +
         '" text-anchor="middle" font-size="8.5" font-weight="700" fill="#fff">god-view</text></g>' : "";
+      // 폐쇄(closure) 표식 — fact 노드 전용. 승격(promoted>0) = 빨강 '데드엔드', 후보만 = 앰버 '후보'.
+      // 'promoted' 는 승격 라운드(정수) — 플래너 1차가 근거 통과시킨 뒤 asset_graph 에 폐쇄 태그가 달린 것.
+      var clsTag = "";
+      if (n.kind === "fact") {
+        if (n.promoted) {
+          clsTag = '<g class="ag-clsd"><rect x="' + (p.x + NW - 62) + '" y="' + (p.y + NH - 7) +
+            '" width="58" height="15" rx="7.5" fill="#dc2626"/><text x="' + (p.x + NW - 33) + '" y="' + (p.y + NH + 4) +
+            '" text-anchor="middle" font-size="8.5" font-weight="700" fill="#fff">데드엔드</text></g>';
+        } else if (n.closure_candidate) {
+          clsTag = '<g class="ag-clsc"><rect x="' + (p.x + NW - 50) + '" y="' + (p.y + NH - 7) +
+            '" width="46" height="15" rx="7.5" fill="#f59e0b"/><text x="' + (p.x + NW - 27) + '" y="' + (p.y + NH + 4) +
+            '" text-anchor="middle" font-size="8.5" font-weight="700" fill="#0b0f1a">데드엔드?</text></g>';
+        }
+      }
       // 직전 부모(맥락) 표식 — 라운드별 보기에서 끌어온 한 단계 위 부모. 라운드 태그 오른쪽에.
       var ctxTag = isCtx ? '<g class="ag-ctxtag"><rect x="' + (p.x + 8 + rtw + 4) + '" y="' + (p.y - 8) +
         '" width="54" height="15" rx="7.5" fill="#64748b"/><text x="' + (p.x + 8 + rtw + 4 + 27) + '" y="' + (p.y + 3) +
@@ -1982,7 +2006,7 @@
       return '<g class="' + cls + (rcur ? " ag-rcur" : "") + '" data-nid="' + n.id + '"' + (delay ? ' style="animation-delay:' + delay + 'ms"' : "") + ' opacity="' + op + '">' +
         '<rect x="' + p.x + '" y="' + p.y + '" width="' + NW + '" height="' + NH + '" rx="10" fill="' + col.bg + '" stroke="' + col.line + '" stroke-width="' + (sel ? 2.8 : (col.solid ? 1.6 : 1.2)) + '"' + (dead || isCtx ? ' stroke-dasharray="5 3"' : "") + "/>" +
         '<text class="agk" x="' + (p.x + 13) + '" y="' + (p.y + 21) + '" font-size="9.5" font-weight="700" fill="' + l1col + '">' + l1 + "</text>" + stBadge +
-        '<text x="' + (p.x + 13) + '" y="' + (p.y + 39) + '" font-size="11.5" fill="' + l2col + '">' + l2 + "</text>" + rTag + gvTag + ctxTag + "</g>";
+        '<text x="' + (p.x + 13) + '" y="' + (p.y + 39) + '" font-size="11.5" fill="' + l2col + '">' + l2 + "</text>" + rTag + gvTag + ctxTag + clsTag + "</g>";
     }).join("");
     var vb = agView || { x: 0, y: 0, w: W, h: H };     // agView=수동 조작(확대·이동) 지속, null=자동 맞춤(라이브 성장 추적)
     var tools = '<div class="ag-tools">' +

@@ -81,6 +81,28 @@ def test_parse_settlement_drops_empty_summary():
     assert len(facts) == 1 and facts[0].summary == "real"
 
 
+# ── 정착 파싱: closure_candidate 필드가 FactDraft·payload 로 흐른다 ──
+def test_parse_settlement_closure_candidate_field():
+    facts, _ = parse_settlement(
+        '{"facts":[{"summary":"solr demo no PII","evidence":"luke",'
+        '"closure_candidate":true},'
+        '{"summary":"dns fail","closure_candidate":false}],'
+        '"finding":null}')
+    assert len(facts) == 2
+    assert facts[0].closure_candidate is True
+    assert facts[1].closure_candidate is False
+    # payload 전달: true 는 전달, false 는 안 전달(불필요 키 노이즈 방지)
+    pt = facts[0].to_payload(source_step_ids=[])
+    pf = facts[1].to_payload(source_step_ids=[])
+    assert pt.get("closure_candidate") is True
+    assert "closure_candidate" not in pf
+
+
+def test_parse_settlement_closure_default_false():
+    facts, _ = parse_settlement('{"facts":[{"summary":"x"}]}')
+    assert facts[0].closure_candidate is False
+
+
 # ── 한 의도 실행: ReAct 스텝 실행 + 정착 fact가 intent에 yields로 연결 ──
 def test_run_one_intent_writes_fact_linked():
     g = InMemoryGraph()
