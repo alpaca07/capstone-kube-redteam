@@ -42,13 +42,21 @@ def _cmd_probe(args) -> int:
 
 def _cmd_refine(args) -> int:
     cfg = load_config(args.config)
+    # 헤드룸 실험용 런타임 덮어쓰기(config 안 건드림) — 턴 예산·크라운 타깃.
+    if args.time_limit is not None:
+        cfg.experiment.time_limit_sec = args.time_limit
+    if args.target_assets:
+        cfg.experiment.objective_mode = "asset"
+        cfg.experiment.target_assets = [a.strip() for a in args.target_assets.split(",") if a.strip()]
     digest: dict = {}
     if args.digest_file:
         with open(args.digest_file, "r", encoding="utf-8") as f:
             digest = json.load(f)
     print(f"[refine] 시작 — n={args.n_candidates or cfg.refiner.n_candidates}, "
           f"top_k={args.probe_top_k or cfg.refiner.probe_top_k}, "
-          f"basis={args.basis or cfg.refiner.probe_basis}")
+          f"basis={args.basis or cfg.refiner.probe_basis}, "
+          f"turn={cfg.experiment.time_limit_sec}s"
+          + (f", targets={cfg.experiment.target_assets}" if cfg.experiment.target_assets else ""))
     try:
         result = run_refine(cfg, digest, n_candidates=args.n_candidates,
                             probe_top_k=args.probe_top_k, basis=args.basis,
@@ -86,6 +94,10 @@ def main(argv=None) -> int:
     r.add_argument("--probe-top-k", type=int, default=None, dest="probe_top_k")
     r.add_argument("--basis", default=None, choices=["clean", "patched"])
     r.add_argument("--min-gain", type=float, default=None, dest="min_gain")
+    r.add_argument("--time-limit", type=int, default=None, dest="time_limit",
+                   help="헤드룸 실험: 공격 턴 예산(초) 덮어쓰기. 줄이면 크라운 못 채워 gradient 생김")
+    r.add_argument("--target-assets", default=None, dest="target_assets",
+                   help="헤드룸 실험: 크라운 타깃 덮어쓰기(쉼표구분, 예: crown-secrets,crown-ops)")
     r.set_defaults(func=_cmd_refine)
 
     args = ap.parse_args(argv)
