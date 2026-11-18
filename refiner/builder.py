@@ -98,6 +98,19 @@ def build_probe(
     )
 
 
+def build_store(cfg: Config, *, log: Optional[Callable[[str], None]] = None):
+    """config 로 FileHarnessStore 조립 — 오버레이는 VM C 로컬(refiner_state/), 기반은 레포 공격 프롬프트.
+
+    기반 프롬프트 파일(attacker/prompts/attacker_system.txt)은 VM C sparse 에 없으면 못 읽음
+    → 이 경우 기반이 빈 채로 와서 refine 이 거부한다(아래 run_refine 가드). VM C 에서 refine 을
+    돌리려면 `git sparse-checkout add attacker/prompts` 선행 필요.
+    """
+    from refiner.store import FileHarnessStore
+    state_path = _ROOT / "refiner_state" / "overlays.json"
+    base_path = _ROOT / "attacker" / "prompts" / "attacker_system.txt"
+    return FileHarnessStore(str(state_path), base_prompt_path=str(base_path), log=log)
+
+
 def build_editor(cfg: Config, *, log: Optional[Callable[[str], None]] = None):
     """config 로 RefinerEditor 조립 — 정렬 모델(편집 엔드포인트)에 붙인다(I/O 없음).
 
@@ -117,4 +130,33 @@ def build_editor(cfg: Config, *, log: Optional[Callable[[str], None]] = None):
     return RefinerEditor(llm, log=log)
 
 
-__all__ = ["build_probe", "build_editor"]
+def run_refine(cfg: Config, digest: dict, *,
+               n_candidates: Optional[int] = None, probe_top_k: Optional[int] = None,
+               basis: Optional[str] = None, min_gain: Optional[float] = None,
+               log: Optional[Callable[[str], None]] = None):
+    """개량 한 사이클 실 조립·실행 — 편집자·시험실행·저장소를 config 로 엮어 refine() 호출.
+
+    기반 프롬프트가 비어 있으면(VM C sparse 에 attacker/prompts 없음) override 가 기반 없이
+    오버레이만 교체해 공격을 깨뜨리므로, 오버레이가 쌓일 상태에서는 거부한다.
+    """
+    from refiner.refiner import refine
+
+    editor = build_editor(cfg, log=log)
+    probe = build_probe(cfg, log=log)
+    store = build_store(cfg, log=log)
+
+    if not store.read().base_prompt.strip():
+        raise RuntimeError(
+            "기반 프롬프트를 읽지 못했습니다(attacker/prompts/attacker_system.txt). "
+            "VM C 에서 refine 하려면 먼저: git sparse-checkout add attacker/prompts")
+
+    return refine(
+        digest, store=store, editor=editor, probe=probe,
+        n_candidates=n_candidates if n_candidates is not None else cfg.refiner.n_candidates,
+        probe_top_k=probe_top_k if probe_top_k is not None else cfg.refiner.probe_top_k,
+        basis=basis or cfg.refiner.probe_basis,
+        min_gain=min_gain if min_gain is not None else cfg.refiner.min_gain,
+    )
+
+
+__all__ = ["build_probe", "build_editor", "build_store", "run_refine"]
