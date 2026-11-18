@@ -32,7 +32,7 @@
 
   // ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (server.py 의 SERVER_BUILD 과 같은 값으로 함께 올린다).
   // 좌상단에 v<UI_BUILD> 를 표시하고, 서버가 보고한 server_build 와 다르면 '재시작 필요' 경고를 띄운다.
-  var UI_BUILD = 13;
+  var UI_BUILD = 14;
   function renderBuild(serverBuild) {
     var el = document.getElementById("build-tag");
     if (!el) return;
@@ -82,7 +82,7 @@
 
   // ───────── 상태 ─────────
   var S = { rounds: [], episodes: [], runs: [], events: [], journal: [], status: {}, demo: false, runCount: 0, detItems: null };
-  var route = DEFAULT_ROUTE, evTab = "all", defSel = null, repEp = null, agRkey = null, agSel = null, agTab = "overview", agLogView = "intent", evRun = null, jRun = null, agView = null, agLogOpen = null, agHide = {}, agRaw = false, briefEp = null, _wasRunning = false, dlRun = null, dlOpen = null, agMode = "graph";
+  var route = DEFAULT_ROUTE, evTab = "all", defSel = null, repEp = null, agRkey = null, agSel = null, agTab = "overview", agLogView = "intent", evRun = null, jRun = null, agView = null, agLogOpen = null, agHide = {}, agRaw = false, briefEp = null, _wasRunning = false, dlRun = null, dlOpen = null, agMode = "graph", agFull = false;
 
   // ───────── 유틸 ─────────
   function $(sel, el) { return (el || document).querySelector(sel); }
@@ -1710,7 +1710,7 @@
     // agMode 포함 + 두 뷰 공유 컨테이너(.ag-layout)로 확인 — 리스트 뷰엔 .ag-svg 가 없어
     // 매 폴링마다 재렌더되며 스크롤이 맨 위로 튀던 문제 교정.
     var sig = nodes.map(function (n) { return n.id + ":" + (n.state || ""); }).join(",") + "|" +
-      (g.edges || []).map(function (e) { return e.src + ">" + e.dst; }).join(",") + "|" + agSel + "|" + agTab + "|" + selKey + "|" + agMode;
+      (g.edges || []).map(function (e) { return e.src + ">" + e.dst; }).join(",") + "|" + agSel + "|" + agTab + "|" + selKey + "|" + agMode + "|" + agFull;
     if (sig === S.agSig && document.querySelector(".ag-layout")) return;
     var seen = S.agSeen || {};
     nodes.forEach(function (n) { n._new = !seen[n.id]; });   // 새로 생긴 노드만 등장 애니메이션
@@ -1721,7 +1721,27 @@
     bindAttackGraph();
     view.scrollTop = _scroll;                                // 복원
   }
+  // 그래프 전체화면 — #view(폴링 재렌더에도 DOM 에 남는 안정 컨테이너)에 ag-full 클래스를 걸어
+  // .ag-wrap 를 화면 전체로 띄우고 그래프(노드)만 보이게 한다. 가능하면 네이티브 전체화면도 함께
+  // 요청(발표·판넬용 투사에 좋음) — 거부돼도 고정 오버레이로 화면 전체를 덮으므로 동작 보장.
+  function _agFullApply() {   // agFull 상태를 DOM 클래스에 반영(재렌더는 호출부에서)
+    var host = document.getElementById("view");
+    if (host) host.classList.toggle("ag-full", agFull);
+    document.body.classList.toggle("ag-full-lock", agFull);
+  }
+  function setAgFull(on) {
+    agFull = !!on; _agFullApply();
+    try {
+      var host = document.getElementById("view");
+      if (agFull && host && host.requestFullscreen && !document.fullscreenElement) host.requestFullscreen().catch(function () {});
+      else if (!agFull && document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function () {});
+    } catch (e) {}
+    if (route === "attack-graph") { S.agSig = null; pageAttackGraphRender(); }
+  }
   function bindAttackGraph() {
+    Array.prototype.forEach.call(document.querySelectorAll("[data-agfull]"), function (b) {   // 그래프 전체화면 토글
+      b.onclick = function () { setAgFull(!agFull); };
+    });
     Array.prototype.forEach.call(document.querySelectorAll("[data-agtab]"), function (b) {
       b.onclick = function () { agTab = b.getAttribute("data-agtab"); pageAttackGraphRender(); };
     });
@@ -2010,10 +2030,14 @@
     }).join("");
     var vb = agView || { x: 0, y: 0, w: W, h: H };     // agView=수동 조작(확대·이동) 지속, null=자동 맞춤(라이브 성장 추적)
     var tools = '<div class="ag-tools">' +
+      '<button class="ag-tool ag-tool-full" data-agfull aria-label="' + (agFull ? "전체화면 나가기" : "그래프 전체화면") + '" title="' + (agFull ? "전체화면 나가기 (Esc)" : "그래프만 전체화면으로") + '">' + (agFull ? "✕" : "⛶") + "</button>" +
       '<button class="ag-tool" data-agzoom="in" aria-label="확대">+</button>' +
       '<button class="ag-tool" data-agzoom="out" aria-label="축소">−</button>' +
       '<button class="ag-tool" data-agzoom="fit" aria-label="맞춤">⤢</button></div>';
-    var svg = '<div class="ag-wrap">' + tools +
+    // 전체화면 안내 바 — 평소 숨김(CSS), #view.ag-full 일 때만 좌상단에 회차·라운드 + 나가기 안내.
+    var _fctx = aggEp ? (aggEp + "회차 종합") : (rec ? ((rec.episode || 1) + "회차 R" + rec.round) : "예시");
+    var fullBar = '<div class="ag-full-bar">' + esc(_fctx) + " · 공격 추론 그래프 <span>Esc · ✕ 나가기</span></div>";
+    var svg = '<div class="ag-wrap">' + tools + fullBar +
       '<svg class="ag-svg" tabindex="0" viewBox="' + vb.x + " " + vb.y + " " + vb.w + " " + vb.h +
       '" preserveAspectRatio="xMidYMid meet" data-gw="' + W + '" data-gh="' + H + '">' + edgeSvg + nodeSvg + "</svg></div>";
     var legend = '<div class="ag-legend"><div class="legend">' +
@@ -2438,6 +2462,10 @@
   function onHash() {
     var r = (location.hash || "").replace(/^#/, "") || DEFAULT_ROUTE;
     if (!TITLES[r]) r = DEFAULT_ROUTE;
+    if (agFull && r !== "attack-graph") {   // 다른 화면으로 나가면 전체화면 해제(재렌더 없이 정리)
+      agFull = false; _agFullApply();
+      try { if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function () {}); } catch (e) {}
+    }
     if (r === "attack-graph") { S.agSeen = {}; S.agSig = null; }   // 진입 시 등장 애니메이션 재생
     route = r; closeSidebar(); render();
   }
@@ -2454,6 +2482,9 @@
     var _bd = $("#sidebar-backdrop"); if (_bd) _bd.onclick = closeSidebar;
     var _sc = $("#sidebar-close"); if (_sc) _sc.onclick = closeSidebar;
     window.addEventListener("hashchange", onHash);
+    // 그래프 전체화면 종료 — Esc 키, 또는 브라우저가 네이티브 전체화면을 빠져나갈 때 오버레이도 해제
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape" && agFull) setAgFull(false); });
+    document.addEventListener("fullscreenchange", function () { if (!document.fullscreenElement && agFull) setAgFull(false); });
     // 속성 블록 호버 설명 — 위임 방식(렌더마다 바인딩 불필요)
     document.addEventListener("mouseover", function (e) {
       var el = e.target && e.target.closest ? e.target.closest(_TIP_SEL) : null;

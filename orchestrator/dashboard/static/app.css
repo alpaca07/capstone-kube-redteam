@@ -514,6 +514,21 @@ button { font-family: inherit; }
   background: var(--surface); border: 1px solid var(--border-strong); border-radius: 7px; color: var(--text-2); cursor: pointer; box-shadow: var(--shadow); }
 .ag-tool:hover { border-color: var(--teal); color: var(--teal-600); }
 @media (max-width: 760px) { .ag-svg { height: 440px; } }
+/* 그래프 전체화면 — #view 에 ag-full 이 붙으면 .ag-wrap 를 화면 전체로 고정해 노드(그래프)만 표시.
+   #view 는 폴링 재렌더에도 DOM 에 남아 전체화면 상태가 유지된다. 네이티브 전체화면이면 #view 안이
+   화면을 채우고, 거부돼도 position:fixed 로 뷰포트를 덮어 사이드바·헤더 위를 가린다. */
+#view.ag-full .ag-wrap { position: fixed; inset: 0; z-index: 90; width: 100vw; height: 100vh; height: 100dvh;
+  border: none; border-radius: 0; box-shadow: none; background: var(--surface); }
+#view.ag-full .ag-svg { height: 100%; }
+#view.ag-full .ag-tools { top: 14px; right: 14px; }
+body.ag-full-lock { overflow: hidden; }
+.ag-tool-full { color: var(--teal-600); font-size: 15px; }
+#view.ag-full .ag-tool-full { color: #dc2626; }
+.ag-full-bar { display: none; }
+#view.ag-full .ag-full-bar { display: flex; position: absolute; top: 14px; left: 14px; z-index: 3;
+  gap: 8px; align-items: center; padding: 6px 12px; font-size: 12.5px; font-weight: 600; color: var(--text-2);
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: var(--shadow); }
+#view.ag-full .ag-full-bar span { color: var(--text-3); font-weight: 500; }
 .ag-node { cursor: pointer; transform-box: fill-box; transform-origin: center; }
 .ag-node:hover rect { stroke-width: 2.6; }
 .ag-panel { margin-top: 2px; }
