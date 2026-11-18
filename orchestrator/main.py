@@ -98,6 +98,15 @@ def build_sequencer(cfg: Config, *, sink=None, progress=None, events=None,
     )
     verifier = VerificationEngine(attacker, defender, baseline, registry,
                                   logs=logs, objectives=objectives)
+    # 게이팅(크라운 미반출) 라운드에도 대시보드 '타깃 구성도'가 뜨도록, god-view kubeconfig 로
+    # 토폴로지를 직접 스캔하는 리더(읽기 전용·표시 전용). 방어 턴 생략과 무관하게 매 회차 구성도 보존.
+    topo_reader = None
+    if cfg.target.kubeconfig:
+        try:
+            from defender.kubectl_cluster import KubectlCluster
+            topo_reader = KubectlCluster(kubeconfig=cfg.target.kubeconfig)
+        except Exception:
+            topo_reader = None
     truth = TruthLog()
     if params is None:
         params = RunParams(
@@ -118,7 +127,8 @@ def build_sequencer(cfg: Config, *, sink=None, progress=None, events=None,
                          objectives=objectives, truth=truth,
                          params=params, sink=sink, off_kg_sink=off_kg_sink,
                          progress=progress, events=events, detail_dir=detail_dir,
-                         episode_sink=episode_sink, kill_switch=kill_switch)
+                         episode_sink=episode_sink, kill_switch=kill_switch,
+                         topo_reader=topo_reader)
 
 
 def _params_from_args(cfg: Config, args: argparse.Namespace) -> RunParams:

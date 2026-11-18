@@ -117,6 +117,7 @@ class TurnSequencer:
                  events: Optional[EventSink] = None, detail_dir: Optional[str] = None,
                  episode_sink: Optional[Callable[[dict], None]] = None,
                  kill_switch: Optional[Callable[[], bool]] = None,
+                 topo_reader=None,
                  sleeper: Callable[[float], None] = time.sleep) -> None:
         self.attacker = attacker
         self.defender = defender
@@ -134,6 +135,8 @@ class TurnSequencer:
         self.detail_dir = detail_dir      # 라운드 상세 출력 디렉토리(round_detail/) — 없으면 무시
         self.episode_sink = episode_sink  # 회차 요약 sink(episodes.jsonl) — 회차 종료 즉시 기록, 없으면 무시
         self.kill_switch = kill_switch
+        self._topo_reader = topo_reader   # god-view 토폴로지 스캐너 — 게이팅(방어 미개입) 라운드에도 구성도 보존
+        self._topo_cache = None           # 스캔 결과 캐시(게이팅 중엔 패치 없어 정적)
         self._sleep = sleeper              # 테스트에서 주입 가능(실제론 time.sleep)
 
     # ───────────── public ─────────────
@@ -329,7 +332,8 @@ class TurnSequencer:
             # 크라운 미반출 → 방어·검증·공격후 스냅샷 전부 생략. 합성 결과로 라운드 기록만 남긴다.
             defense = DefenseTurnResult(
                 patch_applied=False, end_reason=DefenseEndReason.SKIPPED,
-                patch_note="크라운 미반출 → 방어 미개입(게이팅)")
+                patch_note="크라운 미반출 → 방어 미개입(게이팅)",
+                topology=self._scan_topology())   # 방어 턴은 생략해도 타깃 구성도는 보존(대시보드용)
             verification = VerificationResult(
                 verdict=Verdict.INCONCLUSIVE, method="skipped",
                 detail="크라운 미반출 → 방어·검증 생략, 히스토리 이월 후 다음 라운드")
@@ -366,6 +370,24 @@ class TurnSequencer:
                             defense_succeeded=verification.defense_succeeded(),
                             flags_reached=verification.flags_still_reachable,
                             flag_found=flag_found)
+
+    def _scan_topology(self) -> Optional[dict]:
+        """게이팅(방어 미개입) 라운드에도 대시보드 '타깃 구성도'가 뜨도록 god-view kubeconfig 로
+        토폴로지를 직접 스캔. 읽기 전용·표시 전용 — 실패하면 None(라운드 불변).
+        게이팅 중엔 패치가 없어 구성이 정적이라 첫 스캔을 캐시해 재사용한다."""
+        r = self._topo_reader
+        if r is None:
+            return None
+        if self._topo_cache is not None:
+            return self._topo_cache
+        try:
+            from defender.topology import enumerate_topology
+            topo = enumerate_topology(r)
+            topo = topo if (topo and topo.get("namespaces")) else None
+            self._topo_cache = topo
+            return topo
+        except Exception:                  # noqa: BLE001 — 표시용 스캔 실패가 라운드를 깨면 안 됨
+            return None
 
     # ───────────── 대시보드 계측(이벤트·상세) — 보조, 실패해도 라운드 불변 ─────────────
     def _record_round(self, episode: int, rnd: int, attack, defense, verification,
