@@ -216,7 +216,8 @@ def test_render_procedures():
         "preconditions": [{"name": "취약 버전", "config_key": None, "expected_value": None}],
         "expected_results": [{"id": "ER", "name": "host file read", "kind": "crown"}],
         "cleanup": [{"name": "흔적 축소", "description": "d"}],
-        "steps": [{"seq": 2, "command": "cmd-two"}, {"seq": 1, "command": "cmd-one"}],
+        "steps": [{"seq": 2, "command": "cmd-two", "description": "두번째 설명"},
+                  {"seq": 1, "command": "cmd-one", "description": "첫번째 설명(반환각 경고)"}],
         "advisory": [{"affected_versions": "2.3.5–2.3.31", "url": "https://x"}]}])
     assert "PROC-x [struts2]: do the thing" in block
     assert "cleanup: 흔적 축소" in block
@@ -224,6 +225,10 @@ def test_render_procedures():
     assert "requires: 취약 버전" in block and "goal: host file read" in block
     assert "step 1: cmd-one" in block and "step 2: cmd-two" in block   # 스텝 렌더
     assert block.index("step 1:") < block.index("step 2:")             # seq 오름차순 정렬
+    # step 자체 description(반환각 경고)이 명령 바로 아래에 '↳ '로 출력되는지
+    assert "↳ 첫번째 설명(반환각 경고)" in block and "↳ 두번째 설명" in block
+    # step 1 설명이 step 2 명령 앞에 와야(명령↔설명 묶음 깨지지 않음)
+    assert block.index("↳ 첫번째 설명") < block.index("step 2:")
     assert render_procedures([]) == ""
 
 

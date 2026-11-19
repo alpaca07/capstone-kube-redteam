@@ -325,6 +325,8 @@ def render_procedures(procedures: list[dict], *, limit: int = 6, theoretical_cap
 
     '이 기법의 알려진 절차+스텝+전제+목표'를 간결히 나열 — 워커가 관측에 맞는 걸 골라 payload 작성에 참고.
     스텝이 있으면 명령 레시피($VAR 자리는 워커가 관측으로 채움), 없으면 워커가 명령을 스스로 쓴다.
+    스텝에 description(step 자체의 해설·반환각 경고)이 있으면 명령 바로 아래에 함께 출력한다 — 27B 로컬
+    모델이 반직관적 디테일을 상식 중앙값으로 자발적 교정하는 걸 억제하기 위함(2026-11-20 측정 반영).
 
     노이즈 억제(큐레이션): AUTHORED(실행가능·타깃정합 핵심층 절차)를 먼저 채우고, THEORETICAL
     (nvd 유래 CVE 스텁 — 스텝 없음)은 상위 theoretical_cap 개만 덧붙인다. 전체는 limit 개로 자른다.
@@ -346,6 +348,11 @@ def render_procedures(procedures: list[dict], *, limit: int = 6, theoretical_cap
             lines.append(f"    requires: {pre.get('name', '')}{cond}")
         for st in sorted((p.get("steps") or []), key=lambda x: x.get("seq") or 0):   # 실행 시퀀스(순서대로)
             lines.append(f"    step {st.get('seq')}: {st.get('command', '')}")
+            sdesc = (st.get("description") or "").strip()
+            if sdesc:
+                # step 자체 해설·반환각 경고를 명령 바로 아래 들여쓰기로 — 27B 가 '명령 → 해설'을
+                # 한 묶음으로 읽도록 유도(상식 교정 전에 경고를 먼저 보게).
+                lines.append(f"      ↳ {sdesc}")
         goals = [e.get("name") for e in (p.get("expected_results") or []) if e.get("kind") == "crown"]
         if goals:
             lines.append(f"    goal: {', '.join(g for g in goals if g)}")
