@@ -32,7 +32,7 @@ app = FastAPI(title="Helix — 공수 루프 관제 대시보드")
 
 # ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (app.js 의 UI_BUILD 과 같은 값으로 함께 올린다).
 # /api/status 로 내보내 대시보드가 '서버가 최신 코드로 재시작됐는지' 좌상단 버전으로 확인한다.
-SERVER_BUILD = 14
+SERVER_BUILD = 15
 
 # 실험 프로세스 상태(단일 워커 전제: 한 번에 하나만).
 _run: dict = {"proc": None, "started": None, "params": None, "id": None}
@@ -231,9 +231,51 @@ def round_detail(episode: int, rnd: int) -> JSONResponse:
     return JSONResponse(_read_json(_LOGS / "round_detail" / f"{episode}-{rnd}.json"))
 
 
+# ───────────── god-view 라이브 토폴로지 스캔 (파일 없을 때 폴백) ─────────────
+# 타깃 구성도가 '실행→게이팅→스캔→파일기록' 체인에 의존하지 않도록, 대시보드가 직접 god-view
+# kubeconfig 로 현재 클러스터를 훑어 띄운다. 실행 여부·게이팅과 무관하게 항상 실제 구성이 보인다.
+# kubectl 호출이라 성공분만 짧게 캐시(기본 30초). 실패는 캐시 안 하고 다음 호출에 재시도.
+_topo_live: dict = {"ts": 0.0, "data": None}
+_TOPO_LIVE_TTL = 30.0
+
+
+def _scan_live_topology() -> dict:
+    """config.target.kubeconfig 로 현재 클러스터 토폴로지를 직접 스캔(캐시). 실패하면 {}."""
+    now = time.time()
+    cached = _topo_live["data"]
+    if cached and (now - _topo_live["ts"]) < _TOPO_LIVE_TTL:
+        return cached
+    data: dict = {}
+    try:
+        if str(_ROOT) not in sys.path:                 # 레포 루트 보장(-m 실행이 아니어도 import 되게)
+            sys.path.insert(0, str(_ROOT))
+        from common.config import load_config
+        from defender.kubectl_cluster import KubectlCluster
+        from defender.topology import enumerate_topology
+        cfg = load_config(None)
+        reader = KubectlCluster(kubeconfig=cfg.target.kubeconfig or None)
+        topo = enumerate_topology(reader, namespaces=(cfg.target.topo_namespaces or None))
+        if topo and topo.get("namespaces"):
+            data = {"ts": now, "topology": topo, "live": True}
+    except Exception:                                  # noqa: BLE001 — 표시용 스캔 실패가 대시보드를 깨면 안 됨
+        data = {}
+    if data:                                           # 성공만 캐시 — 실패는 다음 폴링에 재시도
+        _topo_live["ts"] = now
+        _topo_live["data"] = data
+    return data
+
+
 @app.get("/api/topology/{episode}/{rnd}")
 def topology(episode: int, rnd: int) -> JSONResponse:
-    return JSONResponse(_read_json(_LOGS / "defense_topology" / f"{episode}-{rnd}.json"))
+    rec = _read_json(_LOGS / "defense_topology" / f"{episode}-{rnd}.json")
+    if (rec.get("topology") or {}).get("namespaces"):
+        return JSONResponse(rec)                       # 그 라운드 기록(as-of) 우선
+    return JSONResponse(_scan_live_topology())         # 파일 없으면 현재 클러스터 라이브 스캔
+
+
+@app.get("/api/topology_live")
+def topology_live() -> JSONResponse:
+    return JSONResponse(_scan_live_topology())
 
 
 @app.get("/api/attack_graph/{episode}/{rnd}")

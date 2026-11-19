@@ -32,7 +32,7 @@
 
   // ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (server.py 의 SERVER_BUILD 과 같은 값으로 함께 올린다).
   // 좌상단에 v<UI_BUILD> 를 표시하고, 서버가 보고한 server_build 와 다르면 '재시작 필요' 경고를 띄운다.
-  var UI_BUILD = 14;
+  var UI_BUILD = 15;
   function renderBuild(serverBuild) {
     var el = document.getElementById("build-tag");
     if (!el) return;
@@ -903,7 +903,7 @@
 
   // ───────── 페이지: 타깃 구성도 (방어 시점) ─────────
   async function loadTopology() {
-    var topo = null;
+    var topo = null, live = false;
     if (!S.demo && S.rounds.length) {
       // 최신 라운드부터 역순 — 진행 중(공격 턴) 라운드엔 방어 턴 전이라 토폴로지가 아직 없다.
       // 토폴로지가 있는 가장 최근 라운드로 폴백해, 공격 턴 중에도 직전 구성도를 유지한다
@@ -911,10 +911,16 @@
       for (var i = S.rounds.length - 1; i >= 0 && i >= S.rounds.length - 10; i--) {
         var rr = S.rounds[i];
         var r = await jget("/api/topology/" + (rr.episode || 1) + "/" + rr.round);
-        if (r && r.topology && r.topology.namespaces && r.topology.namespaces.length) { topo = r.topology; break; }
+        if (r && r.topology && r.topology.namespaces && r.topology.namespaces.length) { topo = r.topology; live = !!r.live; break; }
       }
     }
-    return (topo && topo.namespaces && topo.namespaces.length) ? topo : demoTopology();
+    // 라운드 기록이 없으면(게이팅·미실행) 서버가 god-view 로 '현재 클러스터'를 직접 스캔해 준다.
+    if (!(topo && topo.namespaces && topo.namespaces.length) && !S.demo) {
+      var lv = await jget("/api/topology_live");
+      if (lv && lv.topology && lv.topology.namespaces && lv.topology.namespaces.length) { topo = lv.topology; live = true; }
+    }
+    if (topo && topo.namespaces && topo.namespaces.length) { topo._live = live; return topo; }
+    return demoTopology();
   }
   function pageArch(topo) {
     var crownNs = { database: 1, internal: 1, "corp-crown": 1 };
@@ -942,7 +948,8 @@
       '<div class="tile accent-crown"><div class="tile-k">핵심 자산 영역</div><div class="tile-v">' + crownCount + '개</div><div class="tile-sub">최종 탈취 목표</div></div>' +
       '<div class="tile accent-def"><div class="tile-k">총 서비스</div><div class="tile-v">' + nss.reduce(function (a, n) { return a + (n.services || []).length; }, 0) + '개</div></div>' +
       "</div>" +
-      '<div class="section-label">영역 구성 (네임스페이스별)</div>' +
+      '<div class="section-label">영역 구성 (네임스페이스별)' +
+        (topo._live ? ' <span class="arch-live">god-view 실시간</span>' : "") + "</div>" +
       '<div class="arch">' + zones + "</div>" +
       '<div class="legend"><span><span class="tag-dot" style="background:' + C.def + '"></span>서비스</span><span><span class="tag-dot" style="background:' + C.atk + '"></span>외부 노출 / 경계 없음</span><span><span class="tag-dot" style="background:' + C.ok + '"></span>경계 있음</span><span><span class="tag-dot" style="background:' + C.crown + '"></span>핵심 자산 영역</span></div>';
   }
