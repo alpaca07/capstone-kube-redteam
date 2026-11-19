@@ -108,7 +108,7 @@ What you observed:
 Summarize your conclusions as the specified JSON object."""
 
 
-def _call(url: str, body: dict, timeout: float = 180.0) -> dict:
+def _call(url: str, body: dict, timeout: float = 150.0) -> dict:
     import requests
     t0 = time.time()
     try:
@@ -152,11 +152,15 @@ def _probe(url: str, model: str, label: str, system: str, user: str,
         body["reasoning_effort"] = reasoning_effort
     if extra_body:
         body.update(extra_body)
+    # 사람이 멍하니 기다리지 않게 — 케이스 시작·끝을 각각 flush 해서 터미널에 즉시 반영
+    print(f"  ▶ {label:<42} (측정 중 — 최대 150s)", end="", flush=True)
     res = _call(url, body)
     res["label"] = label
     res["sys_len"] = len(system)
     res["usr_len"] = len(user)
     res["reasoning_effort"] = reasoning_effort
+    # 완료 — carriage return 으로 '측정 중' 줄 덮어씀
+    print("\r" + " " * 80 + "\r", end="", flush=True)
     return res
 
 
@@ -182,10 +186,16 @@ def main() -> int:
           f"settle_sys={len(SETTLE_SYSTEM)}자\n")
 
     # 1회차는 warmup 포함일 수 있어 ping 두 번(콜드/웜 체크)
-    print("── warmup(ping, reasoning_effort=none) 2회 ──")
-    for _ in range(2):
-        r = _probe(url, model, "ping#", "", "ping", max_tokens=20)
-        print(_row(r))
+    print("── warmup(ping, reasoning_effort=none) 2회 ──", flush=True)
+    for i in range(2):
+        r = _probe(url, model, f"ping#{i+1}", "", "ping", max_tokens=20)
+        print(_row(r), flush=True)
+    # 첫 호출이 150s 걸려 실패했다면 서버 자체가 뻗은 상태 → 나머지 측정 무의미
+    if not r.get("ok"):
+        print("\n⚠ warmup ping 도 실패 — DGX Ollama 서버가 응답 안 함. "
+              "서버 재시작부터 확인하세요(nvidia-smi / sudo systemctl restart ollama).",
+              flush=True)
+        return 2
 
     cases = [
         # 작은 프롬프트에서 reasoning_effort 효과 (대조군)
@@ -207,13 +217,13 @@ def main() -> int:
         ("SETTLE 실프롬프트 / r_e=none",            SETTLE_SYSTEM, _SITUATION_FOR_SETTLE, "none",  None, 400),
     ]
 
-    print("\n── 실 프롬프트 측정 ──")
+    print("\n── 실 프롬프트 측정 ──", flush=True)
     results: list[dict] = []
     for label, sys_p, usr_p, re_, extra_, mt in cases:
         r = _probe(url, model, label, sys_p, usr_p, reasoning_effort=re_,
                    extra_body=extra_, max_tokens=mt)
         results.append(r)
-        print(_row(r))
+        print(_row(r), flush=True)
 
     # ── 자동 진단 ──
     print("\n── 자동 진단 ──")
