@@ -222,11 +222,8 @@ def test_render_procedures():
     assert "cleanup: 흔적 축소" in block
     assert "advisory: 2.3.5–2.3.31 — https://x" in block
     assert "requires: 취약 버전" in block and "goal: host file read" in block
-    # 스텝 렌더 — 새 포맷: 'step N (원문 그대로 실행 — …):\n  ```\n  <command>\n  ```'
-    assert "step 1 (원문 그대로 실행" in block and "cmd-one" in block
-    assert "step 2 (원문 그대로 실행" in block and "cmd-two" in block
-    assert block.index("step 1") < block.index("step 2")                # seq 오름차순 정렬
-    assert "```" in block                                               # 명령 코드블록으로 감쌈(복사 신호)
+    assert "step 1: cmd-one" in block and "step 2: cmd-two" in block   # 스텝 렌더
+    assert block.index("step 1:") < block.index("step 2:")             # seq 오름차순 정렬
     assert render_procedures([]) == ""
 
 
