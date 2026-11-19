@@ -134,6 +134,25 @@ def _prior_findings_block(graph: ExplorationGraph, prior_ids, asset_graph,
     return "\n".join(lines)
 
 
+def _attempts_block(graph: ExplorationGraph, *, limit: int = 20) -> str:
+    """시도했으나 침해 없음(done/exhausted & 자손 finding 0) 의도들을 'R<N> T<tech> on <target>:
+    <summary>' 로 렌더. 플래너 태세의 'APPROACHES ALREADY TRIED' 블록 — 라운드 간 같은 접근
+    재제안을 막는다(공진화의 '실패 기억'). closure/ENABLES 가 포괄 못 하는 '그저 안 됐다' 를 담는다."""
+    attempts = graph.recent_attempts(limit=limit)
+    if not attempts:
+        return ""
+    lines: list[str] = []
+    for n in attempts:
+        p = n.payload
+        tech = f" {p['technique']}" if p.get("technique") else ""
+        tgt = p.get("target") or "?"
+        rnd = p.get("_round")
+        rtag = f"R{rnd} " if rnd else ""
+        state = n.state                      # 'done' 또는 'exhausted'
+        lines.append(f"- {rtag}[{state}]{tech} on {tgt}: {p.get('summary', '')}")
+    return "\n".join(lines)
+
+
 def _unexploited_block(graph: ExplorationGraph, asset_graph, *, limit: int = 8) -> str:
     """아직 안 쓴 발견(ENABLES 엣지 없는 것)을 'F<id>: ...'로 렌더 — 플래너가 후속 의도의
     enables 로 그 번호를 적으면 (finding)-[:ENABLES]->(의도)가 걸려 다음 웨이브부터 안 뜬다.
@@ -247,6 +266,15 @@ class AttackRound:
             selected_block = sel.render()
             unexpl_block = _unexploited_block(graph, asset_graph)   # 미활용 발견(확보 자격증명·접근)
             n_unexpl = sum(1 for ln in unexpl_block.splitlines() if ln.strip())
+            # 이미 돌려본 접근(done/exhausted & 발견 없음) — 라운드 간 반복 재제안 억제용 '실패 기억'
+            attempts_block = _attempts_block(graph, limit=20)
+            n_attempts = sum(1 for ln in attempts_block.splitlines() if ln.strip())
+            # 유령 target 가드용 — KNOWN ASSETS 의 실존 이름/엔드포인트 경로 집합(소문자)
+            known_names: set = set()
+            if asset_graph is not None:
+                for _a in asset_graph.assets(limit=200):
+                    known_names.add((_a.name or "").strip().lower())
+                known_names |= {"cluster-network", "current-pod"}       # 특수 target 허용값
             # 태세 요약 — 자산 겨냥·재검증 + KG 후보→1차 선별이 플래너에 들어가는지 저널에 노출.
             # (KNOWN ASSETS·SELECTED KNOWLEDGE 는 프롬프트라 저널엔 안 뜨므로 수치·기법으로 노출.)
             if asset_graph is not None:
@@ -264,12 +292,15 @@ class AttackRound:
                           if sel_techs else "")
                     kg_note = f" · KG후보 {len(kg_techs)}개→선별 {len(sel_techs)}개{br}"
                 unexpl_note = f" · 미활용발견 {n_unexpl}개" if n_unexpl else ""
+                attempts_note = f" · 지난시도 {n_attempts}개" if n_attempts else ""
                 self.log(f"[round r{round}] wave {waves+1}: 태세 → 자산 {len(all_assets)}개"
                          f"(미탐색 {n_untouched}) · 지난라운드침해 {len(prior_finding_ids)}건"
-                         f"{kg_note}{unexpl_note}")
-            # 2차: 1차 선별 + 미활용 발견(확보 자격증명·접근)을 받아 의도노드+공격계획 생성.
+                         f"{kg_note}{unexpl_note}{attempts_note}")
+            # 2차: 1차 선별 + 미활용 발견 + 지난 시도(실패 기억)을 받아 의도노드+공격계획 생성.
             plan = planner.plan(graph, assets_block=assets_block, selected_block=selected_block,
                                 prior_findings_block=prior_block, unexploited_block=unexpl_block,
+                                attempts_block=attempts_block,
+                                known_asset_names=known_names if asset_graph is not None else None,
                                 default_parent=goal_id,
                                 timeout=max(5.0, deadline - self.clock()))   # 마감 넘겨 늘어지지 않게
             if not plan.added_ids:
@@ -278,7 +309,8 @@ class AttackRound:
                          f"({plan.error or 'goal-reached/no-direction'})")
                 break
             dd = f", 겹침 {plan.deduped}개 제거" if plan.deduped else ""
-            self.log(f"[round r{round}] wave {waves+1}: 플래너가 의도 {len(plan.added_ids)}개 생성{dd}")
+            gh = f", 유령target {plan.dropped_ghost}개 드롭" if plan.dropped_ghost else ""
+            self.log(f"[round r{round}] wave {waves+1}: 플래너가 의도 {len(plan.added_ids)}개 생성{dd}{gh}")
             for iid in plan.added_ids:          # 플래너가 무슨 방향을 냈는지 보여줌
                 n = graph.get_node(iid)
                 if n is not None:

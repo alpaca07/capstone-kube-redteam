@@ -90,6 +90,16 @@ def test_closures_cypher_orders_by_round_desc():
     assert "coalesce(n.closed_at_round,0) > 0" in an._CLOSED
 
 
+# ── attempts Cypher — graph_neo4j._ATTEMPTS ──
+def test_attempts_cypher_filters_state_and_no_finding():
+    from attacker import graph_neo4j as gn
+    q = gn._ATTEMPTS
+    # 상태 필터 + YIELDS→Fact→PROVES→Finding 없음 조건 + 역순 limit
+    assert "n.state IN ['done','exhausted']" in q
+    assert "NOT EXISTS" in q and "YIELDS" in q and "PROVES" in q and "Finding" in q
+    assert "ORDER BY n.id DESC LIMIT $limit" in q
+
+
 def _run() -> int:
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

@@ -194,6 +194,45 @@ def test_snapshot_flattens_nodes_and_edges():
     assert isinstance(json.dumps(snap), str)          # 교차망 전송 직렬화 가능
 
 
+# ── recent_attempts: done/exhausted 의도 중 자손 finding 없는 것(실패 기억) ──
+def test_recent_attempts_excludes_successful_and_open():
+    from attacker.graph import IntentState
+    g = InMemoryGraph()
+    g.add_goal({"summary": "g"})
+    # 1) done 의도 + finding → '성공' 이라 제외
+    iid_ok = g.add_intent({"summary": "ok"})
+    g.claim_next("w")
+    f1 = g.add_fact({"summary": "f1"}, intent_id=iid_ok)
+    g.add_finding({"summary": "breach"}, proved_by=[f1])
+    g.settle_intent(iid_ok, IntentState.DONE)
+    # 2) exhausted 의도 + fact 만(finding X) → 실패 기억 포함
+    iid_bad = g.add_intent({"summary": "bad", "target": "x"})
+    g.claim_next("w")
+    g.add_fact({"summary": "nothing useful"}, intent_id=iid_bad)
+    g.settle_intent(iid_bad, IntentState.EXHAUSTED)
+    # 3) 아직 open — 결과 안 나왔으니 제외
+    g.add_intent({"summary": "pending"})
+
+    atts = g.recent_attempts()
+    ids = {n.id for n in atts}
+    assert iid_bad in ids and iid_ok not in ids
+    assert all(n.state in ("done", "exhausted") for n in atts)
+
+
+def test_recent_attempts_limit_and_order():
+    from attacker.graph import IntentState
+    g = InMemoryGraph()
+    g.add_goal({"summary": "g"})
+    ids = []
+    for k in range(5):
+        iid = g.add_intent({"summary": f"intent {k}"})
+        g.claim_next("w")
+        g.settle_intent(iid, IntentState.DONE)
+        ids.append(iid)
+    atts = g.recent_attempts(limit=3)
+    assert [n.id for n in atts] == list(reversed(ids))[:3]   # 최신 3개 역순
+
+
 # ── annotate_fact: payload 덧붙이기(기존 키 덮어씀, 다른 키 유지), fact 만 ──
 def test_annotate_fact_merges_payload():
     g = InMemoryGraph()

@@ -430,6 +430,65 @@ def test_promote_closures_ignores_unknown_fact_ids():
     assert res.closed_ids == [a]           # 가짜 id 는 조용히 무시
 
 
+# ── 유령 target 가드: KNOWN ASSETS 에 없는 FQDN 은 드롭, 느슨한 서술형은 통과 ──
+def test_plan_drops_hallucinated_fqdn_target():
+    reply = ('{"intents":[{"summary":"a","target":"postgres.prod.svc.cluster.local","technique":"T1"},'
+             '{"summary":"b","target":"waf.corp-dmz.svc.cluster.local","technique":"T2"},'
+             '{"summary":"c","target":"DB service","technique":"T3"}]}')
+    llm = _FakeLLM([reply])
+    g = InMemoryGraph()
+    known = {"waf.corp-dmz.svc.cluster.local", "cluster-network"}   # prod.svc 는 존재 X
+    res = Planner(llm, goal="g").plan(g, known_asset_names=known)
+    # 두 번째(실존 FQDN), 세 번째(서술형) 통과 · 첫 번째 유령만 드롭
+    assert res.proposed == 3 and res.dropped_ghost == 1 and len(res.added_ids) == 2
+    added = [g.get_node(i).payload["target"] for i in res.added_ids]
+    assert "postgres.prod.svc.cluster.local" not in added
+    assert "waf.corp-dmz.svc.cluster.local" in added and "DB service" in added
+
+
+def test_plan_no_guard_when_known_assets_absent():
+    # known_asset_names=None 이면 가드 생략(기존 호출 호환)
+    reply = ('{"intents":[{"summary":"a","target":"made.up.svc"}]}')
+    g = InMemoryGraph()
+    res = Planner(_FakeLLM([reply]), goal="g").plan(g)
+    assert len(res.added_ids) == 1 and res.dropped_ghost == 0
+
+
+# ── dedup 확장: 같은 라운드 완료(done/exhausted) 의도도 inflight 에 포함 → 재생성 차단 ──
+def test_plan_dedup_blocks_same_round_completed_intent():
+    from attacker.graph import IntentState
+    g = InMemoryGraph()
+    g.set_round(5)
+    # R5 에 이미 완료된 의도 하나(웨이브 1 결과라고 가정)
+    iid = g.add_intent({"summary": "probe waf", "target": "waf.corp-dmz.svc.cluster.local"})
+    g.claim_next("w"); g.settle_intent(iid, IntentState.DONE)
+    # 웨이브 2 플래너가 같은 의도 재생성 시도 → 차단
+    reply = ('{"intents":[{"summary":"probe waf","target":"waf.corp-dmz.svc.cluster.local"}]}')
+    res = Planner(_FakeLLM([reply]), goal="g").plan(g)
+    assert res.proposed == 1 and res.deduped == 1 and res.added_ids == []
+
+
+def test_plan_dedup_same_summary_different_target_still_blocks():
+    # 요약 완전 일치 → target 달라도 중복으로 본다(스크린샷의 '완전 복제' 케이스 커버)
+    from attacker.graph import IntentState
+    g = InMemoryGraph()
+    g.set_round(3)
+    iid = g.add_intent({"summary": "Verify DNS exfiltration channel", "target": "a.svc"})
+    g.claim_next("w"); g.settle_intent(iid, IntentState.DONE)
+    reply = ('{"intents":[{"summary":"Verify DNS exfiltration channel","target":"b.svc"}]}')
+    res = Planner(_FakeLLM([reply]), goal="g").plan(g)
+    assert res.deduped == 1 and res.added_ids == []
+
+
+# ── attempts_block 이 플래너 태세에 'APPROACHES ALREADY TRIED' 로 들어감 ──
+def test_build_situation_renders_attempts_block():
+    g = InMemoryGraph()
+    s = build_situation(g, goal="g",
+                        attempts_block="- R2 [exhausted] T1190 on waf: Re-establish RCE")
+    assert "APPROACHES ALREADY TRIED" in s
+    assert "Re-establish RCE" in s
+
+
 # ── 이벤트 구동 폐곡선(통합): 플래너→풀→플래너 재계획으로 그래프가 자란다 ──
 def test_event_driven_loop_with_pool():
     from attacker.exec_lane import ExecutionLane

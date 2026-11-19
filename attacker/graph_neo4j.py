@@ -81,6 +81,12 @@ _FRONTIER = ("MATCH (n:Intent {episode:$episode, state:'open'}) "
 _RUNNING = "MATCH (n:Intent {episode:$episode, state:'running'}) RETURN n{.*} AS props"
 _UNEXPLOITED = ("MATCH (n:Finding {episode:$episode}) WHERE NOT (n)-[:ENABLES]->() "
                 "RETURN n{.*} AS props ORDER BY n.id DESC LIMIT $limit")
+# 시도했으나 침해 없음 — done/exhausted intent 중 YIELDS→(:Fact)-[:PROVES]->(:Finding) 경로가 없는 것.
+# 플래너 태세의 'APPROACHES ALREADY TRIED' 로 들어가 라운드 간 반복 재제안 방지.
+_ATTEMPTS = ("MATCH (n:Intent {episode:$episode}) "
+             "WHERE n.state IN ['done','exhausted'] "
+             "AND NOT EXISTS { MATCH (n)-[:YIELDS]->(:Fact)-[:PROVES]->(:Finding) } "
+             "RETURN n{.*} AS props ORDER BY n.id DESC LIMIT $limit")
 _RECENT = ("MATCH (n:" + _LABEL + " {episode:$episode}) "
            "RETURN n{.*} AS props ORDER BY n.id DESC LIMIT $limit")
 _GET = "MATCH (n:Explore {episode:$episode, id:$id}) RETURN n{.*} AS props"
@@ -334,6 +340,10 @@ class Neo4jGraph(ExplorationGraph):
     def recent_findings(self, limit: int = 20) -> list[Node]:
         return [_node_from_props(r["props"])
                 for r in self._run(_RECENT.replace(_LABEL, "Finding"), limit=limit)]
+
+    def recent_attempts(self, *, limit: int = 20) -> list[Node]:
+        return [_node_from_props(r["props"])
+                for r in self._run(_ATTEMPTS, limit=limit)]
 
     def unexploited_findings(self, limit: int = 20) -> list[Node]:
         return [_node_from_props(r["props"])

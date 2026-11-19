@@ -184,6 +184,13 @@ class ExplorationGraph(Protocol):
         후속 의도가 enabled_by 로 걸리면 ENABLES 가 생겨 다음부터는 안 뜬다(중복 방지)."""
         ...
 
+    def recent_attempts(self, *, limit: int = 20) -> list[Node]:
+        """시도했으나 침해로 이어지지 않은 의도들 — done/exhausted 이면서 자손 finding 이 없는 것.
+        최근(id 역순). 플래너 태세에 'APPROACHES ALREADY TRIED' 로 들어가 라운드 간 똑같은 접근
+        재제안을 막는다(공진화의 '실패 기억' — ENABLES 가 '성공 기억' 대칭이면 이쪽은 '실패 기억').
+        running/open 은 아직 결과 안 나왔으니 제외, finding 이 달린 의도는 성공 경로라 제외."""
+        ...
+
     def running_intents(self) -> list[Node]:
         """지금 워커가 돌리고 있는 intent들(종료 판정·중복 방지용)."""
         ...

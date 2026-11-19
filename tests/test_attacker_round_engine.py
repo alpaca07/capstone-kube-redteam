@@ -162,7 +162,10 @@ def test_max_waves_cap():
             return self.chat_text_meta(system, user, **kw)[0]
         def chat_text_meta(self, system, user, **kw):
             type(self).calls += 1
-            return '{"intents":[{"summary":"more","target":"x"}]}', None
+            # summary·target 을 웨이브마다 다르게 → dedup(같은 라운드 완료분 포함)에 안 걸려
+            # 순수하게 'max_waves 상한에서 멈추는지' 만 검증
+            i = type(self).calls
+            return ('{"intents":[{"summary":"probe wave %d","target":"x%d"}]}' % (i, i), None)
     plan = _InfPlan()
     rnd = AttackRound(attacker_llm=_WorkLLM(), planner_llm=plan, runner=_R(),
                       scope_policy=default_policy(), cfg=_cfg(max_waves=3))
@@ -197,6 +200,25 @@ def test_asset_situation_marks_explored_untouched():
     # touched 미지정이면 표시 없음(기존 호출 호환)
     s2 = _asset_situation(ag)
     assert "[explored]" not in s2 and "[untouched]" not in s2
+
+
+# ── _attempts_block: done/exhausted & finding 없는 의도 렌더 ──
+def test_attempts_block_renders_failed_intents():
+    from attacker.graph import IntentState
+    from attacker.round_engine import _attempts_block
+    g = InMemoryGraph(episode=1)
+    g.set_round(7)
+    iid = g.add_intent({"summary": "probe tomcat", "target": "waf.corp-dmz.svc",
+                        "technique": "T1190"})
+    g.claim_next("w"); g.settle_intent(iid, IntentState.EXHAUSTED)
+    block = _attempts_block(g)
+    assert "R7 [exhausted] T1190 on waf.corp-dmz.svc: probe tomcat" in block
+
+
+def test_attempts_block_empty_when_no_attempts():
+    from attacker.round_engine import _attempts_block
+    g = InMemoryGraph(episode=1)
+    assert _attempts_block(g) == ""
 
 
 # ── _asset_situation: closure 는 세 번째 상태로 explored/untouched 덮어씀 ──

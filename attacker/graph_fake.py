@@ -216,6 +216,32 @@ class InMemoryGraph(ExplorationGraph):
             fs.sort(key=lambda n: n.id, reverse=True)
             return [self._copy(n) for n in fs[:limit]]
 
+    def recent_attempts(self, *, limit: int = 20) -> list[Node]:
+        """시도했으나 침해 없음(done/exhausted & 자손 finding 0). 최근순.
+        '자손 finding' = (intent)-[:YIELDS]->(fact)-[:PROVES]->(finding) 경로의 finding."""
+        with self._lock:
+            # finding 하나당 그 아래 proves 로 연결된 fact 들 → 그 fact 들의 intent(yields) 수집
+            finding_ids = {n.id for n in self._nodes.values()
+                           if n.kind == NodeKind.FINDING}
+            # fact → finding 연결
+            fact_to_finding: dict[int, int] = {}
+            for e in self._edges:
+                if e.rel == Rel.PROVES and e.dst_id in finding_ids:
+                    fact_to_finding[e.src_id] = e.dst_id
+            # intent → fact 연결 (YIELDS), 그 중 finding 과 이어지는 fact 를 가진 intent 는 '성공'
+            successful_intents: set[int] = set()
+            for e in self._edges:
+                if e.rel == Rel.YIELDS and e.src_id not in successful_intents \
+                        and e.dst_id in fact_to_finding:
+                    successful_intents.add(e.src_id)
+            done_states = {IntentState.DONE.value, IntentState.EXHAUSTED.value}
+            attempts = [n for n in self._nodes.values()
+                        if n.kind == NodeKind.INTENT
+                        and n.state in done_states
+                        and n.id not in successful_intents]
+            attempts.sort(key=lambda n: n.id, reverse=True)
+            return [self._copy(n) for n in attempts[:limit]]
+
     def running_intents(self) -> list[Node]:
         with self._lock:
             return [self._copy(n) for n in self._nodes.values()

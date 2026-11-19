@@ -126,6 +126,17 @@ is marked used and not re-discovered next wave. Use [] when the intent builds on
 - PREVIOUSLY BREACHED, when shown, lists accesses achieved in an EARLIER round. The defender may \
 have patched them between rounds, so they are NOT done: when one lies on the path to the goal, \
 propose an intent to RE-VERIFY it still works this round (and find another route if now blocked).
+- APPROACHES ALREADY TRIED, when shown, lists intents from earlier rounds/waves that RAN AND \
+PRODUCED NO BREACH. These are failure memory — do NOT propose a near-identical intent against \
+the same target. If a target really does need another attempt, the new intent's "summary" MUST \
+describe a genuinely different angle (different technique, different endpoint path, new evidence \
+from RECENT FACTS). Repeating an already-tried approach wastes intents and the attempt count \
+on that target stacks up as proof that the lead is not productive — spend your intents elsewhere.
+- TARGETS MUST BE REAL. The "target" field MUST name an asset (or a child endpoint path, e.g. \
+'host.name/path') that appears in KNOWN ASSETS above, OR the exact string "cluster-network" / \
+"current-pod" for pod-local/foothold-level probes. Do NOT invent service names, namespaces, or \
+FQDNs that are not in KNOWN ASSETS (e.g. a 'prod' or 'production' namespace that was never \
+observed). Inventing targets burns an intent on a non-existent asset and yields nothing.
 - Judge "goal reached" ONLY from THIS round's RECENT FACTS, never from PREVIOUSLY BREACHED. \
 Return an empty "intents" list only when this round's facts already show the goal reached.
 
@@ -197,6 +208,7 @@ def _intent_line(n: Node) -> str:
 def build_situation(graph: ExplorationGraph, *, goal: str, assets_block: str = "",
                     kg_block: str = "", selected_block: str = "",
                     prior_findings_block: str = "", unexploited_block: str = "",
+                    attempts_block: str = "",
                     facts_limit: int = 20,
                     target_intents: Optional[int] = None) -> str:
     """플래너가 보는 태세. 1차엔 kg_block(원시 후보), 2차엔 selected_block(1차 선별)을 넣는다.
@@ -233,6 +245,15 @@ def build_situation(graph: ExplorationGraph, *, goal: str, assets_block: str = "
     if prior_findings_block:                 # 지난 라운드 침해 → 재검증 대상(공진화)
         parts.append("PREVIOUSLY BREACHED (last round — re-verify, may be patched):\n"
                      + prior_findings_block)
+
+    if attempts_block:                       # 시도했으나 침해 없음 — 라운드 간 반복 재제안 방지
+        parts.append(
+            "APPROACHES ALREADY TRIED (previous rounds/waves ran these and got no breach — "
+            "DO NOT propose a near-identical intent against the same target. If you must revisit "
+            "one, state a genuinely DIFFERENT angle in \"summary\" and \"why\" — a new technique, "
+            "a different endpoint path, fresh evidence that changes the picture. Repeating the "
+            "same approach wastes intents and the attempt count stacks up as proof of futility):\n"
+            + attempts_block)
 
     # 진행 중(running) + 대기(open) 의도 → 중복 방지용으로 플래너에 보여준다
     inflight = graph.running_intents() + graph.frontier(limit=facts_limit)
@@ -344,6 +365,52 @@ def _norm_target(t: str) -> str:
     return (t or "").strip().lower()
 
 
+def _norm_summary(s: str) -> str:
+    """summary 정규화 — 내부 공백 정리 + 소문자. 완전 일치 dedup 용(같은 target 아니어도 문장 그대로 겹치면 중복)."""
+    return " ".join((s or "").split()).lower()
+
+
+_HALLUCINATION_RE = re.compile(r"[./:]")   # FQDN·경로·IP·포트 같이 '구체 이름' 냄새 패턴
+
+
+def _target_tokens(t: str) -> list[str]:
+    """콤마·슬래시 분해 후 첫 토큰(호스트:포트/경로)만 남김 — 콤마 리스트 target 을 자산명 단위로."""
+    t = (t or "").strip()
+    if not t:
+        return []
+    out: list[str] = []
+    for chunk in t.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        # 'host.name/path' → 'host.name' (엔드포인트 경로는 자산명 매칭에서 호스트명으로 환원)
+        host = chunk.split("/", 1)[0].strip().lower()
+        if host:
+            out.append(host)
+    return out
+
+
+def _is_hallucinated_target(target: str, known: set) -> bool:
+    """target 이 KNOWN ASSETS 에 전혀 없고, FQDN/경로/IP 같은 '구체 이름' 냄새가 나면 유령으로 판정.
+    'cluster-network' 처럼 특수 허용값은 known 에 포함돼 들어와 통과. 빈 target 은 유령 아님(그 자체로 허용).
+    느슨한 서술형 target(예: 'DB service')엔 개입 안 함 — 구체 이름(hallucinated FQDN)만 잡는다."""
+    t = (target or "").strip()
+    if not t or not known:
+        return False
+    tokens = _target_tokens(t)
+    if not tokens:
+        return False
+    # 하나라도 KNOWN 과 매칭되거나, 어느 KNOWN 의 서브스트링이면 통과(엔드포인트 경로 포함)
+    for tok in tokens:
+        if tok in known:
+            return False
+        for name in known:
+            if tok and (tok in name or name in tok):
+                return False
+    # 모든 토큰이 미매칭 — '구체 이름' 냄새(점·슬래시·콜론)가 나면 유령으로 판정
+    return any(_HALLUCINATION_RE.search(tok) for tok in tokens)
+
+
 @dataclass
 class SelectResult:
     selected: list                 # KnowledgeSelection 리스트(1차 선별)
@@ -358,7 +425,8 @@ class PlanResult:
     added_ids: list[int]           # 이번에 frontier에 넣은 intent id들
     proposed: int                  # LLM이 제안한 수(파싱 성공분)
     error: str = ""                # 파싱 끝내 실패 시 진단(이 라운드 0개 추가)
-    deduped: int = 0               # 자산 겹침으로 떨군 의도 수(워커 동시 중복 방지)
+    deduped: int = 0               # 자산 겹침·요약 일치로 떨군 의도 수(워커 동시 중복 방지)
+    dropped_ghost: int = 0         # KNOWN ASSETS 에 없는 유령 target 으로 떨군 수(환각 가드)
 
     @property
     def goal_reached_signal(self) -> bool:
@@ -528,7 +596,8 @@ class Planner:
     # ── 2차: 의도·계획 생성 ──
     def plan(self, graph: ExplorationGraph, *, assets_block: str = "",
              selected_block: str = "", prior_findings_block: str = "",
-             unexploited_block: str = "",
+             unexploited_block: str = "", attempts_block: str = "",
+             known_asset_names: Optional[set] = None,
              spawned_by: Optional[int] = None,
              default_parent: Optional[int] = None,
              timeout: Optional[float] = None) -> PlanResult:
@@ -536,11 +605,15 @@ class Planner:
 
         각 의도는 'from'(출처 사실 id, 없으면 default_parent)으로 그래프에 연결되고, technique
         가 있으면 graph.select_knowledge 로 KG 기법에 SELECTED 프로비넌스를 남긴다.
+
+        known_asset_names: 'KNOWN ASSETS'에 실재하는 자산 이름 집합(소문자). 유령 target 가드.
+        None 이면 가드 건너뜀(기존 호출 호환).
         """
         user = build_situation(graph, goal=self.goal, assets_block=assets_block,
                                selected_block=selected_block,
                                prior_findings_block=prior_findings_block,
                                unexploited_block=unexploited_block,
+                               attempts_block=attempts_block,
                                target_intents=self.target_intents)
         # 플래너가 헛 id를 낼 수 있으니 현존 사실·의도 id만 유효 출처로 인정
         valid = {n.id for n in graph.recent_facts(limit=10_000)}
@@ -563,24 +636,52 @@ class Planner:
                 last_err = f"파싱 실패: {e} (finish={finish} len={len(t)})"
                 cap, retry_note = _next_retry(finish, t, cap)
                 continue
-            # 워커 겹침 방지: 같은 자산(target)을 '동시에' 겨냥하는 의도는 떨군다.
-            #   - 이미 떠 있는(open/running) 의도의 target + 이번 배치 내 target 으로 중복 차단.
-            #   - 빈 target 은 자산 식별 불가 → 안 떨군다. 탐색 끝난 자산 '재겨냥'(재검증)은
-            #     여기서 안 막는다(종료 상태 의도는 안 보므로) — 라운드 간 재검증 보존.
-            inflight = {_norm_target(n.payload.get("target", ""))
-                        for n in graph.running_intents() + graph.frontier(limit=10_000)}
-            inflight.discard("")
+            # 워커 겹침 방지 — 같은 자산(target)이나 같은 요약(summary)의 중복 의도를 떨군다.
+            # 'inflight' 는 ① 떠 있는(open/running) 의도 ② 이번 라운드에 이미 완료된(done/exhausted)
+            # 의도 모두 커버 → 같은 라운드 웨이브→웨이브 사이 중복(R34 복제 케이스) 결정론적 차단.
+            # summary 완전 일치도 dedup 키에 포함(동일 자산 아니어도 문자열 같은 의도는 중복으로 본다).
+            # 라운드 간 재제안은 'ATTEMPTS ALREADY TRIED' 블록으로 플래너 판단에 맡김(여기선 안 막음).
+            cur_round = 0
+            try:
+                cur_round = int(getattr(graph, "_cur_round", 0) or 0)
+            except (TypeError, AttributeError):
+                pass
+            inflight_tgt: set[str] = {_norm_target(n.payload.get("target", ""))
+                                      for n in graph.running_intents()
+                                      + graph.frontier(limit=10_000)}
+            inflight_sum: set[str] = {_norm_summary(n.payload.get("summary", ""))
+                                      for n in graph.running_intents()
+                                      + graph.frontier(limit=10_000)}
+            # 이번 라운드에 이미 완료된 의도들도 inflight 에 넣어 웨이브 간 재생성을 막는다.
+            # cur_round==0 (라운드 스탬프 미사용 백엔드/테스트)일 땐 이 확장만 건너뜀 — 기존 동작 호환.
+            if cur_round > 0:
+                for n in graph.recent_attempts(limit=200):
+                    if int(n.payload.get("_round") or 0) == cur_round:
+                        inflight_tgt.add(_norm_target(n.payload.get("target", "")))
+                        inflight_sum.add(_norm_summary(n.payload.get("summary", "")))
+            inflight_tgt.discard(""); inflight_sum.discard("")
             # 성공 — 각 의도를 출처(from 사실들 → 없으면 default_parent)에 연결해 추가
             added: list[int] = []
-            seen_batch: set[str] = set()
+            seen_batch_tgt: set[str] = set()
+            seen_batch_sum: set[str] = set()
             deduped = 0
+            dropped_ghost = 0
             for pi in intents:
-                key = _norm_target(pi.target)
-                if key and (key in inflight or key in seen_batch):
-                    deduped += 1                 # 같은 자산 동시 겨냥 → 생략(워커 낭비 방지)
+                tkey = _norm_target(pi.target)
+                skey = _norm_summary(pi.summary)
+                # 유령 target 가드 — KNOWN ASSETS 에 없는 구체 이름(FQDN·경로)만 드롭(느슨한 서술형은 통과).
+                if (known_asset_names is not None
+                        and _is_hallucinated_target(pi.target, known_asset_names)):
+                    dropped_ghost += 1
                     continue
-                if key:
-                    seen_batch.add(key)
+                if (tkey and (tkey in inflight_tgt or tkey in seen_batch_tgt)) \
+                        or (skey and (skey in inflight_sum or skey in seen_batch_sum)):
+                    deduped += 1                 # 같은 자산·같은 요약 → 생략
+                    continue
+                if tkey:
+                    seen_batch_tgt.add(tkey)
+                if skey:
+                    seen_batch_sum.add(skey)
                 srcs = [i for i in (pi.from_facts or []) if i in valid]
                 if not srcs and default_parent is not None:
                     srcs = [default_parent]          # 개막·무출처 의도는 목표에서 파생
@@ -595,7 +696,8 @@ class Planner:
                     except Exception:  # noqa: BLE001 — 프로비넌스 실패는 계획을 막지 않음
                         pass
                 added.append(iid)
-            return PlanResult(added_ids=added, proposed=len(intents), deduped=deduped)
+            return PlanResult(added_ids=added, proposed=len(intents),
+                              deduped=deduped, dropped_ghost=dropped_ghost)
         return PlanResult(added_ids=[], proposed=0, error=last_err)
 
 
