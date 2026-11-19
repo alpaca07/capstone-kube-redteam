@@ -329,6 +329,11 @@ def render_procedures(procedures: list[dict], *, limit: int = 6, theoretical_cap
     노이즈 억제(큐레이션): AUTHORED(실행가능·타깃정합 핵심층 절차)를 먼저 채우고, THEORETICAL
     (nvd 유래 CVE 스텁 — 스텝 없음)은 상위 theoretical_cap 개만 덧붙인다. 전체는 limit 개로 자른다.
     브리핑이 버전 안 맞는 최신 CVE 스텁으로 뒤덮여 핵심 절차가 묻히는 걸 막는다.
+
+    [포맷 — 2026-11-20 측정 반영] 명령 레시피는 코드블록(```)과 '원문 그대로' 라벨로 감싼다.
+    27B 로컬 모델이 명령을 '예시'로 재구성하며 반직관적 디테일(예: CVE-2017-12615 끝 슬래시 `/shell.jsp/`)을
+    상식 중앙값으로 자발적 교정해 날리는 걸 측정으로 확인(10R 전체 Tomcat PUT 웹셸 1단계 실패).
+    코드블록·라벨은 '복사 대상' 신호를 강화하고, '$VAR 만 치환 허용' 명시로 레시피 자율성은 유지한다.
     """
     procs = procedures or []
     authored = [p for p in procs if (p.get("status") or "").upper() == "AUTHORED"]
@@ -345,7 +350,12 @@ def render_procedures(procedures: list[dict], *, limit: int = 6, theoretical_cap
             cond = f" (needs {pre['config_key']}={pre.get('expected_value')})" if pre.get("config_key") else ""
             lines.append(f"    requires: {pre.get('name', '')}{cond}")
         for st in sorted((p.get("steps") or []), key=lambda x: x.get("seq") or 0):   # 실행 시퀀스(순서대로)
-            lines.append(f"    step {st.get('seq')}: {st.get('command', '')}")
+            # 명령 레시피는 코드블록으로 감싸 '복사 대상' 신호를 준다(27B 재구성 억제).
+            # $VAR 만 관측값으로 치환하고 URL·플래그·인코딩은 그대로 복사하라는 라벨을 붙인다.
+            lines.append(f"    step {st.get('seq')} (원문 그대로 실행 — $VAR 만 관측값으로 치환):")
+            lines.append(f"      ```")
+            lines.append(f"      {st.get('command', '')}")
+            lines.append(f"      ```")
         goals = [e.get("name") for e in (p.get("expected_results") or []) if e.get("kind") == "crown"]
         if goals:
             lines.append(f"    goal: {', '.join(g for g in goals if g)}")
