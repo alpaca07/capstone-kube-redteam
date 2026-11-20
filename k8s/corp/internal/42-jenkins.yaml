@@ -64,6 +64,22 @@ spec:
     metadata:
       labels: { app: jenkins, zone: internal }
     spec:
+      # Jenkins 가 쓰는 postgres JDBC 드라이버를 Pod 기동 전에 /var/jenkins_home/.groovy/lib/
+      # 에 영구 배치 — Pod 재시작마다 수동 kubectl cp 없이도 crown-read.groovy 가 작동.
+      # 실제 운영에서도 야간잡 상비 드라이버는 사전배치가 표준.
+      initContainers:
+        - name: postgres-jar-fetch
+          image: busybox:1.36
+          command: ["sh", "-c"]
+          args:
+            - |
+              wget -q -O /jars/postgresql.jar \
+                https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.3/postgresql-42.7.3.jar \
+                && echo "postgresql.jar fetched: $(ls -la /jars/postgresql.jar)" \
+                || { echo "wget failed"; exit 1; }
+          volumeMounts:
+            - name: postgres-jar
+              mountPath: /jars
       containers:
         - name: jenkins
           image: vulhub/jenkins:2.138
@@ -77,6 +93,9 @@ spec:
             - name: ops-payload
               mountPath: /opt/payload
               readOnly: true
+            - name: postgres-jar
+              mountPath: /var/jenkins_home/.groovy/lib
+              readOnly: true
           readinessProbe:
             httpGet: { path: /login, port: 8080 }
             initialDelaySeconds: 40
@@ -87,6 +106,8 @@ spec:
           configMap: { name: jenkins-deploy-creds }
         - name: ops-payload
           configMap: { name: jenkins-ops-payload }
+        - name: postgres-jar
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
