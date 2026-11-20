@@ -16,6 +16,33 @@ data:
     CORP_DB_PASS=postgres
     CORP_DB_NAME=corpdb
 ---
+# 운영팀 야간잡 상비 스크립트 — crown DB 상태 확인용 Groovy. 공격자 관점에선
+# '사전배치 자원' 으로 공개되어 Jenkins Script Console 에서 evaluate 가능.
+# postgres JDBC(/var/jenkins_home/.groovy/lib/postgresql.jar) 를 URLClassLoader 로
+# 로드해 corp-crown/postgres 에 직접 접속 → customers SELECT.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jenkins-ops-payload
+  namespace: corp-internal
+data:
+  crown-read.groovy: |
+    def jar = new File('/var/jenkins_home/.groovy/lib/postgresql.jar')
+    def cl = new java.net.URLClassLoader([jar.toURI().toURL()] as java.net.URL[], Thread.currentThread().contextClassLoader)
+    def driver = cl.loadClass('org.postgresql.Driver').newInstance()
+    def props = new java.util.Properties()
+    props.setProperty('user', 'postgres')
+    props.setProperty('password', 'postgres')
+    def conn = driver.connect('jdbc:postgresql://postgres.corp-crown.svc.cluster.local:5432/corpdb', props)
+    def rs = conn.createStatement().executeQuery('SELECT * FROM customers LIMIT 10')
+    def md = rs.metaData
+    def cols = (1..md.columnCount).collect { md.getColumnName(it) }
+    println 'CROWN_COLS:' + cols.join(',')
+    while (rs.next()) {
+        println 'CROWN_ROW:' + (1..md.columnCount).collect { rs.getString(it) }.join('|')
+    }
+    conn.close()
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -40,6 +67,9 @@ spec:
             - name: deploy-creds
               mountPath: /opt/deploy
               readOnly: true
+            - name: ops-payload
+              mountPath: /opt/payload
+              readOnly: true
           readinessProbe:
             httpGet: { path: /login, port: 8080 }
             initialDelaySeconds: 40
@@ -48,6 +78,8 @@ spec:
       volumes:
         - name: deploy-creds
           configMap: { name: jenkins-deploy-creds }
+        - name: ops-payload
+          configMap: { name: jenkins-ops-payload }
 ---
 apiVersion: v1
 kind: Service
