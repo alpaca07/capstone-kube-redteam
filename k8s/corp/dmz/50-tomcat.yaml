@@ -31,6 +31,17 @@ spec:
           ports:
             - { containerPort: 8080 }   # HTTP — PUT 웹셸(CVE-2017-12615)
             - { containerPort: 8009 }   # AJP  — Ghostcat(CVE-2020-1938)
+          # CI/CD 운영 연동용 환경 변수 — 실제 운영 환경에서 Tomcat 이 Jenkins 로 배포
+          # 트리거·상태 확인 할 때 쓰는 표준 패턴. 공격자 관점에선 '정보 유출' 벡터.
+          env:
+            - name: JENKINS_URL
+              value: "http://jenkins.corp-internal.svc.cluster.local:8080"
+            - name: JENKINS_DEFAULT_USER
+              value: "admin"
+            - name: CORP_DEPLOY_CONFIG_PATH
+              value: "/opt/deploy/corp-db.properties on Jenkins"
+            - name: CORP_DEPLOY_SCRIPT_PATH
+              value: "/opt/payload/crown-read.groovy on Jenkins"
           readinessProbe:
             tcpSocket: { port: 8080 }
             initialDelaySeconds: 15

