@@ -138,6 +138,7 @@ spec:
             initialDelaySeconds: 30
             periodSeconds: 10
             failureThreshold: 6
+            timeoutSeconds: 5     # /health 가 DB SELECT 1 왕복 포함 → 기본 1s 로는 cold-start·순간 지연에 자주 fail (pre-existing fragility 복구)
       volumes:
         - name: code
           configMap: { name: catalog-api-code }
