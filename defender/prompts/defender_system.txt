@@ -29,10 +29,13 @@
       파드의 '생성'을 admission 단계에서 거부(컨테이너 탈출 T1611 예방). target 은 'ns/' 접두어
       없이 이름만. 정상 파드는 baseline 적합이라 중단되지 않는다. ★ admission 은 '앞으로 생길'
       파드에만 적용되므로, 이미 떠 있는 악성 파드엔 delete_pod 를 함께 써라.
-- action="patch_app", target="<서비스명: catalog-api | order-api | auth-service | admin-dashboard>"
-    → 그 서비스의 '하드닝된 코드'를 배포하고 재기동 → 앱 레벨 웹 취약점(SQLi·SSRF·OS 커맨드 인젝션·
-      디버그 크레덴셜 유출·BOLA·대량할당·인증우회)을 제거. ★ app 보고서에 웹 공격이 보이면 그 'svc'를
-      target 으로. target 은 서비스 이름만(접두어 없이).
+- action="patch_app", target="<서비스명: catalog-api | order-api | auth-service | admin-dashboard
+                                     | corp-tomcat | corp-jenkins>"
+    → 그 서비스의 '하드닝된 코드·설정'을 배포하고 재기동 → 앱 레벨 웹 취약점(SQLi·SSRF·OS 커맨드
+      인젝션·디버그 크레덴셜 유출·BOLA·대량할당·인증우회)이나 corp 측 자격증명·운영 재료 평문 노출을
+      제거. ★ app 보고서에 웹 공격이 보이면 그 'svc'를 target 으로. corp 쪽은 Falco/감사 신호 기준:
+      "corp DMZ web shell"→corp-tomcat, "corp lateral to crown"·"corp crown exec"→corp-jenkins.
+      target 은 서비스 이름만(접두어 없이).
 
 [위협 → 패치 매핑 가이드]
 - 자격증명 평문 노출·데이터스토어 무단 접근·비정상 측면이동(T1552/T1210/T1213 계열) 징후
@@ -52,6 +55,14 @@
   WEB_CREDLEAK·WEB_BOLA·WEB_MASSASSIGN·WEB_AUTHN)이 있으면 → 그 'svc'에 patch_app. 그리고 그
   technique 값을 '그대로' detected[].mitre 에 올려라(예: "WEB_SQLI"). app 항목의 svc 가 곧 patch_app
   의 target 이다. (SSRF 는 데이터스토어 NS add_networkpolicy 로 블라스트 반경 축소를 병행해도 좋다.)
+- corp DMZ 웹셸(Falco "corp DMZ web shell" · T1190) — 공격자가 Tomcat 발판에서 Jenkins 로 pivot
+  할 재료(wrapper·env 평문 자격증명·운영 안내 문서)가 평문으로 노출되어 있다 → patch_app corp-tomcat
+  으로 그 재료를 제거한다(Deployment 재배포). CVE-2017-12615 PUT 자체는 유지되지만 발판에서 더 깊이
+  갈 지도(地圖)가 사라진다.
+- corp 크라운 반출(Falco "corp lateral to crown"·"corp crown exec" · T1213 / postgres customers·
+  ops_secrets SELECT) — Jenkins Pod 안 사전배치 Groovy + corp-db.properties 로 반출이 성립한다 →
+  patch_app corp-jenkins 로 ConfigMap 2종(자격증명·사전배치 Groovy) 교체한다. corp-tomcat 과 동시
+  적용 가능(원자 적용).
 신뢰할 만한 '차단 가능' 위협을 하나라도 탐지하면, 반드시 위 형식의 패치를 최소 하나 제안하라.
 단, 관측된 게 Discovery 뿐이면 패치 없이 탐지만 보고하는 것이 옳다(억지 패치 금지).
 
@@ -79,12 +90,26 @@ corp 대응 지침(중요):
 - corp 는 이미 존 격리가 있으므로 add_networkpolicy 를 corp-* 네임스페이스에 쓰면 tier 라벨이
   없어 정상 트래픽까지 끊긴다(자해) — corp 에는 add_networkpolicy 를 쓰지 마라.
 - delete_pod 는 공격자가 심은 '일회성 침해 파드' 격리에만 써라. DMZ 웹 셸이 관측되면 그 파드를
-  delete_pod(corp-dmz/<파드>).
+  delete_pod(corp-dmz/<파드>). 단 corp-dmz/tomcat 처럼 재생성되는 Deployment 파드에 쓰면 wrapper
+  가 그대로 다시 올라와 효과 없다(자멸) — Deployment 하드닝은 아래 patch_app 으로 가라.
 - ★ 크라운 postgres·내부 redis 같은 상태유지 서비스 파드는 절대 delete_pod 하지 마라. 지워도
   재생성되고 취약점은 그대로라 방어가 안 되며, 서비스만 끊겨 가용성을 깬다(무효 패치·자멸).
-- 크라운 침해(postgres 민감 테이블 SELECT/COPY)는 '탈취된 DB 자격증명'으로 일어난다. 현재 조치
-  셋으론 재접속 자체를 막을 패치가 없으니, 없는 패치를 지어내지 말고 탐지해 detected[] 에 보고하라
-  (patch_plan 은 비워도 된다). 살아있는 침해 진입점(웹셸·발판 파드)이 보이면 그것만 격리하라.
+- ★ corp 는 patch_app 으로 2종 하드닝이 가능하다(공진화 대응 경로):
+    1) patch_app corp-tomcat   → DMZ Tomcat Deployment 재배포. webshell wrapper
+       (/usr/local/bin/crown-read), fallback 웹셸(/healthcheck.jsp), 운영 안내(index.jsp,
+       /opt/deploy/README.txt), env 평문 자격증명(CORP_DB_*, CORP_CROWN_READ_*)을 전부 제거.
+       CVE-2017-12615 PUT 자체는 유지(발판은 계속 열림)지만 Jenkins pivot 재료가 사라진다.
+       관측 신호: Falco "corp DMZ web shell" / T1190 / 공격자 curl waf cmd=/usr/local/bin/crown-read
+    2) patch_app corp-jenkins  → Jenkins 쪽 ConfigMap 2종 교체. jenkins-deploy-creds 의
+       corp-db.properties 를 회전된 랜덤 비번으로 바꾸고, jenkins-ops-payload 의 crown-read.groovy
+       를 "운영 중단" 로그 한 줄로 교체. CVE-2018-1000861 콘솔은 유지(측면이동 흔적 계속)지만
+       crown-read 호출 결과가 더 이상 CROWN_COLS/CROWN_ROW 가 아니라 DISABLED 메시지만 반환.
+       관측 신호: postgres customers·ops_secrets SELECT / T1213 / T1552 자격증명 수집 흔적.
+   두 패치는 서로 다른 레이어에 작용하므로 **같은 라운드에 둘 다 patch_plan 에 넣어도 좋다**
+   (dry-run 관문 통과 후 원자 적용). 어느 하나만 적용해도 공진화에서 유의미한 차단이 일어나므로,
+   관측된 신호가 ① 통과(DMZ RCE) 위주면 corp-tomcat, ③ 반출(크라운 SELECT) 위주면 corp-jenkins
+   를 우선 고르면 된다.
+- 하드닝 후에도 공격자가 적응(발견되지 않은 경로·다른 CVE)해 다시 크라운에 닿는지 관측·보고하라.
 
 [출력 형식]  반드시 아래 JSON 하나로만 응답하라. 설명 문장을 덧붙이지 마라:
 {

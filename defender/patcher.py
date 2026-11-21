@@ -20,9 +20,23 @@ from .triage import PatchStep
 # 타깃을 주면 이걸로 걸러 무효 매니페스트(dry-run 실패 → 세트 통째 롤백)를 막는다.
 _DNS1123 = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 
-# [Phase A] patch_app 대상 서비스 → 재기동할 deployment 네임스페이스.
-_APP_SVC_NS = {"catalog-api": "backend", "order-api": "backend",
-               "auth-service": "backend", "admin-dashboard": "internal"}
+# [Phase A] patch_app 대상 서비스 → (재기동할 deployment 네임스페이스, Deployment 이름).
+# ShopFlow 쪽은 svc 이름 == deployment 이름이라 두 번째 값은 그대로 svc. corp 는 target 키
+# (corp-tomcat / corp-jenkins)가 하드닝 파일명 식별자이고 실제 Deployment 이름은 tomcat/jenkins.
+# [Phase B · corp] corp-tomcat / corp-jenkins 추가 — 공진화 대칭성 확보. 기본 설계에선
+# 방어자가 corp 크라운 침해에 대해 쓸 수 있는 action 이 없어 '패치 미적용' 이 구조적이었음.
+# corp-tomcat patch_app: Tomcat Deployment 하드닝(webshell wrapper·env·미끼 제거) → 4-hop 발판
+#   에서 Jenkins pivot 재료가 사라져 공격 체인 끊김. CVE-2017-12615 PUT 자체는 보존(요구조건).
+# corp-jenkins patch_app: Jenkins deploy-creds / ops-payload ConfigMap 교체 → crown 자격증명·
+#   사전배치 Groovy 비활성화. Jenkins admin 콘솔 자체는 그대로(CVE-2018-1000861 보존).
+_APP_SVC_NS: dict[str, tuple[str, str]] = {
+    "catalog-api":     ("backend", "catalog-api"),
+    "order-api":       ("backend", "order-api"),
+    "auth-service":    ("backend", "auth-service"),
+    "admin-dashboard": ("internal", "admin-dashboard"),
+    "corp-tomcat":     ("corp-dmz", "tomcat"),
+    "corp-jenkins":    ("corp-internal", "jenkins"),
+}
 
 # delete_pod 자멸 가드레일 — 상태유지 데이터스토어(postgres·redis 등) 파드는 삭제 금지.
 # 삭제해도 공격자를 못 없앤다(유출은 탈취된 자격증명으로 일어나며 파드 존재와 무관). 재생성하면
@@ -76,8 +90,9 @@ class _Op:
     del_kind: str = ""
     del_name: str = ""
     del_ns: str = ""
-    svc: str = ""                      # patch_app: 대상 서비스(catalog-api 등)
+    svc: str = ""                      # patch_app: 대상 서비스 키(catalog-api, corp-tomcat 등 — 하드닝 파일명)
     restart_ns: str = ""               # patch_app: 재기동할 deployment 네임스페이스
+    deploy_name: str = ""              # patch_app: 실제 Deployment 이름(ShopFlow=svc키와 동일, corp=별도)
     label: str = ""
 
 
@@ -150,14 +165,17 @@ def render_op(step: PatchStep) -> Optional[_Op]:
     """patch_plan 한 단계 → 구체 조치. 미지원이면 None."""
     a = step.action.lower()
     tgt = step.target.strip()
-    # [Phase A] patch_app — 서비스 하드닝 ConfigMap 배포 + 재기동(웹 취약점 제거). 파일 읽기·적용은
-    #   Patcher._exec_patch_app(hardened_dir 보유)이 담당. 여기선 서비스·재기동 NS 만 식별(순수).
+    # [Phase A] patch_app — 서비스 하드닝 ConfigMap/Deployment 배포 + 재기동(웹 취약점·crown 재료 제거).
+    #   파일 읽기·적용은 Patcher._exec_patch_app(hardened_dir 보유)이 담당. 여기선 서비스·재기동 NS·
+    #   실제 Deployment 이름(corp 는 target 키와 다름)을 식별(순수).
     if "patch_app" in a or "app_patch" in a or "patch_service" in a or ("patch" in a and "app" in a):
         svc = _strip_kind(tgt, "svc", "service", "deploy", "deployment")
-        ns = _APP_SVC_NS.get(svc)
-        if ns is None:
+        meta = _APP_SVC_NS.get(svc)
+        if meta is None:
             return None                # 알 수 없는 서비스 → 미지원
-        return _Op(kind="patch_app", svc=svc, restart_ns=ns, label=f"patch_app({svc})")
+        ns, deploy_name = meta
+        return _Op(kind="patch_app", svc=svc, restart_ns=ns, deploy_name=deploy_name,
+                   label=f"patch_app({svc})")
     if "networkpolicy" in a or "netpol" in a or "network" in a:
         ns = _ns_from_target(tgt) or "database"
         return _Op(kind="apply", manifest=_np_manifest(ns), label=f"NetworkPolicy({ns})")
@@ -211,11 +229,13 @@ class Patcher:
         r = self.cluster.apply(manifest, dry_run=dry_run)
         if dry_run or not r.ok:
             return r
-        # ConfigMap 교체는 파드 재시작해야 반영 → rollout_restart(있으면). 없으면 적용만 보고.
+        # ConfigMap/Deployment 교체는 파드 재시작해야 반영 → rollout_restart(있으면). 없으면 적용만 보고.
         rr = getattr(self.cluster, "rollout_restart", None)
         if rr is None:
             return OpResult(True, f"{op.svc} ConfigMap 적용(rollout_restart 미지원 — 수동 재기동 필요)")
-        ro = rr("deployment", op.svc, op.restart_ns)
+        # 실제 Deployment 이름으로 재기동 — ShopFlow 는 svc 키와 같고, corp 는 다르다
+        # (corp-tomcat→tomcat, corp-jenkins→jenkins). 매니페스트 metadata.name 과 일치해야 함.
+        ro = rr("deployment", op.deploy_name or op.svc, op.restart_ns)
         ok = getattr(ro, "ok", False)
         return OpResult(ok, f"patch_app {op.svc}: 적용+재기동" if ok
                         else f"적용됐으나 재기동 실패: {getattr(ro, 'detail', '')}")
