@@ -44,6 +44,35 @@ from orchestrator.truth_log import TruthLog  # noqa: E402
 from orchestrator.verifier import VerificationEngine  # noqa: E402
 
 
+def _build_attacker_memory_reset(cfg: Config):
+    """[Wave2] 공격자 외부 저장소 리셋 콜백 조립.
+
+    공격자가 graph_backend="neo4j" 로 설정됐으면 매 run 시작시 Neo4j DB 전체 노드/엣지 삭제해
+    이전 run 에서 쌓은 탐색 그래프·자산 지식 오염을 지운다. 그 외(memory 모드)는 하네스 재시작으로
+    충분하므로 None 반환(skip). Neo4j 미설치·접속 실패도 best-effort 로 silent skip.
+
+    주의: attacker 코드는 전혀 안 건드림 — orchestrator 가 외부 DB 를 직접 조작.
+    """
+    if (cfg.attack.graph_backend or "").lower() != "neo4j":
+        return None
+    nc = cfg.neo4j
+    if not nc.uri:
+        return None
+
+    def _reset():
+        try:
+            from neo4j import GraphDatabase          # noqa: PLC0415 — 지연 import(미설치 보호)
+        except ImportError:
+            return
+        driver = GraphDatabase.driver(nc.uri, auth=(nc.user, nc.password))
+        try:
+            with driver.session(database=(nc.database or None)) as s:
+                s.run("MATCH (n) DETACH DELETE n")
+        finally:
+            driver.close()
+    return _reset
+
+
 def _build_snapshots(cfg: Config):
     """config.vmware.method로 스냅샷 매니저 선택.
 
@@ -77,12 +106,28 @@ def build_sequencer(cfg: Config, *, sink=None, progress=None, events=None,
     # A2: VM 스냅샷 대신 k8s 네이티브 베이스라인 리셋(심판이 cfg.target.kubeconfig 로 kubectl 직접).
     #   stun 유발 vmrun 스냅샷 제거(§8 #1). 매니페스트는 리포 루트 기준 절대경로(cwd 무관).
     #   전제: VM C 에 admin kubeconfig(cfg.target.kubeconfig) + k8s/killchain 체크아웃.
+    # [Wave2] patch_app 역산 대상(corp 2종 + ShopFlow 4종) — 리포 루트 절대경로로 변환.
+    _patch_app_targets = tuple(
+        (str(_ROOT / rel), ns, dep)
+        for rel, ns, dep in (
+            ("k8s/corp/dmz/50-tomcat.yaml",                "corp-dmz",      "tomcat"),
+            ("k8s/corp/internal/42-jenkins.yaml",          "corp-internal", "jenkins"),
+            ("k8s/services/backend/21-catalog-api.yaml",   "backend",       "catalog-api"),
+            ("k8s/services/backend/22-order-api.yaml",     "backend",       "order-api"),
+            ("k8s/services/backend/23-auth-service.yaml",  "backend",       "auth-service"),
+            ("k8s/services/internal/41-admin-dashboard.yaml", "internal",   "admin-dashboard"),
+        )
+    )
     baseline = BaselineManager(
         runner=kubectl_runner(cfg.target.kubeconfig or None),
         manifest_paths=(str(_ROOT / "k8s" / "killchain"),),
+        patch_app_targets=_patch_app_targets,
         # 발판 자동전환: baseline 회차간 재시작도 공격자 exec 와 같은 발판(cfg.attack, CLI override 반영됨)으로.
         foothold=(cfg.attack.exec_namespace, cfg.attack.exec_pod.split("/")[-1]),
-        baseline_name=cfg.vmware.baseline_snapshot)
+        baseline_name=cfg.vmware.baseline_snapshot,
+        # [Wave2] 공격자 기억 오염 리셋 — Neo4j 저장소에 라운드 간 지식이 남을 때만 활성화.
+        #   graph_backend=="neo4j" + 접속정보 있을 때만 콜백 주입. 아니면 None(skip).
+        attacker_memory_reset=_build_attacker_memory_reset(cfg))
     registry = default_registry()               # 상태검증·탐지 채점용(①②③·web·esc·disc)
     objectives = resolve_objectives(            # free=빈(채점 끔) / asset=선택(비면 전체)
         cfg.experiment.objective_mode, cfg.experiment.target_assets)

@@ -139,6 +139,92 @@ def test_satisfies_cluster_reset_and_revert_adapter():
     assert bm.list() == ["clean-baseline"]
 
 
+# ───────────── [Wave2] patch_app 역산 ─────────────
+def test_reset_reapplies_patch_app_manifests_with_delete_plus_apply():
+    """[Wave2] patch_app 역산 — 하드닝된 Deployment·ConfigMap 을 원본 매니페스트로 되돌린다.
+
+    각 매니페스트에 대해 delete -f (--ignore-not-found) + apply -f 가 순서대로 호출되는지
+    확인. default 에 corp 2종 + ShopFlow 4종 포함.
+    """
+    r = FakeRunner(rules=_binding_present())
+    _bm(r).reset_to_clean()
+    cmds = r.joined()
+    expected_targets = [
+        ("50-tomcat.yaml",           "corp-dmz",      "tomcat"),
+        ("42-jenkins.yaml",          "corp-internal", "jenkins"),
+        ("21-catalog-api.yaml",      "backend",       "catalog-api"),
+        ("22-order-api.yaml",        "backend",       "order-api"),
+        ("23-auth-service.yaml",     "backend",       "auth-service"),
+        ("41-admin-dashboard.yaml",  "internal",      "admin-dashboard"),
+    ]
+    for manifest_tail, ns, dep in expected_targets:
+        # delete -f + apply -f 쌍이 매니페스트마다 호출됨
+        assert any(f"delete -f" in c and manifest_tail in c and "--ignore-not-found=true" in c
+                   for c in cmds), f"{manifest_tail} delete 없음"
+        assert any(f"apply -f" in c and manifest_tail in c for c in cmds), \
+            f"{manifest_tail} apply 없음"
+        # 재적용 후 rollout status 대기
+        assert any(f"rollout status deployment/{dep} -n {ns}" in c for c in cmds), \
+            f"{ns}/{dep} rollout status 없음"
+
+
+def test_reset_patch_app_is_best_effort_on_missing_manifest():
+    """매니페스트 파일이 없거나 리소스 부재여도 전체 리셋은 계속 진행(check=False best-effort).
+
+    delete·apply 실패가 ResetError 로 올라오지 않아야 한다 — corp 미설치 환경에서도
+    ShopFlow 쪽 리셋은 돌아가야 하므로.
+    """
+    r = FakeRunner(rules={
+        **_binding_present(),
+        "delete -f": RunResult(1, "", "error: no matches for kind"),
+        "apply -f k8s/corp": RunResult(1, "", "error: path not found"),
+    })
+    _bm(r).reset_to_clean()         # 예외 없어야 통과
+
+
+def test_reset_can_customize_patch_app_targets():
+    """patch_app_targets 를 비우면 2.5·2.6 단계가 전부 skip 돼 명령에 안 나타난다."""
+    r = FakeRunner(rules=_binding_present())
+    bm = BaselineManager(runner=r, patch_app_targets=())
+    bm.reset_to_clean()
+    cmds = r.joined()
+    assert not any("50-tomcat.yaml" in c for c in cmds), "tomcat 매니페스트 손 안 댔어야"
+    assert not any("rollout status deployment/tomcat" in c for c in cmds)
+
+
+# ───────────── [Wave2] 공격자 기억 오염 리셋 ─────────────
+def test_reset_calls_attacker_memory_reset_when_provided():
+    """attacker_memory_reset 콜백이 주어지면 reset_to_clean 안에서 정확히 1번 호출된다."""
+    r = FakeRunner(rules=_binding_present())
+    calls: list[int] = []
+
+    def _memreset() -> None:
+        calls.append(1)
+
+    BaselineManager(runner=r, attacker_memory_reset=_memreset).reset_to_clean()
+    assert sum(calls) == 1, f"기억 리셋 콜백 호출 횟수 이상: {sum(calls)}"
+
+
+def test_reset_silently_skips_when_attacker_memory_reset_is_none():
+    """attacker_memory_reset=None 이면 그 단계가 skip — 리셋 전체는 정상 진행."""
+    r = FakeRunner(rules=_binding_present())
+    BaselineManager(runner=r, attacker_memory_reset=None).reset_to_clean()
+    # 예외 없이 완료 + killchain 재적용·rollout 은 정상(기본 어휘 보존)
+    assert any("apply -f" in c and "killchain" in c for c in r.joined())
+
+
+def test_reset_silently_ignores_attacker_memory_reset_exception():
+    """콜백이 예외 던져도 리셋 전체는 계속 진행(best-effort — Neo4j 장애가 run 전체 막지 않음)."""
+    r = FakeRunner(rules=_binding_present())
+
+    def _bad() -> None:
+        raise RuntimeError("Neo4j 접속 불가")
+
+    BaselineManager(runner=r, attacker_memory_reset=_bad).reset_to_clean()
+    # 예외 안 올라와야 통과 + 후속 단계(발판 rollout) 도 수행
+    assert any("rollout restart deployment/attacker-foothold" in c for c in r.joined())
+
+
 # ───────────── 자체 러너 ─────────────
 def _run() -> int:
     tests = [v for k, v in sorted(globals().items())

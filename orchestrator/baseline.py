@@ -73,6 +73,18 @@ _DEFAULT_READY_DEPLOYS = (("frontend", "attacker-foothold"),)  # rollout status 
 # [Wave1] restrict_pod_security 가 enforce 라벨을 붙일 수 있는 ns(역산 대상). 공격자 탈출 파드가
 #   주로 default 에 뜨므로 default 포함. 앱 ns 는 정상 파드가 baseline 적합이라 라벨 자체는 무해.
 _DEFAULT_PSA_NS = ("frontend", "backend", "database", "internal", "default")
+# [Wave2] patch_app 역산 — 하드닝된 Deployment·ConfigMap 을 원본(취약) 매니페스트로 되돌린다.
+# 각 항목: (매니페스트 경로, 네임스페이스, Deployment 이름). delete+apply 로 ConfigMap data 완전
+# 교체(server-side apply 의 field manager 경합 회피). rollout status 로 Ready 까지 대기.
+# corp 2종 + ShopFlow 4종 — 방어자의 patch_app 전체 어휘를 자동 복구.
+_DEFAULT_PATCH_APP_TARGETS = (
+    ("k8s/corp/dmz/50-tomcat.yaml",              "corp-dmz",      "tomcat"),
+    ("k8s/corp/internal/42-jenkins.yaml",        "corp-internal", "jenkins"),
+    ("k8s/services/backend/21-catalog-api.yaml", "backend",       "catalog-api"),
+    ("k8s/services/backend/22-order-api.yaml",   "backend",       "order-api"),
+    ("k8s/services/backend/23-auth-service.yaml","backend",       "auth-service"),
+    ("k8s/services/internal/41-admin-dashboard.yaml", "internal", "admin-dashboard"),
+)
 
 
 class BaselineManager:
@@ -86,8 +98,10 @@ class BaselineManager:
                  overperm_binding: str = _DEFAULT_OVERPERM_BINDING,
                  ready_deploys: tuple[tuple[str, str], ...] = _DEFAULT_READY_DEPLOYS,
                  psa_namespaces: tuple[str, ...] = _DEFAULT_PSA_NS,
+                 patch_app_targets: tuple[tuple[str, str, str], ...] = _DEFAULT_PATCH_APP_TARGETS,
                  baseline_name: str = "clean-baseline",
-                 rollout_timeout_sec: int = 120) -> None:
+                 rollout_timeout_sec: int = 120,
+                 attacker_memory_reset: Optional[Callable[[], None]] = None) -> None:
         self.runner = runner
         self.target_namespaces = target_namespaces
         self.manifest_paths = manifest_paths
@@ -95,8 +109,11 @@ class BaselineManager:
         self.overperm_binding = overperm_binding
         self.ready_deploys = ready_deploys
         self.psa_namespaces = psa_namespaces
+        self.patch_app_targets = patch_app_targets
         self.baseline_name = baseline_name
         self.rollout_timeout_sec = rollout_timeout_sec
+        self.attacker_memory_reset = attacker_memory_reset   # [Wave2] 공격자 외부 저장소(Neo4j 등)
+        #   라운드 간 지식 리셋 콜백 — 없으면 skip(옵션). orchestrator/main.py 에서 config 보고 주입.
 
     # ───────────── 내부 실행 헬퍼 ─────────────
     def _run(self, args: list[str], *, check: bool = True) -> RunResult:
@@ -128,6 +145,26 @@ class BaselineManager:
         # 2. killchain 매니페스트 재적용(restrict_rbac 로 삭제된 과권한 바인딩·발판 복구). apply=멱등.
         for path in self.manifest_paths:
             self._run(["apply", "-f", path])
+        # 2.5 [Wave2] patch_app 역산 — 하드닝된 Deployment·ConfigMap 을 원본 매니페스트로 되돌린다.
+        #   방어자가 patch_app 으로 교체한 Deployment·ConfigMap 은 baseline revert 어휘 4종으로는
+        #   복구되지 않는다(그건 NetworkPolicy·RBAC·Pod·PSA 만 커버). 이 단계가 5번째 어휘.
+        #   delete+apply 로 ConfigMap data 완전 교체(server-side apply 의 field manager 경합 회피).
+        #   매니페스트/리소스 부재는 무시(best-effort) — corp 미설치 환경에서도 ShopFlow 리셋은 돈다.
+        for path, ns, dep in self.patch_app_targets:
+            self._run(["delete", "-f", path, "--ignore-not-found=true"], check=False)
+            self._run(["apply", "-f", path], check=False)
+        # 2.6 [Wave2] patch_app 재적용 후 각 Deployment rollout Ready 대기(ConfigMap 변경 반영 보장).
+        for path, ns, dep in self.patch_app_targets:
+            self._run(["rollout", "status", f"deployment/{dep}", "-n", ns,
+                       f"--timeout={self.rollout_timeout_sec}s"], check=False)
+        # 2.7 [Wave2] 공격자 기억 오염 리셋 — 외부 저장소(Neo4j 등)에 남은 라운드 간 지식 삭제.
+        #   재시작만으로 안 지워지는 공격자 영구 저장소를 선택적으로 비운다. 실패해도 리셋 전체는
+        #   진행(best-effort) — 공격자가 오염된 기억으로 시작해도 공진화는 돌긴 돈다, 측정만 흐려짐.
+        if self.attacker_memory_reset is not None:
+            try:
+                self.attacker_memory_reset()
+            except Exception:  # noqa: BLE001 — 외부 저장소 장애가 리셋 전체를 막지 않음
+                pass
         # 3. 발판 파드 초기화(delete_pod 흔적·파일시스템 리셋). Deployment 아니면 무시(check=False).
         self._run(["rollout", "restart",
                    f"deployment/{self.foothold_deploy}", "-n", self.foothold_ns],
