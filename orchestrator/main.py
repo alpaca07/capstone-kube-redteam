@@ -45,32 +45,21 @@ from orchestrator.verifier import VerificationEngine  # noqa: E402
 
 
 def _build_attacker_memory_reset(cfg: Config):
-    """[Wave2] 공격자 외부 저장소 리셋 콜백 조립.
+    """[Wave2] 공격자 외부 저장소 리셋 콜백 조립 — 현재 비활성(안전).
 
-    공격자가 graph_backend="neo4j" 로 설정됐으면 매 run 시작시 Neo4j DB 전체 노드/엣지 삭제해
-    이전 run 에서 쌓은 탐색 그래프·자산 지식 오염을 지운다. 그 외(memory 모드)는 하네스 재시작으로
-    충분하므로 None 반환(skip). Neo4j 미설치·접속 실패도 best-effort 로 silent skip.
+    원래 의도: graph_backend="neo4j" 일 때 매 run 시작시 Neo4j 전체 노드/엣지 삭제로 탐색 그래프
+    오염을 지움. 그러나 Neo4j 에는 탐색 그래프뿐 아니라 **공격자 KG 영구 지식**(knowledge/core_layer
+    로드분 — CVE·공격 기법 정보, kg_bridge·planner 가 참조)도 함께 저장될 수 있다. 무차별
+    'MATCH (n) DETACH DELETE n' 은 KG 까지 날려 공격 능력 자체를 상실시킨다.
 
-    주의: attacker 코드는 전혀 안 건드림 — orchestrator 가 외부 DB 를 직접 조작.
+    안전 조치: Neo4j 자동 리셋은 비활성(항상 None 반환). 탐색 그래프만 라벨로 식별해 선택 삭제하는
+    쿼리는 스키마 조사 후 별도 과업. 그 사이 공격자 기억 오염은 scripts/reset-attacker-memory.sh
+    의 수동 실행(사용자 승인하 하네스 재시작 + 로컬 저널 파일 정리)으로 처리한다.
+
+    주의: BaselineManager 쪽 attacker_memory_reset 파라미터는 이미 Optional 이고 None 수신시
+    해당 단계를 silent skip 하도록 짜여 있으므로 호환성 깨지지 않음.
     """
-    if (cfg.attack.graph_backend or "").lower() != "neo4j":
-        return None
-    nc = cfg.neo4j
-    if not nc.uri:
-        return None
-
-    def _reset():
-        try:
-            from neo4j import GraphDatabase          # noqa: PLC0415 — 지연 import(미설치 보호)
-        except ImportError:
-            return
-        driver = GraphDatabase.driver(nc.uri, auth=(nc.user, nc.password))
-        try:
-            with driver.session(database=(nc.database or None)) as s:
-                s.run("MATCH (n) DETACH DELETE n")
-        finally:
-            driver.close()
-    return _reset
+    return None
 
 
 def _build_snapshots(cfg: Config):
