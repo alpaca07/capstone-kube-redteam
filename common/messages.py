@@ -138,9 +138,20 @@ class AttackTurnResult(Payload):
 
 # ───────────────── ③ defense_turn_start (C→B) ─────────────────
 class DefenseTurnStart(Payload):
-    """★ 공격 정보가 전혀 없음. 방어자는 감사로그·Falco·상태diff로만 추론한다."""
+    """★ 공격 정보(명령·대본·요약)는 여전히 전혀 없음. 방어자는 감사로그·Falco·상태diff로 자력 추론한다.
+
+    단 심판(VM C)의 '전 라운드 판정 라벨'(verdict·재생 반출 자산·사유 한 줄)은 포함돼 공진화
+    피드백 루프를 복구한다. 이는 공격자 추론 정보(어떤 명령으로 뚫었나)가 아니라 심판의 공식
+    결과 라벨이라, 정보 비대칭 원칙(방어자가 공격 명령·대본을 모르는) 은 유지된다. 피드백이
+    있어야 '무효 패치(fake_patch)→다른 각도 재시도', '서비스 중단(service_broken)→과잉 패치
+    회피' 같은 다음 턴 판단이 가능하다. 첫 라운드엔 last_* 가 전부 None/빈 리스트."""
     MSG_TYPE: ClassVar[MsgType] = MsgType.DEFENSE_TURN_START
     time_limit_sec: int
+    # 심판 피드백 (전 라운드 결과) — 첫 라운드엔 모두 기본값(None/빈 리스트)
+    last_round: Optional[int] = None                                    # 몇 라운드 결과인지(디버그·로그용)
+    last_verdict: Optional[str] = None                                  # blocked | fake_patch | service_broken | inconclusive | skipped
+    last_verdict_detail: Optional[str] = None                           # 판정 사유 한 줄(예: "재생 후 크라운 재도달 ['customers_pii'] → 공격 재현됨(무효 패치)")
+    last_crowns_reached: list[str] = Field(default_factory=list)        # 전 라운드에서 공격자가 반출한 크라운 자산(예: ["customers_pii"])
 
 
 # ───────────────── ④ defense_turn_result (B→C) ─────────────────

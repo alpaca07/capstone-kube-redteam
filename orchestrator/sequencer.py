@@ -100,6 +100,9 @@ class RoundOutcome:
     flag_found: bool = False          # 플래그리스: 이 라운드에 크라운(중요자산)이 반출됐나 — 심판이
     #                                   god-view 접근기록으로 판단(공격자 자기보고 아님). 게이팅 키:
     #                                   True 면 방어·검증이 실제로 돌았다. (필드명은 대시보드/채점기 호환 유지)
+    feedback_for_next: Optional[dict] = None   # 다음 라운드 defender 에게 넘길 심판 피드백
+    #   {last_round, last_verdict, last_verdict_detail, last_crowns_reached} — 공진화 피드백 루프 복구용.
+    #   공격자 정보가 아니라 심판 공식 판정 라벨만 담아 정보 비대칭 원칙 유지.
 
 
 class RoundAbort(Exception):
@@ -201,17 +204,23 @@ class TurnSequencer:
             return scorer.summary(end_reason=EpisodeEndReason.ABORTED.value)
         self._log(f"[ep{episode}] ✓ VM B 준비됨({time.time() - _t:.0f}s). 라운드 시작")
 
+        last_feedback: Optional[dict] = None   # 공진화 피드백 — 전 라운드 심판 판정을 다음 방어 턴에 넘긴다
         try:
             for rnd in range(1, self.params.max_rounds + 1):
                 if self.kill_switch is not None and self.kill_switch():
                     end_reason = EpisodeEndReason.KILLED
                     break
                 try:
-                    outcome = self._run_round(episode, rnd, scorer, created_snaps)
+                    outcome = self._run_round(episode, rnd, scorer, created_snaps,
+                                              last_feedback=last_feedback)
                 except RoundAbort as e:
                     self._log(f"[ep{episode} R{rnd}] ✗ 라운드 중단: {e} → 회차 ABORTED")
                     end_reason = EpisodeEndReason.ABORTED
                     break
+
+                # 다음 라운드 defender 에게 넘길 피드백 갱신(없으면 유지 — 생략 라운드도 직전 유효 피드백은 보존)
+                if outcome.feedback_for_next is not None:
+                    last_feedback = outcome.feedback_for_next
 
                 # 게이팅 사다리: 크라운 반출(방어 개입) 라운드는 검증 판정으로 증감,
                 # 크라운 미반출 라운드는 '과거에 한 번이라도 뚫린 적 있으면' 방어가 막아낸 것으로 +1
@@ -252,7 +261,8 @@ class TurnSequencer:
 
     # ───────────── 라운드 ─────────────
     def _run_round(self, episode: int, rnd: int, scorer: Scorer,
-                   created_snaps: list[str]) -> RoundOutcome:
+                   created_snaps: list[str],
+                   *, last_feedback: Optional[dict] = None) -> RoundOutcome:
         t0 = time.time()
 
         # 1. 공격 턴 (발판=고정 진입점, 매 라운드 제공 — 대상은 매 라운드 baseline으로 revert돼
@@ -298,14 +308,25 @@ class TurnSequencer:
             flag_found = True
 
         if flag_found:
-            # 2. 방어 턴 (공격정보 0). A2: 공격후 VM 스냅샷 불필요 — verify 가 '패치된 라이브'에
-            #    공격 대본을 재생(POST-only)할 뿐 리셋하지 않으므로 stun 유발 스냅샷이 없다.
+            # 2. 방어 턴 (공격정보 0 — 심판 피드백만). A2: 공격후 VM 스냅샷 불필요 — verify 가
+            #    '패치된 라이브'에 공격 대본을 재생(POST-only)할 뿐 리셋하지 않으므로 stun 유발
+            #    스냅샷이 없다. last_feedback(심판 판정 라벨) 은 공격자 정보가 아니라 공식 판정이라
+            #    정보 비대칭 원칙 유지.
             self._emit(phase=2, active="defender", turn_started=time.time())
-            self._log(f"[ep{episode} R{rnd}] 2. 방어 턴(관측→추론→패치)…")
+            self._log(f"[ep{episode} R{rnd}] 2. 방어 턴(관측→추론→패치)…"
+                      + (f" [피드백 ← R{last_feedback['last_round']} {last_feedback['last_verdict']}]"
+                         if last_feedback else ""))
             _t = time.time()
+            fb = last_feedback or {}
             defense = self._call(
                 lambda: self.defender.defense_turn(
-                    DefenseTurnStart(time_limit_sec=self.params.time_limit_sec),
+                    DefenseTurnStart(
+                        time_limit_sec=self.params.time_limit_sec,
+                        last_round=fb.get("last_round"),
+                        last_verdict=fb.get("last_verdict"),
+                        last_verdict_detail=fb.get("last_verdict_detail"),
+                        last_crowns_reached=fb.get("last_crowns_reached", []),
+                    ),
                     episode=episode, round=rnd), "defense_turn")
             self._log(f"[ep{episode} R{rnd}]    → 방어 종료={defense.end_reason.value} "
                       f"패치={defense.patch_applied} 탐지={len(defense.detected)}개 "
@@ -368,10 +389,23 @@ class TurnSequencer:
         # 방어 성공 = 공격 경로 차단(BLOCKED). 서비스를 죽여 얻은 거짓 차단은 검증엔진이 이미
         # SERVICE_BROKEN(무효 패치·자멸)으로 가르므로(verify 가 health 를 선행 판정), verdict 하나로
         # 성공 여부가 결정된다 → 여기서 health 를 다시 AND 할 필요 없다. availability 는 scorer 별도.
+
+        # 다음 라운드 defender 에게 넘길 심판 피드백(공식 판정 라벨만 — 공격 명령·대본은 담지 않음).
+        # 생략 라운드(flag_found=False)는 피드백 미생성 — 시퀀서가 직전 유효 피드백을 보존해 다음에 전달.
+        feedback_for_next: Optional[dict] = None
+        if flag_found:
+            feedback_for_next = {
+                "last_round": rnd,
+                "last_verdict": verification.verdict.value,
+                "last_verdict_detail": verification.detail,
+                "last_crowns_reached": sorted(attack_crowns),
+            }
+
         return RoundOutcome(round=rnd, verdict=verification.verdict,
                             defense_succeeded=verification.defense_succeeded(),
                             flags_reached=verification.flags_still_reachable,
-                            flag_found=flag_found)
+                            flag_found=flag_found,
+                            feedback_for_next=feedback_for_next)
 
     def _scan_topology(self) -> Optional[dict]:
         """게이팅(방어 미개입) 라운드에도 대시보드 '타깃 구성도'가 뜨도록 god-view kubeconfig 로

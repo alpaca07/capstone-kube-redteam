@@ -121,8 +121,21 @@ class Triager:
         self.system_prompt = system_prompt
         self.max_retries = max_retries
 
-    def triage(self, report: SituationReport) -> TriageResult:
-        base = json.dumps(report.to_prompt_dict(), ensure_ascii=False)
+    def triage(self, report: SituationReport,
+               *, last_feedback: Optional[dict] = None) -> TriageResult:
+        """상황 보고서 → LLM 진단. last_feedback 있으면 user 메시지에 '심판 피드백' 섹션 포함.
+
+        last_feedback 구조: {last_round, last_verdict, last_verdict_detail, last_crowns_reached}.
+        공격 명령·대본·요약은 담지 않는다(심판 공식 라벨만) — 정보 비대칭 원칙 유지.
+        """
+        report_json = json.dumps(report.to_prompt_dict(), ensure_ascii=False)
+        base = report_json
+        if last_feedback is not None:
+            fb_json = json.dumps(last_feedback, ensure_ascii=False)
+            # 보고서 뒤에 '심판 피드백' 섹션을 명확히 구분해 붙인다. LLM 이 구조적으로 분리 인식하도록.
+            base = (f"{report_json}\n\n"
+                    f"[심판 피드백 — 전 라운드 결과 라벨(공격 명령·대본은 포함되지 않음)]\n"
+                    f"{fb_json}")
         user = base
         last: Optional[Exception] = None
         for _ in range(self.max_retries + 1):

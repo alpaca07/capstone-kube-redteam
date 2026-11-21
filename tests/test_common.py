@@ -121,12 +121,21 @@ def test_payload_as_type_mismatch_raises():
 
 
 def test_info_asymmetry_defense_start_has_no_attack_fields():
-    """★ 방어 턴 시작 payload엔 공격 관련 필드가 아예 없다(스키마로 강제)."""
+    """★ 방어 턴 시작 payload 에 공격자 추론 정보(명령·대본·요약·힌트)는 없다.
+
+    단 심판(VM C)의 전 라운드 공식 판정 라벨(last_verdict·last_crowns_reached 등)은 허용 — 이는
+    공격자 정보가 아니라 공진화 피드백 루프용 심판 결과라, 정보 비대칭 원칙(방어자가 공격 명령·
+    대본을 모르는) 은 유지된다. 이 테스트는 (1) 공격 관련 필드가 섞이지 않고 (2) 그 외 필드는
+    last_* 프리픽스가 붙은 심판 피드백 필드만 있는지로 원칙을 강제한다.
+    """
     fields = set(DefenseTurnStart.model_fields.keys())
-    assert fields == {"time_limit_sec"}, f"방어 시작에 과한 필드: {fields}"
+    assert "time_limit_sec" in fields, "필수 필드 누락"
     forbidden = {"foothold", "replay_script", "attack_summary",
                  "detected", "technique", "goal"}
-    assert not (fields & forbidden)
+    assert not (fields & forbidden), f"공격 정보 유입: {fields & forbidden}"
+    extra = fields - {"time_limit_sec"}
+    assert all(f.startswith("last_") for f in extra), \
+        f"last_ 프리픽스 없는 비표준 필드(심판 피드백 외): {extra}"
 
 
 def test_state_query_result_is_facts_only():

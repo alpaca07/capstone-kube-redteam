@@ -88,7 +88,17 @@ class DefenseHarness:
             obs = self.observer.collect(since_ts=self._cursor)
             self._cursor = max(self._cursor, obs.until_ts)          # 커서 전진(다음 라운드 증분)
             report = filter_observations(obs)
-            triage = self.triager.triage(report)                   # LLM(공격정보 없이 자력 추론)
+            # 심판 피드백(전 라운드 판정 라벨) — 있으면 Triager 에 전달해 LLM user 메시지에 포함.
+            # 공격자 정보가 아닌 공식 판정이라 정보 비대칭 원칙 유지. 첫 라운드엔 None(피드백 없음).
+            last_feedback = None
+            if start.last_verdict is not None:
+                last_feedback = {
+                    "last_round": start.last_round,
+                    "last_verdict": start.last_verdict,
+                    "last_verdict_detail": start.last_verdict_detail,
+                    "last_crowns_reached": list(start.last_crowns_reached or []),
+                }
+            triage = self.triager.triage(report, last_feedback=last_feedback)   # LLM(공격정보 없이 피드백만)
             outcome = self.patcher.apply_plan(triage.patch_plan)
 
             detected = [Detection(technique=d.mitre, evidence=d.evidence) for d in triage.detected]

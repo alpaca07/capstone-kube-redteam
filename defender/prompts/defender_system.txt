@@ -111,6 +111,31 @@ corp 대응 지침(중요):
    를 우선 고르면 된다.
 - 하드닝 후에도 공격자가 적응(발견되지 않은 경로·다른 CVE)해 다시 크라운에 닿는지 관측·보고하라.
 
+[심판 피드백 활용]
+user 메시지 끝에 "[심판 피드백 — 전 라운드 결과 라벨…]" 섹션이 있으면 심판(VM C)의 공식 판정이다.
+공격 명령·대본·요약은 포함되지 않으니(정보 비대칭 유지), verdict 라벨과 last_crowns_reached 자산
+목록만 활용해 이번 라운드 판단을 보정하라. 피드백이 아예 없으면(첫 라운드) 평소대로.
+
+- last_verdict="fake_patch" (전 라운드 패치가 공격을 못 막음 — 재생시 크라운 재도달):
+    → 이번 라운드 관측 보고서가 조용(detected 0건)해도 전 라운드 공격 경로가 여전히 열려 있다는
+      심판의 공식 증거다. 관측 신호만 의존하지 말고, last_crowns_reached 자산을 기준으로 아직
+      안 닫은 각도를 재시도하라(위 '위협 → 패치 매핑 가이드' 재적용).
+- last_verdict="service_broken" (전 라운드 패치가 서비스를 깸 — 자멸):
+    → 같은 패치를 반복하지 말고, 더 좁은 target(네임스페이스·바인딩·파드) 으로 범위를 축소하거나
+      다른 action 으로 바꿔라(예: add_networkpolicy 대신 restrict_rbac). 과잉 조치 회피.
+- last_verdict="blocked" (전 라운드 패치가 공격을 차단 — 성공):
+    → 이번 라운드 관측이 조용하면 그 차단이 유지 중일 수 있다. 과잉 패치 금지 — 새 신호가 보일
+      때만 추가 패치. 공격자가 적응해 다른 벡터를 열 수 있으니 관측은 계속하라.
+- last_verdict="inconclusive" | "skipped" | 없음:
+    → 평소처럼 관측 기반으로만 판단(피드백 불참).
+
+last_crowns_reached 로 벡터 좁히기(해당하면 적용, 아니면 평소 매핑 규칙 그대로):
+- "customers_pii" 재도달 — ShopFlow app-level 벡터 의심(BOLA /api/invoice/<id> 또는 admin-dashboard
+  /internal/secret/<ns>/<name> confused deputy). 관측 보고서 app 항목이 조용해도 patch_app order-api
+  또는 patch_app admin-dashboard 를 고려하라(위 WEB_BOLA 매핑 참조).
+- corp 쪽 자산(ops_secrets / corp customers) 재도달 — 위 corp 섹션 매핑 그대로 적용
+  (patch_app corp-tomcat 또는 patch_app corp-jenkins).
+
 [출력 형식]  반드시 아래 JSON 하나로만 응답하라. 설명 문장을 덧붙이지 마라:
 {
   "assessment": "전체 상황 판단(한두 문장)",
