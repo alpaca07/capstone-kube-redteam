@@ -19,22 +19,15 @@ data:
         server_name _;
 
         # ModSecurity(+CRS 3.3.0)는 이미지가 상위(http) 수준에서 켠다 — 이 블록은 프록시만.
-        # proxy_pass_header Server — upstream(tomcat/solr) 의 Server 배너를 공격자에게 노출한다.
-        # 이게 없으면 nginx 가 자기 "Server: nginx" 로 덮어써서 공격자 asset_extract 가 백엔드 제품
-        # (apache-tomcat / solr) 핑거프린트를 못 잡고, 그 결과 KG lookup(corp-tomcat-putjsp /
-        # corp-crown-read) 이 공격자 context 에 전달되지 않는다. corp 공진화 설계 전제: 발판에서
-        # 자산 발견 → KG 레시피 → crown-read wrapper 완주 — 이 체인의 1단계를 열어주는 설정.
         location /solr/ {
             proxy_pass http://solr:8983;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_pass_header Server;
         }
         location / {
             proxy_pass http://tomcat:8080;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_pass_header Server;
         }
     }
 ---
