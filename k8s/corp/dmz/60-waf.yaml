@@ -19,13 +19,29 @@ data:
         server_name _;
 
         # ModSecurity(+CRS 3.3.0)는 이미지가 상위(http) 수준에서 켠다 — 이 블록은 프록시만.
+        #
+        # ── upstream DNS 재해결 ──────────────────────────────────────────────
+        # 기본 proxy_pass 는 기동 시 upstream 호스트를 '한 번만' 해결하고 그 IP를 캐시한다.
+        # upstream 서비스(tomcat·solr)가 재생성돼 ClusterIP 가 바뀌면 WAF 는 옛 IP 로
+        # connect() 를 시도해 'Connection refused' → 502 를 반환한다. 운영 중 Service
+        # 재생성(테스트 리셋·kubectl delete 등)에도 WAF 가 자동 복구되게 다음을 쓴다:
+        #   1) resolver: kube-dns 를 조회처로 지정. k3s 기본 ClusterIP 는 10.43.0.10.
+        #      다른 환경이면 `kubectl get svc -n kube-system kube-dns` 로 확인해 변경.
+        #      valid=10s 로 캐시 TTL 짧게, ipv6=off 로 불필요 조회 생략.
+        #   2) 변수 proxy_pass: upstream 을 변수(set $..)로 두면 nginx 가 compile time 이
+        #      아닌 runtime 에 해결한다 — resolver 캐시 TTL 안에서 재해결 발동.
+        # 리터럴 'http://tomcat:8080' 쓰면 이 기능이 꺼져 캐시 고착된다 — 반드시 변수.
+        resolver 10.43.0.10 valid=10s ipv6=off;
+
         location /solr/ {
-            proxy_pass http://solr:8983;
+            set $solr_upstream "solr.corp-dmz.svc.cluster.local:8983";
+            proxy_pass http://$solr_upstream;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
         }
         location / {
-            proxy_pass http://tomcat:8080;
+            set $tomcat_upstream "tomcat.corp-dmz.svc.cluster.local:8080";
+            proxy_pass http://$tomcat_upstream;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
         }
