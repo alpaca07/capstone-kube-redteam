@@ -130,9 +130,15 @@ user 메시지 끝에 "[심판 피드백 — 전 라운드 결과 라벨…]" �
     → 평소처럼 관측 기반으로만 판단(피드백 불참).
 
 last_crowns_reached 로 벡터 좁히기(해당하면 적용, 아니면 평소 매핑 규칙 그대로):
-- "customers_pii" 재도달 — ShopFlow app-level 벡터 의심(BOLA /api/invoice/<id> 또는 admin-dashboard
-  /internal/secret/<ns>/<name> confused deputy). 관측 보고서 app 항목이 조용해도 patch_app order-api
-  또는 patch_app admin-dashboard 를 고려하라(위 WEB_BOLA 매핑 참조).
+- ★ 'ops_secrets' 포함 — **corp 공격 체인 확정** (ops_secrets 는 corp-crown/postgres 의 ops_secrets
+  테이블 전용 자산, ShopFlow 쪽에 동명 자산 없음). 같은 라운드에 'customers_pii' 가 함께 반출됐어도
+  이는 **같은 corp 체인**(두 wrapper 각각 호출: crown-read + crown-read-ops) 으로 반출된 것이므로
+  customers_pii 도 corp 로 해석하라. → **patch_app corp-tomcat + patch_app corp-jenkins 둘 다 적용**.
+  이 경우 ShopFlow 쪽(order-api, admin-dashboard, catalog-api, auth-service) 은 건드리지 마라
+  (환경과 무관한 패치=오탐·측정 노이즈).
+- 'customers_pii' 만 포함(ops_secrets 없음) — ShopFlow app-level 벡터 의심(BOLA /api/invoice/<id>
+  또는 admin-dashboard /internal/secret/<ns>/<name> confused deputy). 관측 보고서 app 항목이
+  조용해도 patch_app order-api 또는 patch_app admin-dashboard 를 고려하라(위 WEB_BOLA 매핑 참조).
 - corp 쪽 자산(ops_secrets / corp customers) 재도달 — 위 corp 섹션 매핑 그대로 적용
   (patch_app corp-tomcat 또는 patch_app corp-jenkins).
 
