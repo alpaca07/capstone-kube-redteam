@@ -316,6 +316,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.db_log_corp:
         _p = cfg.observability.db_log_path
         cfg.observability.db_log_path = (_p[:-4] + "-corp.log") if _p.endswith(".log") else (_p + "-corp")
+        # corp 환경 가정: 정상 접근자 없음(corp_svc 는 공격자 wrapper 전용) → role 필터 꺼서 None
+        # 모드. ShopFlow 는 appuser 가 상시 민감 테이블 조회하므로 config 의 ["legacy_admin"]
+        # default 유지. --attacker-db-roles 로 CLI 명시된 경우는 사용자 뜻대로 두고 덮지 않는다.
+        if args.attacker_db_roles is None:
+            cfg.observability.attacker_db_roles = []
     params = _params_from_args(cfg, args)
 
     os.makedirs(args.out_dir, exist_ok=True)
