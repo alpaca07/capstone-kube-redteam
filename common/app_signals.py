@@ -71,6 +71,16 @@ def classify(path: str, query: str = "", url: Optional[str] = None, *,
         return WEB_CMDI if _CMD_META.search(q) else None
     if path == "/debug/config":
         return WEB_CREDLEAK
+    # ── corp 킬체인 (Tier A 확장) — JSP 웹셸·Jenkins Script Console ──
+    # Tomcat 상비 healthcheck.jsp / CVE-2017-12615 PUT shell.jsp 모두 cmd= 쿼리로
+    # 임의 shell 명령 실행. crown-read wrapper 호출의 유일한 외부 진입점이라
+    # WAF access_log 에서 이 패턴을 잡으면 corp 공격 1단을 식별 가능.
+    if path in ("/healthcheck.jsp", "/shell.jsp") and "cmd=" in (query or ""):
+        return WEB_CMDI
+    # Jenkins Script Console API — Groovy 임의 실행(admin:admin 기본 자격증명).
+    # /scriptText 는 UI /script 와 달리 API 엔드포인트 — wrapper 가 evaluate() 로 호출.
+    if path == "/scriptText":
+        return WEB_CMDI
     # ── Tier B ──
     if path.startswith("/api/invoice/"):
         return WEB_BOLA                        # 인증 없는 영수증 열람/열거(IDOR) — 정상 호출자 없음

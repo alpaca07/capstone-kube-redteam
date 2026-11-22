@@ -13,6 +13,15 @@ metadata:
   name: waf-nginx-conf
   namespace: corp-dmz
 data:
+  # log_format 지시어는 http 스코프 필수 — /etc/nginx/conf.d/00-log-format.conf 에 마운트.
+  # OWASP ModSecurity Nginx 이미지의 /etc/nginx/nginx.conf 가 http {} 안에서
+  # `include /etc/nginx/conf.d/*.conf;` 하므로 server {} 보다 먼저 로드되어 참조 가능.
+  # 이 JSON 포맷은 common.app_signals.map_app_event 가 파싱하는 포맷과 일치 —
+  # src:"app" + svc:"waf" + path + query 로 corp 킬체인 webshell cmd= 식별.
+  log-format.conf: |
+    log_format json_audit escape=json
+      '{"ts":"$time_iso8601","src":"app","svc":"waf","path":"$uri","query":"$args",'
+      '"status":$status,"method":"$request_method","remote":"$remote_addr"}';
   default.conf.template: |
     server {
         listen 8080;
@@ -32,6 +41,13 @@ data:
         #      아닌 runtime 에 해결한다 — resolver 캐시 TTL 안에서 재해결 발동.
         # 리터럴 'http://tomcat:8080' 쓰면 이 기능이 꺼져 캐시 고착된다 — 반드시 변수.
         resolver 10.43.0.10 valid=10s ipv6=off;
+
+        # ── 앱 감사 로그(JSON) — 방어자 Observer 가 webshell cmd= 식별하는 유일한 진입점 ──
+        # log_format json_audit 은 http 스코프라 /etc/nginx/conf.d/00-log-format.conf 분리.
+        # vmc-sync-applog.sh 가 kubectl logs 로 수집 → cfg.observability.app_log_path 로
+        # 복제 → defender Observer 가 common.app_signals.classify() 로 corp 킬체인
+        # (/healthcheck.jsp?cmd=, /shell.jsp?cmd=, /scriptText) 를 WEB_CMDI 로 분류.
+        access_log /dev/stdout json_audit;
 
         location /solr/ {
             set $solr_upstream "solr.corp-dmz.svc.cluster.local:8983";
@@ -82,6 +98,11 @@ spec:
             - name: nginx-template
               mountPath: /etc/nginx/templates/conf.d/default.conf.template
               subPath: default.conf.template
+            # log_format 정의(http 스코프) — nginx.conf 의 include /etc/nginx/conf.d/*.conf
+            # 로 자동 로드. envsubst 는 templates/ 디렉터리만 처리하므로 conf.d/ 직접 마운트.
+            - name: nginx-template
+              mountPath: /etc/nginx/conf.d/00-log-format.conf
+              subPath: log-format.conf
           readinessProbe:
             tcpSocket: { port: 8080 }
             initialDelaySeconds: 10

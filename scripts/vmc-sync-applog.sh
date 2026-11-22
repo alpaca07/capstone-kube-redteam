@@ -24,4 +24,8 @@ follow() {   # $1=ns  $2=deploy
 follow backend  catalog-api &
 follow backend  order-api &
 follow internal admin-dashboard &
+# corp 킬체인 — WAF nginx JSON access_log 가 외부 webshell 호출의 유일한 진입점.
+# common.app_signals.classify() 가 /healthcheck.jsp?cmd=, /shell.jsp?cmd=, /scriptText 를
+# WEB_CMDI 로 분류 → 방어자가 corp 공격 1단을 식별.
+follow corp-dmz waf &
 wait
