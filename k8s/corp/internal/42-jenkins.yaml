@@ -49,6 +49,34 @@ data:
         println 'CROWN_ROW:' + (1..md.columnCount).collect { rs.getString(it) }.join('|')
     }
     conn.close()
+  # ops_secrets 테이블 반출 전용 — customers(crown-pii)와 대칭 구조. 동일한 자격증명 로드
+  # 흐름을 그대로 재사용해 운영 비밀(key/value/note)을 반환한다. 두 크라운 자산(customers_pii,
+  # ops_secrets)은 서로 다른 테이블이라 한 쿼리로 묶지 않고 wrapper 를 분리 — 공격자가 자산별로
+  # '의도적으로 두 wrapper 를 호출'하도록 설계(한 번에 둘 다 반출되는 치트 방지).
+  # /usr/local/bin/crown-read-ops wrapper 가 Jenkins /scriptText 로 evaluate 호출한다.
+  crown-read-ops.groovy: |
+    // /opt/deploy/corp-db.properties 에서 자격증명 로드 — crown-read.groovy 와 동일 패턴
+    def creds = [:]
+    new File('/opt/deploy/corp-db.properties').eachLine { line ->
+        def m = line =~ /^([A-Z_]+)=(.+)$/
+        if (m) creds[m[0][1].trim()] = m[0][2].trim()
+    }
+    def jar = new File('/var/jenkins_home/.groovy/lib/postgresql.jar')
+    def cl = new java.net.URLClassLoader([jar.toURI().toURL()] as java.net.URL[], Thread.currentThread().contextClassLoader)
+    def driver = cl.loadClass('org.postgresql.Driver').newInstance()
+    def props = new java.util.Properties()
+    props.setProperty('user', creds.CORP_DB_USER)
+    props.setProperty('password', creds.CORP_DB_PASS)
+    def url = "jdbc:postgresql://${creds.CORP_DB_HOST}:${creds.CORP_DB_PORT}/${creds.CORP_DB_NAME}"
+    def conn = driver.connect(url, props)
+    def rs = conn.createStatement().executeQuery('SELECT * FROM ops_secrets LIMIT 10')
+    def md = rs.metaData
+    def cols = (1..md.columnCount).collect { md.getColumnName(it) }
+    println 'OPS_COLS:' + cols.join(',')
+    while (rs.next()) {
+        println 'OPS_ROW:' + (1..md.columnCount).collect { rs.getString(it) }.join('|')
+    }
+    conn.close()
 ---
 apiVersion: apps/v1
 kind: Deployment
