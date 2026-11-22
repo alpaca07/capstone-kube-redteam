@@ -24,17 +24,22 @@ data:
         # (apache-tomcat / solr) 핑거프린트를 못 잡고, 그 결과 KG lookup(corp-tomcat-putjsp /
         # corp-crown-read) 이 공격자 context 에 전달되지 않는다. corp 공진화 설계 전제: 발판에서
         # 자산 발견 → KG 레시피 → crown-read wrapper 완주 — 이 체인의 1단계를 열어주는 설정.
+        # add_header X-Powered-By — 모든 응답 헤더에 백엔드 제품 노출. body 노출만으로는
+        # 공격자 응답 저장·요약 체인에서 핑거프린트가 사라지는 경우가 있어, 헤더 레벨로 강제.
+        # asset_extract 의 'apache[ -]?tomcat' / 'solr' regex 가 어떤 응답에서든 매칭되도록.
         location /solr/ {
             proxy_pass http://solr:8983;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_pass_header Server;
+            add_header X-Powered-By "Apache-Solr/8.11" always;
         }
         location / {
             proxy_pass http://tomcat:8080;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_pass_header Server;
+            add_header X-Powered-By "Apache-Tomcat/8.5.19" always;
         }
     }
 ---
