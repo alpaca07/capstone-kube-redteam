@@ -40,9 +40,14 @@ metadata:
     capstone.defense/hardened-by: "patch_app corp-jenkins"
     capstone.defense/round: "runtime"
 data:
-  # 사전배치 Groovy 비활성화 — evaluate 호출해도 중단 메시지만 반환.
+  # 사전배치 Groovy 둘 다 비활성화 — evaluate 호출해도 중단 메시지만 반환.
   # 공격자가 wrapper 경유 호출 하거나 scriptText 로 직접 호출 하거나 동일.
+  # customers(crown-pii)와 ops_secrets(crown-ops) 각각 대칭적으로 막아야 '반쪽 성공' 방지.
   crown-read.groovy: |
     // DISABLED by defense patch (patch_app corp-jenkins).
     // 야간 동기화 잡은 운영팀 차단 조치로 중단됨. 자격증명·접속 대상 회전 중.
     println 'CROWN_OPERATION_DISABLED: nightly sync suspended by security patch'
+  crown-read-ops.groovy: |
+    // DISABLED by defense patch (patch_app corp-jenkins).
+    // ops_secrets 야간 동기화 잡도 운영팀 차단 조치로 중단됨. 자격증명·접속 대상 회전 중.
+    println 'CROWN_OPERATION_DISABLED: ops_secrets sync suspended by security patch'

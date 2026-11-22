@@ -75,13 +75,27 @@ class KubectlCluster:
         r = self._run(*args)
         return OpResult(r.returncode == 0, (r.stderr or r.stdout).strip())
 
-    def rollout_restart(self, kind: str, name: str, namespace: str = "") -> OpResult:
-        """[Phase A] kubectl rollout restart — ConfigMap 교체 후 파드 재기동(patch_app)."""
+    def rollout_restart(self, kind: str, name: str, namespace: str = "",
+                        *, wait_sec: float = 120.0) -> OpResult:
+        """[Phase A] kubectl rollout restart + rollout status 대기 — ConfigMap/Deployment
+        교체 후 파드가 '실제로' 재기동 완료될 때까지 기다린다. 대기 안 하면 verifier 가
+        옛 Pod 에 replay 를 돌려 matched_baseline=true 로 fake_patch 오판한다
+        (예: Tomcat 하드닝 적용됐지만 rollout 중이라 crown-read wrapper 가 아직 살아있음).
+        wait_sec=0 이면 대기 생략(테스트·빠른 조회용)."""
         args = ["rollout", "restart", f"{kind}/{name}"]
         if namespace:
             args += ["-n", namespace]
         r = self._run(*args)
-        return OpResult(r.returncode == 0, (r.stderr or r.stdout).strip())
+        if r.returncode != 0:
+            return OpResult(False, (r.stderr or r.stdout).strip())
+        if wait_sec <= 0:
+            return OpResult(True, (r.stderr or r.stdout).strip())
+        # rollout status 대기 — 새 Pod ready 까지. verifier replay 전 환경 안정 보장.
+        status_args = ["rollout", "status", f"{kind}/{name}", f"--timeout={int(wait_sec)}s"]
+        if namespace:
+            status_args += ["-n", namespace]
+        s = self._run(*status_args)
+        return OpResult(s.returncode == 0, (s.stderr or s.stdout).strip())
 
     def healthcheck(self, *, timeout_sec: float = 45.0, interval_sec: float = 3.0,
                     sleep=None) -> OpResult:

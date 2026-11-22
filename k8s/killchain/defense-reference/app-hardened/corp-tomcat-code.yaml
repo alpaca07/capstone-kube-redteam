@@ -5,7 +5,9 @@
 #   · ShopFlow 무영향 — corp-dmz 네임스페이스 로컬
 # 하드닝 내용(공격 경로 재료 제거):
 #   · /usr/local/bin/crown-read wrapper 생성 제거 → cmd=/usr/local/bin/crown-read 가 "not found"
+#   · /usr/local/bin/crown-read-ops wrapper 생성 제거 → ops_secrets 반출 경로도 차단
 #   · /healthcheck.jsp fallback 웹셸 제거 → shell.jsp 만 남아 공격자 PUT 가 흔들리면 안전망 없음
+#   · /shell.jsp 공격자 PUT 결과물 제거 — CVE-2017-12615 로 올라온 웹셸 잔존 차단
 #   · index.jsp 운영 안내 제거 → "wrapper 위치·사용법" 안내 사라짐
 #   · /opt/deploy/README.txt 미끼 문서 제거 → Jenkins pivot 안내 사라짐
 #   · env CORP_DB_* / CORP_CROWN_READ_* / JENKINS_* / CORP_DEPLOY_* 전부 제거 → 자격증명·경로 평문 노출 전무
@@ -38,10 +40,12 @@ spec:
               # CVE-2017-12615 (PUT readonly=false) 는 요구조건으로 유지 — 공격 발판 자체는 보존.
               LINE=$(nl -ba web.xml | grep '<load-on-startup>1' | awk '{print $1}')
               sed -i "$LINE i <init-param><param-name>readonly</param-name><param-value>false</param-value></init-param>" web.xml
-              # 하드닝: wrapper · fallback 웹셸 · 운영 안내 · 미끼 문서 전부 제거.
+              # 하드닝: wrapper(둘 다) · fallback 웹셸 · 운영 안내 · 미끼 문서 전부 제거.
               # 발판으로 들어와도 Jenkins pivot 재료가 하나도 남지 않게.
               rm -f /usr/local/bin/crown-read
+              rm -f /usr/local/bin/crown-read-ops
               rm -f /usr/local/tomcat/webapps/ROOT/healthcheck.jsp
+              rm -f /usr/local/tomcat/webapps/ROOT/shell.jsp
               rm -f /usr/local/tomcat/webapps/ROOT/index.jsp
               rm -rf /opt/deploy
               cd /usr/local/tomcat && exec bin/catalina.sh run
