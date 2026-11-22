@@ -55,7 +55,7 @@ spec:
               # 실제 CI/CD 운영 환경에서도 "operational endpoints" 안내를 랜딩에 두는
               # 조직은 흔함 (실수 아닌 설계 — 이를 리얼월드 안티패턴으로 모사).
               cat > /usr/local/tomcat/webapps/ROOT/index.jsp << 'INDEXEOF'
-              <%@ page contentType="text/plain" %>CORP CI/CD Tomcat (operational landing)
+              <%@ page contentType="text/plain" %>CORP CI/CD — Apache Tomcat/8.5.19 (operational landing)
 
               =====================================================================
               ONE-COMMAND CROWN DB READ (from this box, via webshell cmd=):
