@@ -45,21 +45,36 @@ from orchestrator.verifier import VerificationEngine  # noqa: E402
 
 
 def _build_attacker_memory_reset(cfg: Config):
-    """[Wave2] 공격자 외부 저장소 리셋 콜백 조립 — 현재 비활성(안전).
+    """[Wave2 재활성] 공격 하네스 프로세스 재시작 콜백 — ATTEMPTS/closure 등 '프로세스 메모리'
+    wipe. Neo4j 는 안 건드림(KG 영구 지식 보존). Asset 노드는 (episode, name) 키라 새 episode
+    는 자연 분리됨.
 
-    원래 의도: graph_backend="neo4j" 일 때 매 run 시작시 Neo4j 전체 노드/엣지 삭제로 탐색 그래프
-    오염을 지움. 그러나 Neo4j 에는 탐색 그래프뿐 아니라 **공격자 KG 영구 지식**(knowledge/core_layer
-    로드분 — CVE·공격 기법 정보, kg_bridge·planner 가 참조)도 함께 저장될 수 있다. 무차별
-    'MATCH (n) DETACH DELETE n' 은 KG 까지 날려 공격 능력 자체를 상실시킨다.
+    기존(비활성) 버전은 Neo4j 'MATCH (n) DETACH DELETE n' 을 쓰려다 KG 까지 날릴 위험으로 접었고,
+    실측에서 라운드 간 오염의 핵심이 **공격 하네스 프로세스의 ATTEMPTS/closure 메모리** 로
+    확인됨(69ea610 ATTEMPTS + 593aa82 closure 커밋 이후). systemctl restart 하나로 해결.
 
-    안전 조치: Neo4j 자동 리셋은 비활성(항상 None 반환). 탐색 그래프만 라벨로 식별해 선택 삭제하는
-    쿼리는 스키마 조사 후 별도 과업. 그 사이 공격자 기억 오염은 scripts/reset-attacker-memory.sh
-    의 수동 실행(사용자 승인하 하네스 재시작 + 로컬 저널 파일 정리)으로 처리한다.
+    방식: config.network.attacker_ssh 에 ssh 대상(vm-a@192.168.16.129 또는 ssh config alias)이
+    있으면 VM C → VM A 로 BatchMode ssh → `sudo systemctl restart attack-harness`.
+    없으면 None 반환 → BaselineManager 가 silent skip(기존 Optional 동작 유지).
 
-    주의: BaselineManager 쪽 attacker_memory_reset 파라미터는 이미 Optional 이고 None 수신시
-    해당 단계를 silent skip 하도록 짜여 있으므로 호환성 깨지지 않음.
+    전제: 키 기반 ssh 로그인 + sudo NOPASSWD 로 systemctl restart attack-harness 가능해야 한다.
+    실패해도 reset 전체는 best-effort 로 진행(공진화는 돌긴 돌되 측정만 흐려짐).
     """
-    return None
+    ssh_target = getattr(cfg.network, "attacker_ssh", None)
+    if not ssh_target:
+        return None
+
+    def _reset() -> None:
+        import subprocess
+        subprocess.run(
+            ["ssh",
+             "-o", "BatchMode=yes",
+             "-o", "StrictHostKeyChecking=accept-new",
+             "-o", "ConnectTimeout=5",
+             ssh_target, "sudo systemctl restart attack-harness"],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+    return _reset
 
 
 def _build_snapshots(cfg: Config):
@@ -107,15 +122,18 @@ def build_sequencer(cfg: Config, *, sink=None, progress=None, events=None,
             ("k8s/services/internal/41-admin-dashboard.yaml", "internal",   "admin-dashboard"),
         )
     )
+    # [Wave2] 네임스페이스 매니페스트도 리포 루트 절대경로로(cwd 무관 동작 보장).
+    _ns_manifests = (str(_ROOT / "k8s" / "corp" / "00-namespaces.yaml"),)
     baseline = BaselineManager(
         runner=kubectl_runner(cfg.target.kubeconfig or None),
         manifest_paths=(str(_ROOT / "k8s" / "killchain"),),
         patch_app_targets=_patch_app_targets,
+        namespace_manifests=_ns_manifests,     # [Wave2] ns 매니페스트 재적용(ns 라벨 drift 1차 복구)
         # 발판 자동전환: baseline 회차간 재시작도 공격자 exec 와 같은 발판(cfg.attack, CLI override 반영됨)으로.
         foothold=(cfg.attack.exec_namespace, cfg.attack.exec_pod.split("/")[-1]),
         baseline_name=cfg.vmware.baseline_snapshot,
-        # [Wave2] 공격자 기억 오염 리셋 — Neo4j 저장소에 라운드 간 지식이 남을 때만 활성화.
-        #   graph_backend=="neo4j" + 접속정보 있을 때만 콜백 주입. 아니면 None(skip).
+        # [Wave2 재활성] 공격 하네스 프로세스 재시작 — ATTEMPTS/closure 메모리 wipe.
+        #   cfg.network.attacker_ssh 가 설정돼 있을 때만 활성, 없으면 None(skip).
         attacker_memory_reset=_build_attacker_memory_reset(cfg))
     registry = default_registry()               # 상태검증·탐지 채점용(①②③·web·esc·disc)
     objectives = resolve_objectives(            # free=빈(채점 끔) / asset=선택(비면 전체)

@@ -45,6 +45,14 @@ class NetworkConfig(BaseModel):
     attacker_url: str                  # VM A 공격 하네스
     defender_url: str                  # VM B 방어 하네스
     shared_token: str = "CHANGE_ME"    # 관리망 통신용 공유 토큰
+    # [Wave2] 공격 하네스 재시작용 ssh 대상(예: "vm-a@192.168.16.129" 또는 ssh config alias).
+    # baseline.reset_to_clean() 가 매 라운드 reset 시 ATTEMPTS/closure 등 '프로세스 메모리'에 남은
+    # 라운드 간 지식을 wipe 하기 위해 ssh 로 `sudo systemctl restart attack-harness` 실행한다.
+    # Neo4j 는 안 건드림(KG 영구 지식 보존). Asset 노드는 (episode, name) 키라 새 episode 는
+    # 자연 분리됨. None/빈문자열이면 재시작 skip(best-effort) — 공진화는 돌긴 돌되 라운드 간
+    # 공격자 '실패 기억'이 쌓여 재탐색이 위축될 수 있음(수동 systemctl restart 로 대체 가능).
+    # 전제: VM C → VM A 가 ssh 키 기반 로그인(BatchMode) + sudo NOPASSWD 로 systemctl 가능.
+    attacker_ssh: Optional[str] = None
 
 
 class TargetConfig(BaseModel):

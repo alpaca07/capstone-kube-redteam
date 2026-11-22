@@ -67,6 +67,21 @@ def kubectl_runner(kubeconfig: Optional[str] = None,
 # 베이스라인 기본값(우리 킬체인 환경). 설정에서 덮어쓸 수 있게 생성자 인자로도 받는다.
 _DEFAULT_TARGET_NS = ("frontend", "backend", "database", "internal")
 _DEFAULT_MANIFESTS = ("k8s/killchain",)          # 삭제된 과권한 바인딩·발판 복구(멱등 apply)
+# [Wave2] 네임스페이스 매니페스트 — reset_to_clean() 가 가장 먼저 멱등 apply 로 ns 자체와
+#   라벨(app.kubernetes.io/part-of·zone)을 선언 상태로 되돌린다. 과거 PSA 수동 조작 등으로
+#   `app.kubernetes.io/part-of=capstone-corp` 나 `zone=<name>` 가 누락되면 corp 네임스페이스
+#   간 NetworkPolicy namespaceSelector 가 매칭 실패 → 2-hop corp 체인(dmz→internal→crown) 봉쇄.
+#   매니페스트/리소스 부재는 무시(best-effort) — corp 미설치 환경에서도 ShopFlow 리셋은 돈다.
+_DEFAULT_NAMESPACE_MANIFESTS = ("k8s/corp/00-namespaces.yaml",)
+# [Wave2] ns 라벨 강제 동기화 — kubectl apply 는 기존 리소스의 '사라진 라벨'을 복구하지 못하므로
+#   명시 라벨 세트를 `kubectl label --overwrite` 로 2차 보증. yaml 과 의도적 중복 — drift 재발 영구 봉합.
+_DEFAULT_NS_LABEL_SYNC = (
+    ("corp-ext",      ("app.kubernetes.io/part-of=capstone-corp", "zone=ext")),
+    ("corp-dmz",      ("app.kubernetes.io/part-of=capstone-corp", "zone=dmz")),
+    ("corp-internal", ("app.kubernetes.io/part-of=capstone-corp", "zone=internal")),
+    ("corp-crown",    ("app.kubernetes.io/part-of=capstone-corp", "zone=crown")),
+    ("corp-defense",  ("app.kubernetes.io/part-of=capstone-corp", "zone=defense")),
+)
 _DEFAULT_FOOTHOLD = ("frontend", "attacker-foothold")   # (ns, deployment)
 _DEFAULT_OVERPERM_BINDING = "admin-tools-binding"       # restrict_rbac 가 지우는 과권한 바인딩
 _DEFAULT_READY_DEPLOYS = (("frontend", "attacker-foothold"),)  # rollout status 로 대기할 Deployment
@@ -99,6 +114,8 @@ class BaselineManager:
                  ready_deploys: tuple[tuple[str, str], ...] = _DEFAULT_READY_DEPLOYS,
                  psa_namespaces: tuple[str, ...] = _DEFAULT_PSA_NS,
                  patch_app_targets: tuple[tuple[str, str, str], ...] = _DEFAULT_PATCH_APP_TARGETS,
+                 namespace_manifests: tuple[str, ...] = _DEFAULT_NAMESPACE_MANIFESTS,
+                 ns_label_sync: tuple[tuple[str, tuple[str, ...]], ...] = _DEFAULT_NS_LABEL_SYNC,
                  baseline_name: str = "clean-baseline",
                  rollout_timeout_sec: int = 120,
                  attacker_memory_reset: Optional[Callable[[], None]] = None) -> None:
@@ -110,6 +127,8 @@ class BaselineManager:
         self.ready_deploys = ready_deploys
         self.psa_namespaces = psa_namespaces
         self.patch_app_targets = patch_app_targets
+        self.namespace_manifests = namespace_manifests   # [Wave2] 네임스페이스 매니페스트 재적용 대상
+        self.ns_label_sync = ns_label_sync               # [Wave2] 라벨 강제 동기화 (ns, (라벨키=값, …))
         self.baseline_name = baseline_name
         self.rollout_timeout_sec = rollout_timeout_sec
         self.attacker_memory_reset = attacker_memory_reset   # [Wave2] 공격자 외부 저장소(Neo4j 등)
@@ -126,6 +145,19 @@ class BaselineManager:
     # ───────────── 핵심: 클린 베이스라인으로 리셋 ─────────────
     def reset_to_clean(self) -> None:
         """방어자 변경을 역산해 취약 베이스라인으로 되돌리고, 클린 지문을 검증한다."""
+        # 0. [Wave2] 네임스페이스 매니페스트 멱등 apply — ns 존재·라벨 선언 상태로 1차 복구.
+        #    kubectl apply 는 이미 존재하는 ns 에 '빠진 라벨 추가' 는 하지만, '관리 외 라벨 삭제' 는
+        #    안 함(merge). 과거 PSA 수동 조작으로 app.kubernetes.io/part-of·zone 이 날아간 ns 에서
+        #    이 단계만으로는 완전 복구 보장이 안 돼서 다음 0.5 단계와 함께 쓴다.
+        for path in self.namespace_manifests:
+            self._run(["apply", "-f", path], check=False)
+        # 0.5. [Wave2] ns 라벨 강제 동기화 — kubectl apply 로 보장 안 되는 drift 2차 복구.
+        #    corp 네임스페이스 간 NetworkPolicy namespaceSelector(zone=dmz/internal/crown·
+        #    app.kubernetes.io/part-of=capstone-corp)가 이 라벨에 의존 — drift 되면 2-hop corp
+        #    체인(dmz→internal→crown)이 봉쇄돼 공격자가 crown-read wrapper 를 쳐도 upstream
+        #    connect refused 로 실패. 없는 ns 는 silent skip(best-effort).
+        for ns, labels in self.ns_label_sync:
+            self._run(["label", "namespace", ns, *labels, "--overwrite"], check=False)
         # 1. 방어자 추가 NetworkPolicy 제거(add_networkpolicy 역산) — 없어도 에러 안 나게.
         for ns in self.target_namespaces:
             self._run(["delete", "networkpolicy", "--all", "-n", ns,
