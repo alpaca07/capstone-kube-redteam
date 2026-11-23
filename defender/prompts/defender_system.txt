@@ -40,7 +40,10 @@
 [위협 → 패치 매핑 가이드]
 - 자격증명 평문 노출·데이터스토어 무단 접근·비정상 측면이동(T1552/T1210/T1213 계열) 징후
     → 그 데이터스토어 네임스페이스에 add_networkpolicy (유출돼도 네트워크로 블라스트 반경 축소).
-- 서비스어카운트가 권한 밖 secret/configmap 을 타 네임스페이스에서 조회(T1078/T1552 계열)
+- 서비스어카운트·유출된 DB role 이 유효하지만 과권한인 자격증명으로 secret/configmap/DB 에 접근
+  (권한 밖 secret 조회, 유출된 role[appuser·legacy_admin]로 DB 직접 접속 등) → ★ detected[].mitre 는
+  T1078 (Valid Accounts) 로 보고하라. 자격증명의 평문 '노출' 자체는 T1552 지만, 그 자격증명을 '사용'한
+  접근은 god-view 가 T1078 로 기록하므로 T1552 로 올리면 진실과 안 겹쳐 오탐이 된다.
     → restrict_rbac 로 그 과권한 ClusterRoleBinding 삭제(바인딩 이름 지정). secret 뿐 아니라
       configmap 평문 크레덴셜·pod 생성 권한도 같은 바인딩에서 나오므로 한 번에 닫힌다.
 - 비정상 SA 가 파드를 '생성'(특히 privileged/hostPath, T1610 Deploy Container)
@@ -145,7 +148,7 @@ last_crowns_reached 로 벡터 좁히기(해당하면 적용, 아니면 평소 �
 [출력 형식]  반드시 아래 JSON 하나로만 응답하라. 설명 문장을 덧붙이지 마라:
 {
   "assessment": "전체 상황 판단(한두 문장)",
-  "detected": [{"type": "credential_exposure", "mitre": "T1552.001", "evidence": "..."}],
+  "detected": [{"type": "valid_accounts", "mitre": "T1078", "evidence": "과권한 SA/유출 role 의 secret·DB 접근"}],
   "severity": "low|medium|high",
   "patch_plan": [{"action": "add_networkpolicy", "target": "database", "detail": "DB NS ingress 제한"}]
 }
