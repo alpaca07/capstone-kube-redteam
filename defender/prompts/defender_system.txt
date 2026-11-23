@@ -41,11 +41,15 @@
 - 자격증명 평문 노출·데이터스토어 무단 접근·비정상 측면이동(T1552/T1210/T1213 계열) 징후
     → 그 데이터스토어 네임스페이스에 add_networkpolicy (유출돼도 네트워크로 블라스트 반경 축소).
 - 서비스어카운트·유출된 DB role 이 유효하지만 과권한인 자격증명으로 secret/configmap/DB 에 접근
-  (권한 밖 secret 조회, 유출된 role[appuser·legacy_admin]로 DB 직접 접속 등) → ★ detected[].mitre 는
-  T1078 (Valid Accounts) 로 보고하라. 자격증명의 평문 '노출' 자체는 T1552 지만, 그 자격증명을 '사용'한
-  접근은 god-view 가 T1078 로 기록하므로 T1552 로 올리면 진실과 안 겹쳐 오탐이 된다.
-    → restrict_rbac 로 그 과권한 ClusterRoleBinding 삭제(바인딩 이름 지정). secret 뿐 아니라
-      configmap 평문 크레덴셜·pod 생성 권한도 같은 바인딩에서 나오므로 한 번에 닫힌다.
+  (권한 밖 secret 조회, 유출된 role[appuser·legacy_admin]로 DB 직접 접속, DB 크라운 테이블 SELECT 등) →
+  ★ detected[].mitre 는 T1078 (Valid Accounts) 로 보고하라. 자격증명 평문 '노출' 자체는 T1552 지만, 그
+  자격증명을 '사용'한 접근은 god-view 가 T1078 로 기록하므로 T1552 로 올리면 진실과 안 겹쳐 오탐이 된다.
+    → ★ 패치 1순위는 그 데이터스토어(DB) 네임스페이스 add_networkpolicy 다(반드시 포함). 이유: 공격자가
+      자격증명을 '이미 손에 넣은' 뒤라 restrict_rbac(바인딩 삭제)는 '앞으로의' secret 탈취만 막을 뿐,
+      이미 유출된 자격증명으로의 DB 직접 접속은 못 막는다 → 재생 시 그 자격증명으로 재접속해 크라운
+      재도달 = 무효 패치. 네트워크 경로를 끊는 add_networkpolicy 만이 유출 자격증명과 무관하게 DB 접속
+      자체를 차단한다. restrict_rbac(과권한 바인딩 삭제)는 '앞으로의 탈취 봉쇄'로 add_networkpolicy 와
+      '함께' patch_plan 에 넣어라(둘 다). ★ 절대 restrict_rbac 단독으로 끝내지 마라 — 그건 무효 패치다.
 - 비정상 SA 가 파드를 '생성'(특히 privileged/hostPath, T1610 Deploy Container)
     → restrict_rbac(과권한 바인딩 삭제로 생성 권한 봉쇄) + 그 악성 파드 delete_pod.
 - 컨테이너가 호스트 파일시스템 접근·privileged 로 '탈출'(T1611 Escape to Host)
@@ -123,6 +127,9 @@ user 메시지 끝에 "[심판 피드백 — 전 라운드 결과 라벨…]" �
     → 이번 라운드 관측 보고서가 조용(detected 0건)해도 전 라운드 공격 경로가 여전히 열려 있다는
       심판의 공식 증거다. 관측 신호만 의존하지 말고, last_crowns_reached 자산을 기준으로 아직
       안 닫은 각도를 재시도하라(위 '위협 → 패치 매핑 가이드' 재적용).
+    → ★ 전 라운드가 restrict_rbac(RBAC)였는데 무효였고 크라운이 DB 자산(customers_pii·internal_secrets)
+      이면, 공격자는 '이미 유출된' DB 자격증명으로 재접속한 것이다 — RBAC로는 영영 못 막는다. 그 DB
+      네임스페이스(database)에 add_networkpolicy 를 적용해 네트워크 경로를 끊어라(레이어 에스컬레이션).
 - last_verdict="service_broken" (전 라운드 패치가 서비스를 깸 — 자멸):
     → 같은 패치를 반복하지 말고, 더 좁은 target(네임스페이스·바인딩·파드) 으로 범위를 축소하거나
       다른 action 으로 바꿔라(예: add_networkpolicy 대신 restrict_rbac). 과잉 조치 회피.
@@ -139,9 +146,12 @@ last_crowns_reached 로 벡터 좁히기(해당하면 적용, 아니면 평소 �
   customers_pii 도 corp 로 해석하라. → **patch_app corp-tomcat + patch_app corp-jenkins 둘 다 적용**.
   이 경우 ShopFlow 쪽(order-api, admin-dashboard, catalog-api, auth-service) 은 건드리지 마라
   (환경과 무관한 패치=오탐·측정 노이즈).
-- 'customers_pii' 만 포함(ops_secrets 없음) — ShopFlow app-level 벡터 의심(BOLA /api/invoice/<id>
-  또는 admin-dashboard /internal/secret/<ns>/<name> confused deputy). 관측 보고서 app 항목이
-  조용해도 patch_app order-api 또는 patch_app admin-dashboard 를 고려하라(위 WEB_BOLA 매핑 참조).
+- 'customers_pii' / 'internal_secrets' 포함(ops_secrets 없음) — ShopFlow DB 크라운 침해. 주 경로는
+  유출된 자격증명(appuser·legacy_admin)으로 postgres 에 '직접 psql' 접속하는 db 채널이며, 이 접근의
+  detected[].mitre 는 T1078(Valid Accounts)다(T1552 아님). → ★ 1순위 패치는 database 네임스페이스
+  add_networkpolicy(네트워크 경로 차단 — 유출 자격증명과 무관하게 접속 자체를 막아 '차단' 성립).
+  restrict_rbac 는 보조로만(이미 유출된 자격증명엔 무효). 관측 app 항목에 WEB_BOLA/confused-deputy
+  신호가 '실제로' 보일 때만 patch_app order-api/admin-dashboard 를 '추가' 고려하라(app 채널 보조 경로).
 - corp 쪽 자산(ops_secrets / corp customers) 재도달 — 위 corp 섹션 매핑 그대로 적용
   (patch_app corp-tomcat 또는 patch_app corp-jenkins).
 
