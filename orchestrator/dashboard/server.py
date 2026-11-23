@@ -32,7 +32,7 @@ app = FastAPI(title="Helix — 공수 루프 관제 대시보드")
 
 # ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (app.js 의 UI_BUILD 과 같은 값으로 함께 올린다).
 # /api/status 로 내보내 대시보드가 '서버가 최신 코드로 재시작됐는지' 좌상단 버전으로 확인한다.
-SERVER_BUILD = 15
+SERVER_BUILD = 16
 
 # 실험 프로세스 상태(단일 워커 전제: 한 번에 하나만).
 _run: dict = {"proc": None, "started": None, "params": None, "id": None}
@@ -348,6 +348,8 @@ def run_start(payload: dict = Body(default={})) -> JSONResponse:
         cmd += ["--attacker-db-roles", str(dr)]
     if dlc:                                   # corp 크라운은 corp-crown 로그 파일(-corp)을 읽게
         cmd += ["--db-log-corp"]
+    if bool(payload.get("shopflow_only")):    # ShopFlow 타깃 → corp 아레나 복구 생략(격리)
+        cmd += ["--shopflow-only"]
     logf = open(_RUN_LOG, "w", encoding="utf-8")
     proc = subprocess.Popen(cmd, cwd=str(_ROOT), stdout=logf,
                             stderr=subprocess.STDOUT, env=os.environ.copy())
