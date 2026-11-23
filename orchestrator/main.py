@@ -110,31 +110,39 @@ def build_sequencer(cfg: Config, *, sink=None, progress=None, events=None,
     # A2: VM 스냅샷 대신 k8s 네이티브 베이스라인 리셋(심판이 cfg.target.kubeconfig 로 kubectl 직접).
     #   stun 유발 vmrun 스냅샷 제거(§8 #1). 매니페스트는 리포 루트 기준 절대경로(cwd 무관).
     #   전제: VM C 에 admin kubeconfig(cfg.target.kubeconfig) + k8s/killchain 체크아웃.
-    # [Wave2] patch_app 역산 대상(corp 2종 + ShopFlow 4종) — 리포 루트 절대경로로 변환.
-    _patch_app_targets = tuple(
-        (str(_ROOT / rel), ns, dep)
-        for rel, ns, dep in (
-            ("k8s/corp/dmz/50-tomcat.yaml",                "corp-dmz",      "tomcat"),
-            ("k8s/corp/internal/42-jenkins.yaml",          "corp-internal", "jenkins"),
-            ("k8s/services/backend/21-catalog-api.yaml",   "backend",       "catalog-api"),
-            ("k8s/services/backend/22-order-api.yaml",     "backend",       "order-api"),
-            ("k8s/services/backend/23-auth-service.yaml",  "backend",       "auth-service"),
-            ("k8s/services/internal/41-admin-dashboard.yaml", "internal",   "admin-dashboard"),
-        )
+    # [Wave2] patch_app 역산 대상 — corp 2종 + ShopFlow 4종. ShopFlow 단독 런(--shopflow-only)에선
+    #   corp 2종을 빼서 baseline 이 corp tomcat/jenkins 를 되살리지 않게 한다(공진화 격리). 강화된
+    #   공격자가 ShopFlow 발판에서 더 쉬운 corp 체인으로 새는 것을 막아 ShopFlow 자기 킬체인만 타게 함.
+    _corp_patch_app = (
+        ("k8s/corp/dmz/50-tomcat.yaml",                "corp-dmz",      "tomcat"),
+        ("k8s/corp/internal/42-jenkins.yaml",          "corp-internal", "jenkins"),
     )
-    # [Wave2] 네임스페이스 매니페스트도 리포 루트 절대경로로(cwd 무관 동작 보장).
-    _ns_manifests = (str(_ROOT / "k8s" / "corp" / "00-namespaces.yaml"),)
+    _shopflow_patch_app = (
+        ("k8s/services/backend/21-catalog-api.yaml",   "backend",       "catalog-api"),
+        ("k8s/services/backend/22-order-api.yaml",     "backend",       "order-api"),
+        ("k8s/services/backend/23-auth-service.yaml",  "backend",       "auth-service"),
+        ("k8s/services/internal/41-admin-dashboard.yaml", "internal",   "admin-dashboard"),
+    )
+    _shopflow_only = bool(getattr(cfg.experiment, "shopflow_only", False))
+    _patch_app_rel = _shopflow_patch_app if _shopflow_only else (_corp_patch_app + _shopflow_patch_app)
+    _patch_app_targets = tuple((str(_ROOT / rel), ns, dep) for rel, ns, dep in _patch_app_rel)
+    # [Wave2] 네임스페이스 매니페스트 — ShopFlow 단독이면 corp ns 재생성·라벨 동기화를 생략(격리).
+    _ns_manifests: tuple[str, ...] = () if _shopflow_only \
+        else (str(_ROOT / "k8s" / "corp" / "00-namespaces.yaml"),)
+    _baseline_extra: dict = {"namespace_manifests": _ns_manifests}
+    if _shopflow_only:
+        _baseline_extra["ns_label_sync"] = ()      # corp ns 라벨 강제동기화도 생략(ShopFlow 단독)
     baseline = BaselineManager(
         runner=kubectl_runner(cfg.target.kubeconfig or None),
         manifest_paths=(str(_ROOT / "k8s" / "killchain"),),
         patch_app_targets=_patch_app_targets,
-        namespace_manifests=_ns_manifests,     # [Wave2] ns 매니페스트 재적용(ns 라벨 drift 1차 복구)
         # 발판 자동전환: baseline 회차간 재시작도 공격자 exec 와 같은 발판(cfg.attack, CLI override 반영됨)으로.
         foothold=(cfg.attack.exec_namespace, cfg.attack.exec_pod.split("/")[-1]),
         baseline_name=cfg.vmware.baseline_snapshot,
         # [Wave2 재활성] 공격 하네스 프로세스 재시작 — ATTEMPTS/closure 메모리 wipe.
         #   cfg.network.attacker_ssh 가 설정돼 있을 때만 활성, 없으면 None(skip).
-        attacker_memory_reset=_build_attacker_memory_reset(cfg))
+        attacker_memory_reset=_build_attacker_memory_reset(cfg),
+        **_baseline_extra)
     registry = default_registry()               # 상태검증·탐지 채점용(①②③·web·esc·disc)
     objectives = resolve_objectives(            # free=빈(채점 끔) / asset=선택(비면 전체)
         cfg.experiment.objective_mode, cfg.experiment.target_assets)
@@ -295,6 +303,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--keep-logs", action="store_true",
                     help="지난 런 로그를 아카이브하지 않고 유지(기본: 새 런 시작 시 지난 로그를 "
                          "runs_archive/ 로 이관해 대시보드에 이전 그래프가 남지 않게 함)")
+    ap.add_argument("--shopflow-only", action="store_true",
+                    help="ShopFlow 단독 공진화 — baseline 이 corp 아레나(네임스페이스·ns 라벨·corp "
+                         "patch_app 2종)를 복구하지 않음. 강화된 공격자가 corp 체인으로 새지 않고 "
+                         "ShopFlow 자기 킬체인만 타게 격리. corp 소스는 안 건드림(클러스터 복구만 생략)")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
@@ -305,6 +317,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         cfg.experiment.objective = args.objective
     if args.target_assets is not None:
         cfg.experiment.target_assets = [s.strip() for s in args.target_assets.split(",") if s.strip()]
+    if args.shopflow_only:
+        cfg.experiment.shopflow_only = True
     # 발판 override(대시보드 타깃→자동전환) — cfg.attack 에 반영: 공격자엔 StartTurn 으로, baseline 엔 build_sequencer 가 이 값으로 전달.
     if args.exec_namespace is not None:
         cfg.attack.exec_namespace = args.exec_namespace
@@ -401,6 +415,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     if cfg.experiment.objective_mode == "asset":
         _sel = ",".join(cfg.experiment.target_assets) if cfg.experiment.target_assets else "(전체)"
         print(f"    목표 모드=asset  채점 자산={_sel}")
+    if cfg.experiment.shopflow_only:
+        print(f"    아레나=ShopFlow 단독(격리)  — baseline 이 corp 네임스페이스·corp patch_app 복구 안 함")
     else:
         print(f"    목표 모드=free  (크라운 채점 없음 — 탐색·데모)")
     _g = params.goal

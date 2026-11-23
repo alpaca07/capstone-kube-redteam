@@ -113,6 +113,10 @@ class ExperimentConfig(BaseModel):
     objective_mode: str = "asset"                           # free | asset
     objective: str = ""                                     # free 모드 전용: 공격자에게 줄 자유 목표 문구
     target_assets: list[str] = Field(default_factory=list)  # asset 모드 전용: 크라운 objective_id 목록(비면 전체)
+    # ShopFlow 단독 공진화 격리: baseline 이 corp 아레나(네임스페이스·ns 라벨·corp patch_app 2종)를
+    #   되살리지 않게 해, 강화된 공격자가 더 쉬운 corp 체인으로 새지 않고 ShopFlow 자기 킬체인만 타게 한다.
+    #   corp 소스/매니페스트는 그대로 — 켜도 corp 코드는 안 건드린다(클러스터 복구만 생략). CLI: --shopflow-only
+    shopflow_only: bool = False
     crown_sync_grace_sec: float = 5.0  # 공격 턴 직후 크라운 게이트 읽기 전 유예 — vmc-sync-dblog(kubectl logs -f) 스트리밍 지연 흡수
     crown_skew_pad_sec: float = 3.0    # 크라운 창 since 경계 스큐 패드 — VM-B(postgres 로그)↔VM-C 클럭 오차 흡수
 
