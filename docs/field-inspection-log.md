@@ -24,6 +24,9 @@
 | 커서 버그(방어 observer) | `window_start_ts` floor 수정 → 재시작 직후 유령 0(라이브) | 수정·확정 |
 | corp 공진화(회차1 R3) | R1 침해→패치→R2·R3 차단(라이브) | 성립 |
 | 전환 격리(공격자) | ShopFlow R1 `자산 0개` 시작 → `reset_episode` 동작 | 확정 |
+| 전환 격리(방어자)(11) | ShopFlow R3 탐지·패치 전부 ShopFlow ns, corp 흔적 0, 크라운 차단 | 확정 |
+| ShopFlow 공진화(11) | R3 패치 → R4 재공격 차단(DB refused, dashboard timeout) | 성립 |
+| DGX 호스트 정리(11) | `.109` attacker · `.110` planner+defender(웜) · `.111` 미사용 | 확인 |
 
 ### 1. VM C (오케스트레이터) — `~/capstone/config.yaml`
 
@@ -225,6 +228,28 @@ corp 워크로드 재배포 완료(8 Deployment Running, 로컬 이미지 `attac
 - **영향**: 채점 판정(차단) 무사(크라운 기반). 탐지 정밀도에 corp 오탐 혼입 + corp-ext 부작용(발판은 Deployment 자가복구, **PSA `enforce=baseline` 라벨 눌어붙음** → 수동 복구함).
 - **수정(라이브 점검 반영)**: 아레나 네임스페이스 스코프 — observer/topology/patcher 3중 방어. 커밋 `26853b2`(636 통과). 점검분: ns 맵 확정 ShopFlow`{frontend,backend,database,internal,targets}`/corp`{corp-ext,corp-dmz,corp-internal,corp-crown}`(`corp-defense`는 방어장비라 제외), Falco `k8s.ns.name` 채워짐(R3 렌더가 증명), corp-ext PSA 라벨 `kubectl label … enforce-` 수동 복구.
 
+### 11. 방어 아레나-스코프 최종 실증 (ShopFlow 회차1 R4, 라이브)
+
+defender_host `.111`→`.110` 변경(VM D `config.yaml` sed + `systemctl restart defense-harness`) 후 ShopFlow 4라운드 실행. `.110`은 `qwen3.8:27b` 웜 상태(expires 2319, 11ms), 플래너와 같은 호스트이나 라운드 내 순차(attack→defense)라 경합 없음.
+
+**타임라인 (21:43~22:14 KST)**
+| 라운드 | 크라운 | 방어 | 비고 |
+|---|---|---|---|
+| R1 | 미반출 | skipped | 탐색·자산 발견 단계 |
+| R2 | 도달(customers_pii+internal_secrets) | **LLMTimeout(300s)** `.111` | 설정 변경 직전 — 무효 패치 |
+| R3 | 도달(FLAG{shopflow_…}) | **탐지3·패치4·차단** `.110` | ⭐ 핵심 검증 라운드 |
+| R4 | 미도달(DB refused) | skipped | R3 패치가 재공격 차단 |
+
+**R3 아레나 격리 검증 — corp 아티팩트 0건:**
+- 탐지: T1552.001(`internal`)·T1210(`frontend→database`)·T1078(`database+internal`) — **전부 ShopFlow 네임스페이스**
+- 패치: `delete_pod frontend/attacker-foothold`·`restrict_rbac admin-tools-binding`(cluster)·`add_networkpolicy database`·`add_networkpolicy internal` — **전부 ShopFlow + cluster-scoped**
+- §10 누수(T1611 `corp-internal/redis`, `delete_pod corp-ext`, `restrict_pod_security corp-ext`) → **재현 0**
+- 검증: replay-crown 재도달 없음 → **차단**
+
+**공진화 확인 (R3→R4):** R4 공격이 `postgres.database:5432` connection-refused(R3 NetworkPolicy), `admin-dashboard` timeout(R3 delete_pod+netpol) — R3 패치가 재진입 경로 봉쇄.
+
+**R2 LLMTimeout 원인:** defender_host `.111`→`.110` 변경이 R2~R3 사이에 적용. R2 방어는 `.111`(40B 모델 `qwen3.8-40b-heretic` 로드 중 → 27B 스왑 타임아웃), R3부터 `.110` 웜 `qwen3.8:27b` 사용(167s 정상 완료).
+
 ### 결정·미결정
 
 - **corp 배치 → (가) 네임스페이스 공존 채택** — 재배포 + 격리 검증 완료(§7). (나) k3d 분리는 전환 표면 5곳(§6) 대비 실익 낮아 보류.
@@ -233,5 +258,6 @@ corp 워크로드 재배포 완료(8 Deployment Running, 로컬 이미지 `attac
 - (readiness) corp-services 로그 sync 활성화 — corp 런 전 god-view가 corp 서비스 로그(postgres/samba/waf) 보도록.
 - **커서 버그(방어 observer) 수정·실증 완료**(§8·§9) — `window_start_ts` floor, 커밋 `cdcdcfa`. 재시작 직후 corp R1 유령 0.
 - **대시보드 skip 건강상태 '해당 없음' 수정**(§9) — 커밋 `994671d`, BUILD 18.
-- **방어 아레나 네임스페이스 스코프 구현 완료**(§10) — observer/topology/patcher 3중 방어, 커밋 `26853b2`, 636 통과. VM C·VM D 반영 대기. (가) 공유클러스터의 방어자 교차오염 봉합.
-- **공격자 전환 격리 실증 완료**(§10) — `자산 0개` 시작, `reset_episode` 동작 확인. (미결) 방어 floor 전환 실증은 ShopFlow R1 저널 대기.
+- **방어 아레나 네임스페이스 스코프 구현+실증 완료**(§10·§11) — observer/topology/patcher 3중 방어, 커밋 `26853b2`, 636 통과. §11에서 R3 corp 아티팩트 0건 확인 → 교차오염 봉합 **확정**.
+- **공격자 전환 격리 실증 완료**(§10) — `자산 0개` 시작, `reset_episode` 동작 확인.
+- **방어 전환 격리 실증 완료**(§11) — ShopFlow R3 탐지·패치 전부 ShopFlow 네임스페이스 + cluster-scoped, corp 흔적 0, 크라운 차단. 공진화(R3→R4 재공격 봉쇄)도 확인.
