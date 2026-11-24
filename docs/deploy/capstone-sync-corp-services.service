@@ -1,0 +1,21 @@
+# VM C corp 서비스 로그 동기 systemd 유닛 — /etc/systemd/system/capstone-sync-corp-services.service
+# corp-crown postgres·corp-internal samba·corp-dmz waf 세 파드 stdout 을 각자 파일로 수집
+# (방어 observer 의 service_log_paths 가 읽는다). 크라운 채점은 별도(dblog sync)가 담당.
+# <USER> 를 VM C 사용자로 치환(예: vm-c). 설치:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now capstone-sync-corp-services
+[Unit]
+Description=Capstone corp 서비스 로그 동기 (postgres·samba·waf -> VM C god-view observer)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<USER>
+WorkingDirectory=/home/<USER>/capstone
+ExecStart=/usr/bin/bash scripts/vmc-sync-corp-services.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
