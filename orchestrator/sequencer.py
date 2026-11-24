@@ -326,6 +326,7 @@ class TurnSequencer:
                         last_verdict=fb.get("last_verdict"),
                         last_verdict_detail=fb.get("last_verdict_detail"),
                         last_crowns_reached=fb.get("last_crowns_reached", []),
+                        window_start_ts=t0,                             # 라운드 t0 — 방어 observer since_ts 하한(이전 run/회차/verify 유입 차단, scorer 와 동일 기준)
                     ),
                     episode=episode, round=rnd), "defense_turn")
             self._log(f"[ep{episode} R{rnd}]    → 방어 종료={defense.end_reason.value} "

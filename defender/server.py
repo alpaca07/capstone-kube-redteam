@@ -70,7 +70,7 @@ class DefenseHarness:
         self.cluster = cluster              # health_check용(healthcheck()) + 토폴로지 열거(get)
         self.service = service
         self.emit_topology = emit_topology  # 방어 관점 토폴로지 스냅샷 포함 여부(대시보드 P7용)
-        self._cursor: float = 0.0           # 마지막으로 본 로그 시각(증분 관측)
+        self._cursor: float = time.time()   # 마지막으로 본 로그 시각(증분 관측). 기동시각으로 초기화 — 재시작 직후 첫 턴이 1970부터의 백로그를 '현재 공격'으로 읽는 것 방지(window_start_ts 미수신 폴백)
 
     def _topology(self) -> Optional[dict]:
         """방어자 관점 토폴로지(대상을 훑어 재구성). 실패·비활성이면 None(판정 무관·표시 전용)."""
@@ -85,7 +85,10 @@ class DefenseHarness:
     def defense_turn(self, start: DefenseTurnStart, *, episode: int, round: int) -> DefenseTurnResult:
         t0 = time.time()
         try:
-            obs = self.observer.collect(since_ts=self._cursor)
+            floor = self._cursor
+            if start.window_start_ts is not None:                   # 라운드 t0 하한 — 이전 run/회차/verify 이벤트 유입 차단(scorer 의 crowns_in_window(t0,…) 와 동일 기준)
+                floor = max(floor, start.window_start_ts)
+            obs = self.observer.collect(since_ts=floor)
             self._cursor = max(self._cursor, obs.until_ts)          # 커서 전진(다음 라운드 증분)
             report = filter_observations(obs)
             # 심판 피드백(전 라운드 판정 라벨) — 있으면 Triager 에 전달해 LLM user 메시지에 포함.

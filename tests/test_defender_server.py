@@ -114,9 +114,20 @@ def test_defense_turn_overblock_flags_health():
 
 def test_cursor_advances():
     h = _harness()
-    assert h._cursor == 0.0
+    assert h._cursor > 0.0                                 # 기동시각으로 초기화(0 아님) — 재시작 직후 백로그 플러딩 방지
+    h._cursor = 0.0                                        # 전진 검사를 위해 0 으로 내림(관측 ts 가 잡히도록)
     h.defense_turn(_start(), episode=1, round=1)
-    assert h._cursor > 0.0                                 # 로그 ts만큼 전진(다음 라운드 증분)
+    assert h._cursor > 0.0                                 # 관측 ts만큼 전진(다음 라운드 증분)
+
+
+def test_window_start_ts_floors_observation():
+    # 라운드 t0(window_start_ts)가 since_ts 하한 — 그 이전(백로그·이전 run/회차·verify) 이벤트는 안 봄
+    h = _harness()
+    h._cursor = 0.0
+    future = 9_999_999_999.0                               # 관측 fixture ts(2026-10)보다 뒤
+    h.defense_turn(DefenseTurnStart(time_limit_sec=300, window_start_ts=future),
+                   episode=1, round=1)
+    assert h._cursor >= future                             # floor=t0 로 과거 제외 → 커서가 t0 이상
 
 
 def test_defense_turn_error_on_llm_crash():

@@ -133,9 +133,11 @@ def test_info_asymmetry_defense_start_has_no_attack_fields():
     forbidden = {"foothold", "replay_script", "attack_summary",
                  "detected", "technique", "goal"}
     assert not (fields & forbidden), f"공격 정보 유입: {fields & forbidden}"
-    extra = fields - {"time_limit_sec"}
+    # window_start_ts: 이 라운드 t0(관측 윈도우 since_ts 하한, 시각 메타) — 공격 내용(명령·기법·타깃)을
+    #   담지 않으므로 정보 비대칭 유지. scorer 의 crowns_in_window(t0,…) 와 동일한 t0 기준.
+    extra = fields - {"time_limit_sec", "window_start_ts"}
     assert all(f.startswith("last_") for f in extra), \
-        f"last_ 프리픽스 없는 비표준 필드(심판 피드백 외): {extra}"
+        f"last_ 프리픽스 없는 비표준 필드(심판 피드백/관측윈도우 외): {extra}"
 
 
 def test_state_query_result_is_facts_only():

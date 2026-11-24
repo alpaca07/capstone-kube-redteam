@@ -152,6 +152,7 @@ class DefenseTurnStart(Payload):
     last_verdict: Optional[str] = None                                  # blocked | fake_patch | service_broken | inconclusive | skipped
     last_verdict_detail: Optional[str] = None                           # 판정 사유 한 줄(예: "재생 후 크라운 재도달 ['customers_pii'] → 공격 재현됨(무효 패치)")
     last_crowns_reached: list[str] = Field(default_factory=list)        # 전 라운드에서 공격자가 반출한 크라운 자산(예: ["customers_pii"])
+    window_start_ts: Optional[float] = None                             # 이 라운드 t0(공격 시작 벽시계). 방어 observer 가 since_ts 하한으로 사용 → 이전 run/회차/verify 이벤트 유입 차단(scorer 의 crowns_in_window(t0,…) 와 동일 기준). 미수신(구 오케)이면 None → 기존 _cursor 폴백
 
 
 # ───────────────── ④ defense_turn_result (B→C) ─────────────────
