@@ -21,6 +21,9 @@
 | VM B 자원 | 6 cores · 여유 RAM 5.4Gi · 디스크 32G free | 여유 |
 | corp 배포 | 네임스페이스 5개 14일 존재, **파드 0**(워크로드 내려감) | 부분 |
 | Docker / k3d (VM B) | Docker 데몬 불가 · k3d 없음 | (나) 전제 미충족 |
+| 커서 버그(방어 observer) | `window_start_ts` floor 수정 → 재시작 직후 유령 0(라이브) | 수정·확정 |
+| corp 공진화(회차1 R3) | R1 침해→패치→R2·R3 차단(라이브) | 성립 |
+| 전환 격리(공격자) | ShopFlow R1 `자산 0개` 시작 → `reset_episode` 동작 | 확정 |
 
 ### 1. VM C (오케스트레이터) — `~/capstone/config.yaml`
 
@@ -200,9 +203,31 @@ corp 워크로드 재배포 완료(8 Deployment Running, 로컬 이미지 `attac
 
 **종합**: 네트워크·채점은 아레나별 **하드 격리 확인(라이브)**. 탐색그래프는 **episode-번호 스코프**(아레나 스코프 아님) — "한 번에 하나 + 아레나 간 `promote --load` 비전파"(C) 전제에서 격리 성립. 두 아레나 그래프 동시 보존이 필요하면 회차번호 네임스페이싱(선택).
 
+### 8. 방어 observer 관측창(커서) 수정·실증
+
+- **버그**: observer `collect(since_ts=self._cursor)` + `_cursor` 초기값 `0.0` → VM D 재시작 직후 첫 턴이 1970부터 전체 로그(이전 run·회차·격리테스트)를 현재 공격으로 읽음. corp 런 #1에서 12:51 nc 격리테스트(T1046)·백로그 유입 → `delete_pod frontend`(ShopFlow 파드) 유령 패치 관측.
+- **수정**(scorer `crowns_in_window(t0,t1)`와 동일 기준): 라운드 t0 → `DefenseTurnStart.window_start_ts` 전달, observer `since_ts=max(_cursor, window_start_ts)`, `_cursor` 초기값 `time.time()`. 커밋 `cdcdcfa`(`common/messages.py`·`orchestrator/sequencer.py`·`defender/server.py` + 테스트 634 통과). VM C·VM D 반영.
+- **실증(라이브)**: VM D 재시작(=커서 리셋 조건) 직후 corp 재런 → **R1 패치 `corp-tomcat`·`corp-jenkins` 둘뿐, `delete_pod frontend`·T1046 유령 0.** 백로그 유입 없음 → 확정.
+
+### 9. corp 공진화 실행 결과 (회차1 라운드3, 라이브)
+
+- **R1**: `crown-read`(PII `customers`)+`crown-read-ops`(`ops_secrets`) 둘 다 반출 성공 → 방어 T1213 정탐 → `patch_app corp-tomcat`·`corp-jenkins` 적용+재기동 → 검증 **차단**(재생 시 크라운 재도달 없음).
+- **R2·R3**: `healthcheck.jsp` **404**(tomcat 하드닝 제거)·`shell.jsp` **500**. 공격자 대안(직접 postgres·nmap·tomcat `manager` 403) 전부 실패 → 크라운 미반출 → 방어·검증 skip. 공격→패치→재공격 차단 루프 성립.
+- **R1 탐지 품질**: 정탐 `T1213`(jenkins→corp-crown) / 오탐 `T1190`(공격자 PUT 웹셸 컴파일에러 500·미발현, 실제 유출은 사전배치 `crown-read` 래퍼 T1213) / 미탐 `T1068`·`T1548`(래퍼 권한상승 하위기법, god-view log-observed인데 방어 못 봄).
+- **대시보드 수정**: skip 라운드 건강상태 '서비스 중단' 오표기 → `end_reason="skipped"` 분기로 '해당 없음'(렌더 10곳, `_dSkipped`). 채점 불변(과잉차단은 `patch_applied` 가드). 커밋 `994671d`·UI/SERVER_BUILD 18. 라이브 '해당 없음' 확인.
+
+### 10. 타깃 전환 격리 실증 (corp→ShopFlow)
+
+- **공격자(라이브)**: ShopFlow R1 wave1이 **`자산 0개(미탐색 0)·지난라운드침해 0건`**으로 시작 — 상주 하네스(PID 동일)인데 corp 최종 자산(14개) 미인수. `attacker/server.py:236` R1 조건(`round<=1`) → `reset_episode(1)`(`MATCH (n:Explore {episode:1}) DETACH DELETE`) → corp episode-1 노드 제거 후 백지 탐색. **공격자 전환 격리 확정.**
+- **baseline revert 비대칭(라이브)**: corp 런(`so:false`)은 init 때 ShopFlow patch_app까지 역산(`main.py:127` `_corp_patch_app + _shopflow_patch_app`) → ShopFlow 4파드 재생성(kubectl age 38분). ShopFlow 단독 런(`so:true`)은 corp 무간섭. 리셋 범위 비대칭이지 학습·채점 누수 아님.
+- (진행) 방어 floor 전환 실증 — ShopFlow R1 저널에 corp 잔재(`crown-read`·`corp-tomcat/jenkins`·`crown-ops`) 0 확인 대기.
+
 ### 결정·미결정
 
 - **corp 배치 → (가) 네임스페이스 공존 채택** — 재배포 + 격리 검증 완료(§7). (나) k3d 분리는 전환 표면 5곳(§6) 대비 실익 낮아 보류.
 - **Neo4j 격리 → C(단일 DB + 운영 규율)** — KG 학습지식 미유입 상태, "한 번에 하나 + 비전파"로 운용.
 - (미결정) `attacker_ssh`(2.7) 활성화 — neo4j 백엔드라 학습 리셋은 `reset_episode`가 담당, 현재 불필요.
 - (readiness) corp-services 로그 sync 활성화 — corp 런 전 god-view가 corp 서비스 로그(postgres/samba/waf) 보도록.
+- **커서 버그(방어 observer) 수정·실증 완료**(§8·§9) — `window_start_ts` floor, 커밋 `cdcdcfa`. 재시작 직후 corp R1 유령 0.
+- **대시보드 skip 건강상태 '해당 없음' 수정**(§9) — 커밋 `994671d`, BUILD 18.
+- **공격자 전환 격리 실증 완료**(§10) — `자산 0개` 시작, `reset_episode` 동작 확인. (미결) 방어 floor 전환 실증은 ShopFlow R1 저널 대기.
