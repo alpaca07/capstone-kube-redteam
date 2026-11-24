@@ -29,6 +29,9 @@ _FOOTHOLD_SA = "system:serviceaccount:frontend:foothold-sa"
 _ATTACKER_SAS = {_ADMIN_SA, _FOOTHOLD_SA}     # 공격자가 쥐는 SA(정상 트래픽과 구분)
 _SECRET_VERBS = {"get", "list", "watch"}
 _SELF_REVIEWS = {"selfsubjectaccessreviews", "selfsubjectrulesreviews"}  # auth can-i
+# [가] 권한상승 제어 악용(T1548) 으로 인정하는 실제 상승 툴 — falco-values.yaml 조건과 동일 집합.
+#   runc 컨테이너 init 의 setuid·date/sleep 등 양성 호출을 '가짜 미탐'으로 올리지 않기 위한 코드층 가드.
+_ELEVATION_TOOLS = {"capsh", "setcap", "sudo", "su", "pkexec", "newgrp"}
 
 
 # ───────────── 순수 매핑 (시간 파싱은 common.k8s_logs 공유) ─────────────
@@ -63,6 +66,7 @@ def map_audit_event(ev: dict) -> Optional[str]:
 def map_falco_event(ev: dict) -> Optional[str]:
     """Falco 이벤트 → MITRE 기법. rule 이름 = falco-values customRules 와 1:1."""
     rule = ev.get("rule", "")
+    proc = str((ev.get("output_fields") or {}).get("proc.name", ""))   # 가짜 미탐(runc init 오발화) 가드용
     if rule == "Terminal shell in container":
         return "T1059"   # 명령/스크립트 실행(발판 exec — 킬체인 ①②③④ 단계는 아님)
     if rule == "Lateral movement to database":
@@ -76,9 +80,17 @@ def map_falco_event(ev: dict) -> Optional[str]:
     if rule == "Web exploitation tooling from foothold":
         return "T1190"   # [툴킷] 웹 익스플로잇 도구(nuclei/sqlmap) — VulHub·corp 웹 타깃 시도
     if rule == "Privilege escalation in container":
-        return "T1068"   # [가] 권한상승 익스플로잇 — 특권 컨테이너 mount/nsenter 상승 행위(T1611 /host read 와 구분)
+        # runc 컨테이너 init 이 mount/setns/unshare 를 대량 사용해 이 룰을 오발화(ShopFlow database/redis
+        #   등) → truth 오염(가짜 미탐). Falco 룰 교정(falco-values.yaml)의 코드층 백스톱 — runc proc 제외.
+        if proc.startswith("runc"):
+            return None
+        return "T1068"   # [가] 권한상승 익스플로잇 — 특권 컨테이너 mount/nsenter 상승 행위(proc≠runc)
     if rule == "Elevation control abuse":
-        return "T1548"   # [가] 권한상승 제어 악용 — setuid 호출·capability 조작(capsh/setcap)
+        # 과거 Falco evt.type=setuid 팔이 runc init·date/sleep 등 양성 setuid 를 대량 오발화 → 실제 상승
+        #   툴(capsh/setcap/sudo류)만 기법으로 인정(falco-values.yaml 조건과 동일 집합).
+        if proc not in _ELEVATION_TOOLS:
+            return None
+        return "T1548"   # [가] 권한상승 제어 악용 — setuid/capability 조작 툴
     if rule == "Cryptocurrency mining in container":
         return "T1496"   # 사후 — Resource Hijacking(마이너 프로세스 실행)
     return None

@@ -199,9 +199,20 @@ def test_map_falco_wave1_escape_and_portscan():
 
 
 def test_map_falco_privesc_and_capabuse():
-    # [가] 핵심층 신규 절차 관측화 — 규칙명은 falco-values customRules 와 1:1
-    assert map_falco_event({"rule": "Privilege escalation in container"}) == "T1068"
-    assert map_falco_event({"rule": "Elevation control abuse"}) == "T1548"
+    # [가] 핵심층 신규 절차 관측화 — 규칙명은 falco-values customRules 와 1:1.
+    # 실제 공격자 상승(proc≠runc)만 기법으로 인정 — runc 컨테이너 init·date/sleep 양성 발화는 제외
+    # (god-view truth 가짜 미탐 봉합, falco-values.yaml 룰 교정의 코드층 백스톱).
+    def _of(p):
+        return {"output_fields": {"proc.name": p}}
+    # T1068: 실제 mount/nsenter(proc≠runc) → 매핑, runc init → None
+    assert map_falco_event({"rule": "Privilege escalation in container", **_of("nsenter")}) == "T1068"
+    assert map_falco_event({"rule": "Privilege escalation in container", **_of("mount")}) == "T1068"
+    assert map_falco_event({"rule": "Privilege escalation in container", **_of("runc:[2:INIT]")}) is None
+    # T1548: 실제 상승 툴만 매핑, runc·date/sleep 양성 setuid → None
+    assert map_falco_event({"rule": "Elevation control abuse", **_of("capsh")}) == "T1548"
+    assert map_falco_event({"rule": "Elevation control abuse", **_of("sudo")}) == "T1548"
+    assert map_falco_event({"rule": "Elevation control abuse", **_of("runc:[1:CHILD]")}) is None
+    assert map_falco_event({"rule": "Elevation control abuse", **_of("date")}) is None
 
 
 def _reader(lines):

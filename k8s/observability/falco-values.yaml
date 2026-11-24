@@ -135,11 +135,13 @@ customRules:
       desc: >-
         공격자 파드가 컨테이너 경계를 넘는 상승 행위(mount·setns·unshare syscall, nsenter) 수행 =
         T1068 권한상승 익스플로잇. 'Escape to host filesystem'(T1611, /host 파일 read)과 구분 —
-        이쪽은 상승 '행위'(네임스페이스/마운트 조작), 저쪽은 호스트 파일 '열람'. 정상 워크로드는 이
-        syscall 을 거의 쓰지 않으므로 공격 근사. ★VM-B 실제 privesc 시나리오 pod·syscall 에 맞춰 튜닝.
+        이쪽은 상승 '행위'(네임스페이스/마운트 조작), 저쪽은 호스트 파일 '열람'. runc 컨테이너 init 이
+        이 syscall 을 대량 사용해 오발화하므로 proc.name startswith runc 로 제외(2026-11-25 튜닝) —
+        실제 공격자 mount/nsenter(proc≠runc)만 남긴다.
       condition: >-
         container and (evt.type in (mount, setns, unshare) or proc.name=nsenter)
         and not k8s.ns.name in (kube-system, falco, observability)
+        and not proc.name startswith "runc"
       output: >-
         Privilege escalation in container (ns=%k8s.ns.name pod=%k8s.pod.name
         proc=%proc.name evt=%evt.type)
@@ -148,12 +150,13 @@ customRules:
     # ── [가] 권한상승 제어 악용 (T1548) — 핵심층 cap-abuse 절차 관측화 ──
     - rule: Elevation control abuse
       desc: >-
-        컨테이너 내 권한상승 제어 악용 — setuid syscall 호출이나 capability 조작 툴(capsh/setcap)
-        실행 = T1548. 정상 워크로드엔 드문 행위라 공격 근사. ★VM-B 실제 cap-abuse 시나리오의
-        setuid 바이너리·툴 집합에 맞춰 튜닝.
+        컨테이너 내 권한상승 제어 악용 — 권한상승 제어 툴(capsh/setcap/sudo/su/pkexec/newgrp)
+        실행 = T1548. 과거 evt.type=setuid 팔은 runc 컨테이너 init·date/sleep 등 양성 setuid 를
+        대량 오발화(DB redis 등)해 제거하고 실제 상승 툴로 한정(2026-11-25 튜닝). cap-abuse 핵심층 관측용.
       condition: >-
-        container and (evt.type=setuid
-        or (spawned_process and proc.name in (capsh, setcap)))
+        container and spawned_process
+        and proc.name in (capsh, setcap, sudo, su, pkexec, newgrp)
+        and not k8s.ns.name in (kube-system, falco, observability)
       output: >-
         Elevation control abuse (ns=%k8s.ns.name pod=%k8s.pod.name
         proc=%proc.name cmd=%proc.cmdline)
@@ -177,28 +180,3 @@ customRules:
         proc=%proc.name cmd=%proc.cmdline image=%container.image.repository)
       priority: CRITICAL
       tags: [process, mitre_impact, T1496]
-    # ── [임시 디버그] 매크로 기반, proc 연산자별 분리(원인 확정 후 제거) ──
-    - rule: DBG name eq
-      desc: 임시 — proc.name=xmrig (= 연산자)
-      condition: spawned_process and container and k8s.ns.name=frontend and proc.name=xmrig
-      output: "DBG NAMEEQ proc=%proc.name"
-      priority: CRITICAL
-      tags: [debug]
-    - rule: DBG name in
-      desc: 임시 — proc.name in (...) (in 연산자)
-      condition: spawned_process and container and k8s.ns.name=frontend and proc.name in (xmrig, sh, cp)
-      output: "DBG NAMEIN proc=%proc.name"
-      priority: CRITICAL
-      tags: [debug]
-    - rule: DBG startswith
-      desc: 임시 — proc.name startswith xmr
-      condition: spawned_process and container and k8s.ns.name=frontend and proc.name startswith xmr
-      output: "DBG STARTSWITH proc=%proc.name"
-      priority: CRITICAL
-      tags: [debug]
-    - rule: DBG cmdline contains
-      desc: 임시 — proc.cmdline contains xmrig (contains 연산자)
-      condition: spawned_process and container and k8s.ns.name=frontend and proc.cmdline contains xmrig
-      output: "DBG CONTAINS proc=%proc.name"
-      priority: CRITICAL
-      tags: [debug]
