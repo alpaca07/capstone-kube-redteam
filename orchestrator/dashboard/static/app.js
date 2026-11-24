@@ -32,7 +32,7 @@
 
   // ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (server.py 의 SERVER_BUILD 과 같은 값으로 함께 올린다).
   // 좌상단에 v<UI_BUILD> 를 표시하고, 서버가 보고한 server_build 와 다르면 '재시작 필요' 경고를 띄운다.
-  var UI_BUILD = 17;
+  var UI_BUILD = 18;
   function renderBuild(serverBuild) {
     var el = document.getElementById("build-tag");
     if (!el) return;
@@ -79,6 +79,10 @@
   // 턴 종료 사유(enum) → 쉬운 말
   function reasonLabel(r) { return ({ flag: "목표 도달", deadend: "막다른 길", timeout: "시간 초과",
     budget: "예산 소진", max_steps: "명령 한도", error: "오류", patched: "패치 완료", skipped: "건너뜀" })[r] || r || "—"; }
+
+  // 방어 턴이 '크라운 미반출'로 생략된 라운드인가 — end_reason/defense_end_reason 로 판별.
+  //   생략 라운드는 방어가 서비스를 안 건드려 healthcheck_passed 가 기본 false 지만 '서비스 중단'이 아님 → 중립 표시.
+  function _dSkipped(x) { return !!x && (x.end_reason === "skipped" || x.defense_end_reason === "skipped"); }
 
   // ───────── 상태 ─────────
   var S = { rounds: [], episodes: [], runs: [], events: [], journal: [], status: {}, demo: false, runCount: 0, detItems: null };
@@ -1089,7 +1093,7 @@
       (d.patch_note ? '<div class="md-ev mono" style="color:var(--text-3)">메모: ' + esc(d.patch_note) + "</div>" : "") +
       '<div class="flow-foot" style="border:none;padding-top:10px">' +
       (d.patch_applied ? '<span class="badge b-ok">패치 적용</span>' : '<span class="badge b-sys">패치 미적용</span>') +
-      (d.healthcheck_passed ? '<span class="badge b-ok">서비스 정상</span>' : '<span class="badge b-atk">서비스 중단</span>') +
+      (_dSkipped(d) ? '<span class="badge b-sys">해당 없음</span>' : d.healthcheck_passed ? '<span class="badge b-ok">서비스 정상</span>' : '<span class="badge b-atk">서비스 중단</span>') +
       (d.end_reason ? '<span class="chip">' + esc(reasonLabel(d.end_reason)) + "</span>" : "") + "</div>" +
       (d.error ? '<div class="md-ev mono" style="color:var(--atk)">오류: ' + esc(d.error) + "</div>" : "");
 
@@ -1137,7 +1141,7 @@
         '<td class="mono">' + ndet + "건</td>" +
         "<td>" + (r.patch_applied ? '<span class="badge b-ok">적용</span>' : '<span class="badge b-sys">미적용</span>') + "</td>" +
         '<td class="mono">' + (rAsset ? rAsset + "종" : "—") + "</td>" +
-        "<td>" + (r.healthcheck_passed ? '<span class="badge b-ok">정상</span>' : '<span class="badge b-atk">중단</span>') + "</td></tr>";
+        "<td>" + (_dSkipped(r) ? '<span class="badge b-sys">—</span>' : r.healthcheck_passed ? '<span class="badge b-ok">정상</span>' : '<span class="badge b-atk">중단</span>') + "</td></tr>";
     }).join("");
     return (S.demo ? demoBanner() : "") + chips +
       '<div class="section-label">' + ep + "회차 종합 · 집계</div>" +
@@ -1168,7 +1172,7 @@
         '<div class="fi-ev">' + esc(p.summary || "—") + "</div></div>";
     }).join("") : '<div class="flow-empty">적용한 패치 없음</div>';
     var psFoot = detail.defense ? '<div class="flow-foot">' + (d.patch_applied ? '<span class="badge b-ok">패치 적용</span>' : '<span class="badge b-sys">패치 미적용</span>') +
-      (d.healthcheck_passed ? '<span class="badge b-ok">서비스 정상</span>' : '<span class="badge b-atk">서비스 중단</span>') + "</div>" : "";
+      (_dSkipped(d) ? '<span class="badge b-sys">해당 없음</span>' : d.healthcheck_passed ? '<span class="badge b-ok">서비스 정상</span>' : '<span class="badge b-atk">서비스 중단</span>') + "</div>" : "";
 
     var still = v.flags_still_reachable || [];
     var vHtml = detail.verification ? '<div class="flow-item"><div class="fi-head">' + (vv ? '<span class="badge ' + vv.cls + '">' + vv.label + "</span>" : '<span class="chip">—</span>') + "</div>" +
@@ -1304,7 +1308,7 @@
       body = '<span class="mono">' + esc((p.detail || (p.kind + " → " + p.target))).slice(0, 110) + "</span>";
       status = p.applied ? '<span class="badge b-ok">적용</span>' : '<span class="badge b-sys">건너뜀</span>';
     } else if (e.type === "defense_turn") {
-      body = "방어 차례 · 패치 " + (p.patch_applied ? "적용" : "미적용") + " · 탐지 " + num(p.detected) + "건 · 서비스 " + (p.healthcheck_passed ? "정상" : "중단");
+      body = "방어 차례 · 패치 " + (p.patch_applied ? "적용" : "미적용") + " · 탐지 " + num(p.detected) + "건" + (_dSkipped(p) ? " · 검증 생략" : " · 서비스 " + (p.healthcheck_passed ? "정상" : "중단"));
     } else if (e.type === "verdict") {
       var v = VERDICT[p.verdict];
       status = v ? '<span class="badge ' + v.cls + '">' + v.label + "</span>" : '<span class="badge b-sys">' + esc(p.verdict) + "</span>";
@@ -1474,7 +1478,7 @@
     if (turn) { var tp = turn.payload || {};
       out += '<div class="dj-foot">' +
         (tp.patch_applied ? '<span class="badge b-ok">패치 적용</span>' : '<span class="badge b-sys">패치 미적용</span>') +
-        (tp.healthcheck_passed ? '<span class="badge b-ok">서비스 정상</span>' : '<span class="badge b-atk">서비스 중단</span>') +
+        (_dSkipped(tp) ? '<span class="badge b-sys">해당 없음</span>' : tp.healthcheck_passed ? '<span class="badge b-ok">서비스 정상</span>' : '<span class="badge b-atk">서비스 중단</span>') +
         (tp.elapsed_sec ? '<span class="chip">' + Math.round(tp.elapsed_sec) + "s</span>" : "") +
         (tp.note ? '<span class="dj-note">' + esc(tp.note) + "</span>" : "") +
         (tp.error ? '<span class="dj-note" style="color:var(--atk)">오류: ' + esc(tp.error) + "</span>" : "") + "</div>";
@@ -1494,11 +1498,11 @@
       var nd = evr.filter(function (e) { return e.type === "detection"; }).length;
       var np = evr.filter(function (e) { return e.type === "patch" && (e.payload || {}).applied; }).length;
       var turn = evr.filter(function (e) { return e.type === "defense_turn"; })[0];
-      var health = turn ? (turn.payload || {}).healthcheck_passed : null;
+      var _tp = turn ? (turn.payload || {}) : {}, health = _tp.healthcheck_passed;
       var head = '<button class="jacc-h jacc-r dj-rh' + (open ? " open" : "") + '" data-dltoggle="' + rkey + '">' +
         '<span class="jacc-caret' + (open ? " open" : "") + '">▸</span><span class="jacc-t">R' + r + "</span>" +
         '<span class="jacc-meta">탐지 ' + nd + " · 적용 패치 " + np +
-        (health === false ? ' <span class="badge b-atk">서비스 중단</span>' : "") + "</span></button>";
+        (!_dSkipped(_tp) && health === false ? ' <span class="badge b-atk">서비스 중단</span>' : "") + "</span></button>";
       return '<div class="jacc dj-acc">' + head + (open ? '<div class="jacc-body">' + defLogRows(evr) + "</div>" : "") + "</div>";
     }).join("");
   }
@@ -1588,13 +1592,13 @@
     if (e.type === "detection") return (p.technique || "기법미상") + " · " + (p.evidence || "");
     if (e.type === "patch") return p.detail || (patchKindLabel(p.kind) + " → " + (p.target || "") + (p.summary ? " " + p.summary : ""));
     if (e.type === "verdict") return (p.verdict || "") + (p.detail ? " · " + p.detail : "");
-    if (e.type === "defense_turn") return "패치 " + (p.patch_applied ? "적용" : "미적용") + " · 서비스 " + (p.healthcheck_passed ? "정상" : "중단");
+    if (e.type === "defense_turn") return "패치 " + (p.patch_applied ? "적용" : "미적용") + (_dSkipped(p) ? " · 검증 생략" : " · 서비스 " + (p.healthcheck_passed ? "정상" : "중단"));
     return ""; }
   function _djResult(e) { var p = e.payload || {};
     if (e.type === "detection") return p.confidence != null ? Math.round(p.confidence * 100) + "%" : "";
     if (e.type === "patch") return p.applied ? "적용" : "스킵";
     if (e.type === "verdict") return p.verdict || "";
-    if (e.type === "defense_turn") return p.healthcheck_passed ? "정상" : "중단";
+    if (e.type === "defense_turn") return _dSkipped(p) ? "생략" : (p.healthcheck_passed ? "정상" : "중단");
     return ""; }
   function exportDefenseJournal(fmt) {
     var evs = S.dlExport || [], base = "defense-journal-" + _stamp();
@@ -2162,7 +2166,7 @@
       var key = (r.episode || e.episode) + "-" + r.round;
       var jmp = '<div class="rep-jmps"><button class="rep-jmp" data-rjag="' + key + '">추적 그래프 ↗</button>' +
         '<button class="rep-jmp" data-rjdef="' + key + '">탐지·검증 ↗</button></div>';
-      return "<tr><td class='mono'>R" + r.round + "</td><td>" + (vv ? '<span class="badge ' + vv.cls + '">' + vv.label + "</span>" : esc(r.verdict)) + "</td><td class='mono'>" + ((r.reported_techniques || []).join(", ") || "—") + "</td><td class='mono'>" + (nAsset ? nAsset + "종" : "—") + "</td><td>" + (r.healthcheck_passed ? '<span class="badge b-ok">정상</span>' : '<span class="badge b-atk">중단</span>') + "</td><td>" + jmp + "</td></tr>";
+      return "<tr><td class='mono'>R" + r.round + "</td><td>" + (vv ? '<span class="badge ' + vv.cls + '">' + vv.label + "</span>" : esc(r.verdict)) + "</td><td class='mono'>" + ((r.reported_techniques || []).join(", ") || "—") + "</td><td class='mono'>" + (nAsset ? nAsset + "종" : "—") + "</td><td>" + (_dSkipped(r) ? '<span class="badge b-sys">—</span>' : r.healthcheck_passed ? '<span class="badge b-ok">정상</span>' : '<span class="badge b-atk">중단</span>') + "</td><td>" + jmp + "</td></tr>";
     }).join("");
     var timeline = '<div class="section-label">라운드별 타임라인 · 근거</div>' +
       '<div class="card" style="padding:0;overflow:hidden"><table class="tbl"><thead><tr><th>라운드</th><th>판정</th><th>탐지 기법</th><th>침해 자산</th><th>서비스</th><th>근거</th></tr></thead><tbody>' + rows + "</tbody></table></div>";
@@ -2299,7 +2303,7 @@
         '<div class="brief-tl-cols">' +
           '<div class="brief-tl-c c-atk"><span class="brief-tl-k">공격</span>' + atk + (newFind.length ? ' <span class="brief-tl-b b-atk">침해 +' + newFind.length + "</span>" : "") + (crownN ? ' <span class="brief-tl-b b-crown">핵심자산 ' + crownN + "종</span>" : "") + "</div>" +
           '<div class="brief-tl-c c-def"><span class="brief-tl-k">방어</span>' + (det.length ? "탐지 " + esc(det.join(", ")) : "미탐지") + (r.patch_applied ? ' <span class="brief-tl-b b-def">패치</span>' : "") + "</div>" +
-          '<div class="brief-tl-c c-jdg"><span class="brief-tl-k">검증</span>' + (vv ? '<span class="badge ' + vv.cls + '">' + vv.label + "</span>" : esc(r.verdict || "—")) + (r.healthcheck_passed === false ? ' <span class="brief-tl-b b-atk">서비스 중단</span>' : "") + "</div>" +
+          '<div class="brief-tl-c c-jdg"><span class="brief-tl-k">검증</span>' + (vv ? '<span class="badge ' + vv.cls + '">' + vv.label + "</span>" : esc(r.verdict || "—")) + (!_dSkipped(r) && r.healthcheck_passed === false ? ' <span class="brief-tl-b b-atk">서비스 중단</span>' : "") + "</div>" +
         "</div></div>";
     }).join("");
     return '<div class="section-label">라운드별 공진화</div><div class="card brief-tl">' + rows + "</div>";
