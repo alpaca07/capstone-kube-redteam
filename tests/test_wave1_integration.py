@@ -144,7 +144,7 @@ def test_escape_chain_scored_end_to_end():
     det = rec["detection_cum"]
     assert det["tp"] == 4, det      # T1078·T1210·T1610·T1611 정탐
     assert det["fp"] == 0, det      # 오탐 없음
-    assert det["fn"] == 5, det      # T1552·T1213·T1613·T1069·T1046 놓침(패밀리 단위)
+    assert det["fn"] == 4, det      # T1552·T1613·T1069·T1046 놓침 (T1213 은 크라운 축 → 탐지 제외)
 
     # 선형 깊이는 상태검증 digit 플래그(①②③)만. ④(데이터탈취)는 크라운 달성축으로 분리 —
     # flags_reached 의 'crown-secrets'(비-digit)로 확인(깊이를 흐리지 않음).

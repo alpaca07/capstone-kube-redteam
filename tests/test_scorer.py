@@ -195,6 +195,53 @@ def test_sink_receives_each_round():
     assert captured[0]["episode"] == 1 and captured[0]["round"] == 1
 
 
+def test_crown_only_technique_excluded_from_detection():
+    # ShopFlow R3 재현: god-view truth 에 관측 기법(T1078·T1552.001·T1210=log-observed)과
+    # 크라운 달성(T1213=crown-exfil, DB 접근기록 채널)이 함께 있다. 방어자는 T1078·T1552 보고.
+    # T1213 은 방어자가 관측 불가(심판 전용 채널)이고 크라운 축에서 별도 채점 → 탐지 혼동행렬에서 제외.
+    # T1210(라벨 불일치 미탐)·T1046(게이팅 미탐)은 진짜 미탐으로 유지.
+    tl = TruthLog()
+    tl.record(TruthEntry(episode=1, round=1,
+                         events=[TruthEvent("T1046", detail="log-observed")]))
+    tl.record(TruthEntry(
+        episode=1, round=3,
+        events=[TruthEvent("T1078", flag_id="2", detail="log-observed"),
+                TruthEvent("T1552.001", flag_id="1", detail="log-observed"),
+                TruthEvent("T1210", flag_id="3", detail="log-observed"),
+                TruthEvent("T1213", flag_id="crown-pii", detail="crown-exfil", channels=("db",))],
+        flags_reached=["crown-pii"]))
+    sc = Scorer(tl, episode=1, objectives=default_objectives())
+    sc.score_round(round=1, attack_result=_attack(),
+                   defense_result=_defense(techs=[]), verification=_verif())
+    rec = sc.score_round(round=3, attack_result=_attack(),
+                         defense_result=_defense(techs=["T1078", "T1552"]), verification=_verif())
+    # 정탐 2(T1078·T1552) / 오탐 0 / 미탐 2(T1046·T1210) — T1213 은 제외되어 미탐 아님
+    assert (rec.detection_cum.tp, rec.detection_cum.fp, rec.detection_cum.fn) == (2, 0, 2)
+    missed = {m["technique"] for m in sc.last_detection_eval["missed"]}
+    assert missed == {"T1046", "T1210"}                          # T1213 없음
+    assert "T1213" not in sc.last_detection_eval["truth_techniques"]
+    s = sc.summary(end_reason="max_rounds")
+    assert (s.detection.tp, s.detection.fp, s.detection.fn) == (2, 0, 2)   # 누적 요약도 동일
+    assert s.crowns_reached == ["crown-pii"]                     # 크라운 축은 그대로 집계(분리)
+
+
+def test_crown_technique_with_observable_source_kept():
+    # 같은 기법이 크라운(crown-exfil)과 관측(log-observed) 양쪽으로 나타나면, 방어자가 Falco 로
+    # 볼 수 있으므로 탐지 축에서 빼지 않는다 — '크라운으로만' 들어온 기법만 제외.
+    tl = TruthLog()
+    tl.record(TruthEntry(
+        episode=1, round=1,
+        events=[TruthEvent("T1496", flag_id="crown-resource-hijack", detail="crown-exfil"),
+                TruthEvent("T1496", detail="log-observed")],
+        flags_reached=["crown-resource-hijack"]))
+    sc = Scorer(tl, episode=1, objectives=default_objectives())
+    assert sc._crown_only_base(1) == set()                       # 관측 짝 있음 → 제외 안 함
+    rec = sc.score_round(round=1, attack_result=_attack(),
+                         defense_result=_defense(techs=[]), verification=_verif())
+    assert rec.detection_cum.fn == 1                             # T1496 은 미탐으로 유지
+    assert sc.last_detection_eval["missed"][0]["technique"] == "T1496"
+
+
 # ───────────── 자체 러너 ─────────────
 def _run() -> int:
     tests = [v for k, v in sorted(globals().items())

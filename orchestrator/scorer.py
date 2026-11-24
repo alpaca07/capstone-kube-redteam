@@ -78,15 +78,20 @@ def _base(t: str) -> str:
     return t.split(".", 1)[0] if t else t
 
 
-def confusion_matrix(reported: set[str], truth: set[str]) -> DetectionScore:
-    """보고 vs 실제 발생 → TP/FP/FN. 서브기법↔부모는 같은 기법으로 매칭(패밀리 단위)."""
-    r = {_base(t) for t in reported}
-    g = {_base(t) for t in truth}
+def confusion_matrix(reported: set[str], truth: set[str],
+                     exclude: Optional[set[str]] = None) -> DetectionScore:
+    """보고 vs 실제 발생 → TP/FP/FN. 서브기법↔부모는 같은 기법으로 매칭(패밀리 단위).
+
+    exclude: 탐지 축에서 뺄 base-기법(크라운 달성처럼 방어자가 관측 불가·별도 축에서 채점되는 것)
+    — truth·보고 양쪽에서 제거해 정탐·오탐·미탐 어디에도 세우지 않는다."""
+    ex = {_base(t) for t in (exclude or ())}
+    r = {_base(t) for t in reported} - ex
+    g = {_base(t) for t in truth} - ex
     return DetectionScore(tp=len(r & g), fp=len(r - g), fn=len(g - r))
 
 
 def evaluate_detections(detected, truth_log, episode: int, round: int,
-                        reported_cum: set[str]) -> dict:
+                        reported_cum: set[str], exclude: Optional[set[str]] = None) -> dict:
     """방어 보고(detected[])를 god-view 사실과 대조해 '왜 정탐·오탐·미탐인지'를 항목별 근거로.
 
     혼동행렬(confusion_matrix)과 같은 base-기법 집합 기준이라 탐지 정확도 수치와 1:1로 맞는다.
@@ -94,9 +99,11 @@ def evaluate_detections(detected, truth_log, episode: int, round: int,
     - 오탐(FP): 보고했으나 실제 공격 기법에 없음 → 오경보.
     - 미탐(FN): 실제 발생(god-view 확인)했으나 '누적 보고'에 없음 → 놓침.
     대시보드 탐지·패치 흐름(인라인·모달)이 이 블록을 읽어 배지·근거를 그린다.
+    exclude: 탐지 축에서 뺄 base-기법(크라운 달성처럼 관측 불가·별도 축) — truth·보고 양쪽에서 제외.
     """
+    ex = {_base(t) for t in (exclude or ())}
     truth_cum = truth_log.techniques_up_to(episode, round)        # 누적 실제(원본 기법 문자열)
-    truth_base = {_base(t) for t in truth_cum}
+    truth_base = {_base(t) for t in truth_cum} - ex
     # 미탐 근거용: base 기법 → 최초 발생 라운드 + 증거(detail). 한 번만(간결).
     first: dict[str, dict] = {}
     for e in truth_log.entries(episode):
@@ -107,7 +114,7 @@ def evaluate_detections(detected, truth_log, episode: int, round: int,
             if b not in first:
                 first[b] = {"round": e.round, "technique": ev.technique,
                             "detail": (ev.detail or "").strip(), "flag_id": ev.flag_id}
-    reported_base_cum = {_base(t) for t in reported_cum}
+    reported_base_cum = {_base(t) for t in reported_cum} - ex
     truth_sorted = sorted(truth_base)
 
     def _fp_reason(b: str) -> str:
@@ -124,6 +131,8 @@ def evaluate_detections(detected, truth_log, episode: int, round: int,
                           "reason": "기법 미상 — god-view 대조 불가(판정 보류)."})
             continue
         b = _base(t)
+        if b in ex:          # 크라운 축 기법(관측 불가·별도 채점) — 탐지 판정에서 제외(정탐·오탐 아님)
+            continue
         tp = b in truth_base
         items.append({
             "technique": t, "base": b, "evidence": (d.evidence or ""), "confidence": d.confidence,
@@ -272,15 +281,34 @@ class Scorer:
         self._detection_first: dict[str, int] = {}  # 기법→최초 '정탐' 라운드(MTTD)
         self.last_detection_eval: Optional[dict] = None  # 직전 라운드 탐지 판정 근거(round_detail용)
 
+    def _crown_only_base(self, round: int) -> set[str]:
+        """크라운 달성(detail='crown-exfil')으로만 truth에 들어온 base-기법 집합.
+
+        크라운 반출은 데이터 접근 기록(DB·앱 로그) 채널로만 확정되는데, 이 채널은 심판(god-view)
+        전용이고 방어자 관측(감사·Falco)에는 없다 → 방어자가 구조적으로 탐지할 수 없고, 달성 여부는
+        이미 크라운 축(차단/무효 패치)에서 채점된다. 그래서 탐지 혼동행렬에서 뺀다.
+        단, 관측 사건(detail='log-observed')으로도 나타난 기법(예: Falco 로 잡히는 T1496·T1610)은
+        방어자가 볼 수 있으므로 빼지 않는다 — '크라운으로만' 들어온 기법만 제외한다."""
+        crown_only: set[str] = set()
+        observable: set[str] = set()
+        for e in self.truth.entries(self.episode):
+            if e.round > round:
+                continue
+            for ev in e.events:
+                (crown_only if ev.detail == "crown-exfil" else observable).add(_base(ev.technique))
+        return crown_only - observable
+
     def score_round(self, *, round: int, attack_result: AttackTurnResult,
                     defense_result: DefenseTurnResult,
                     verification: VerificationResult) -> RoundRecord:
         truth_cum = self.truth.techniques_up_to(self.episode, round)
         reported = {d.technique for d in defense_result.detected if d.technique}
         self._reported_cum |= reported
+        _exclude = self._crown_only_base(round)   # 크라운 달성 축(관측 불가) 기법 — 탐지 혼동행렬 제외
         # 탐지별 '왜 정탐·오탐·미탐' 근거(대시보드 드릴다운용). 누적 보고 기준 → 혼동행렬과 일치.
         self.last_detection_eval = evaluate_detections(
-            defense_result.detected, self.truth, self.episode, round, self._reported_cum)
+            defense_result.detected, self.truth, self.episode, round, self._reported_cum,
+            exclude=_exclude)
         _truth_base = {_base(t) for t in truth_cum}   # 서브기법↔부모 일관 매칭
         for t in reported:                         # 실제 발생을 맞춘 최초 라운드만 MTTD에
             bt = _base(t)
@@ -312,7 +340,7 @@ class Scorer:
             healthcheck_passed=defense_result.healthcheck_passed,
             verdict=verification.verdict.value,
             verify_method=verification.method,
-            detection_cum=confusion_matrix(self._reported_cum, truth_cum),
+            detection_cum=confusion_matrix(self._reported_cum, truth_cum, exclude=_exclude),
             elapsed_attack_sec=attack_result.elapsed_sec,
             elapsed_defense_sec=defense_result.elapsed_sec,
             timestamp=time.time(),
@@ -334,10 +362,13 @@ class Scorer:
     def summary(self, *, end_reason: str) -> EpisodeSummary:
         last_round = self._records[-1].round if self._records else 0
         truth_all = self.truth.techniques_up_to(self.episode, last_round)
+        _exclude = self._crown_only_base(last_round)   # 크라운 달성 축 — 탐지·MTTD 집계에서 제외
         occ_raw = self.truth.first_occurrence_round(self.episode)
         occ: dict[str, int] = {}          # MTTD 도 기법 패밀리 단위(부모로 접음)
         for _t, _r in occ_raw.items():
             _b = _base(_t)
+            if _b in _exclude:            # 크라운 축 기법은 탐지율/MTTD 분모에서도 제외(혼동행렬과 일치)
+                continue
             occ[_b] = min(_r, occ.get(_b, _r))
         flags = self.truth.flags_up_to(self.episode, last_round)
         depth = max((int(f) for f in flags if f.isdigit()), default=0)
@@ -356,7 +387,7 @@ class Scorer:
         return EpisodeSummary(
             episode=self.episode, rounds=len(self._records), end_reason=end_reason,
             max_flag_depth=depth,
-            detection=confusion_matrix(self._reported_cum, truth_all),
+            detection=confusion_matrix(self._reported_cum, truth_all, exclude=_exclude),
             mttd=mttd(occ, self._detection_first),
             verdict_counts=verdict_counts, availability=availability,
             patches=sum(1 for r in self._records if r.patch_applied),

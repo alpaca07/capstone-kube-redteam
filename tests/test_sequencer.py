@@ -178,7 +178,7 @@ def test_godview_truth_and_detection():
     assert entry.techniques() == {"T1213", "T1078"}                 # 크라운(T1213) + 로그관측(T1078)
     assert set(entry.flags_reached) == {"2", "crown-secrets"}
     det = ctx["captured"][0]["detection_cum"]
-    assert det["tp"] == 1 and det["fn"] == 1                         # T1078 맞춤 / T1213 놓침
+    assert det["tp"] == 1 and det["fn"] == 0                         # T1078 맞춤 / T1213 은 크라운 축(관측 불가 채널) → 탐지 혼동행렬 제외
 
 
 # ───────────── 복구 & 안전 ─────────────
