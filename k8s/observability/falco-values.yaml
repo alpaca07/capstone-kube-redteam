@@ -63,7 +63,7 @@ customRules:
         없음) — 방어자는 보고만 하고 과잉 패치하지 않는 게 정답(정밀도 신호).
       condition: >-
         spawned_process and container
-        and k8s.pod.name startswith "attacker-foothold"
+        and k8s.pod.name contains "attacker-foothold"
         and proc.name in (nc, ncat, nmap, masscan)
       output: >-
         Port scan from foothold (ns=%k8s.ns.name pod=%k8s.pod.name

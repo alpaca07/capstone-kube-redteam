@@ -199,10 +199,10 @@ def test_map_falco_wave1_escape_and_portscan():
 
 
 def test_map_falco_corp_rules():
-    # corp 아레나 관측 룰 → 기법. 이전엔 전부 None 으로 떨어져 god-view 진실에서 탈락했음.
-    assert map_falco_event({"rule": "corp DMZ web shell"}) == "T1059"
-    assert map_falco_event({"rule": "corp crown command exec"}) == "T1059"
-    assert map_falco_event({"rule": "corp lateral movement to crown"}) == "T1210"
+    # corp 라벨은 KG·방어자 킬체인 축(웹 RCE=T1190, 크라운 접근=T1213)에 정렬 — 방어 보고와 맞물려 정탐.
+    assert map_falco_event({"rule": "corp DMZ web shell"}) == "T1190"
+    assert map_falco_event({"rule": "corp crown command exec"}) == "T1213"
+    assert map_falco_event({"rule": "corp lateral movement to crown"}) == "T1213"
     # ShopFlow 룰은 corp 가지에 닿지 않고 그대로 — 무영향 회귀 가드.
     assert map_falco_event({"rule": "Lateral movement to database"}) == "T1210"
     assert map_falco_event({"rule": "Terminal shell in container"}) == "T1059"

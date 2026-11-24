@@ -94,14 +94,16 @@ def map_falco_event(ev: dict) -> Optional[str]:
     if rule == "Cryptocurrency mining in container":
         return "T1496"   # 사후 — Resource Hijacking(마이너 프로세스 실행)
     # ───── corp 아레나 ─────
-    #   ShopFlow 룰과 이름이 달라 위 가지에서 안 걸리던 관측 신호. falco-values 의
-    #   corp 커스텀 룰(모두 'corp' 태그)과 1:1. 기법 번호는 각 룰 tags 와 동일.
+    #   corp 는 논문 밖 타깃이라 기법 라벨을 KG·방어자·patch_app 설계의 킬체인 축에 맞춘다
+    #   (Falco 태그가 아니라). 웹 RCE=T1190, 크라운 접근=T1213 — 방어자 보고와 같은 축이라
+    #   관측 truth 와 방어 보고가 맞물려 정탐으로 집계된다.
     if rule == "corp DMZ web shell":
-        return "T1059"   # DMZ Tomcat/WAF 웹셸에서 sh·bash exec — 명령/스크립트 실행
+        return "T1190"   # DMZ Tomcat 웹 RCE(익스플로잇→웹셸) — KG VulHub RCE 규약과 동일(전부 T1190)
     if rule == "corp crown command exec":
-        return "T1059"   # crown-read wrapper 실행(Jenkins 경유 PostgreSQL 반출 트리거) — 실행
+        return "T1213"   # crown-read 실행 = 크라운 데이터 접근(Jenkins 경유 PostgreSQL 반출)
     if rule == "corp lateral movement to crown":
-        return "T1210"   # 측면이동 — Jenkins(corp-internal) → PostgreSQL:5432 (ShopFlow DB 측면이동과 대칭)
+        return "T1213"   # 크라운 DB 도달 = 크라운 접근. T1213 이 관측축(log-observed)에 생겨
+                         #   ShopFlow 전용 크라운 제외(_crown_only_base)와 자동 분리 — corp 만 정탐 집계
     return None
 
 
