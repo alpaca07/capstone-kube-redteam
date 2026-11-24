@@ -32,7 +32,7 @@
 
   // ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (server.py 의 SERVER_BUILD 과 같은 값으로 함께 올린다).
   // 좌상단에 v<UI_BUILD> 를 표시하고, 서버가 보고한 server_build 와 다르면 '재시작 필요' 경고를 띄운다.
-  var UI_BUILD = 16;
+  var UI_BUILD = 17;
   function renderBuild(serverBuild) {
     var el = document.getElementById("build-tag");
     if (!el) return;
@@ -782,9 +782,7 @@
   // dr = DB 크라운 역할 스코핑(ShopFlow=앱·유출 role 분리 / corp=빈값→스코핑 없음), dlc = corp-crown 로그(-corp) 사용.
   var TARGETS = {
     "default":  { label: "ShopFlow",              om: null,    ta: null,                  fn: "frontend", fp: "deploy/attacker-foothold",      dr: "appuser,legacy_admin", dlc: false, so: true  },
-    "corp-pii": { label: "corp · 고객 PII",        om: "asset", ta: "crown-pii",           fn: "corp-ext", fp: "deploy/corp-attacker-foothold", dr: "",                     dlc: true,  so: false },
-    "corp-ops": { label: "corp · 운영 비밀",       om: "asset", ta: "crown-ops",           fn: "corp-ext", fp: "deploy/corp-attacker-foothold", dr: "",                     dlc: true,  so: false },
-    "corp-all": { label: "corp · 전체(PII+운영)",  om: "asset", ta: "crown-pii,crown-ops", fn: "corp-ext", fp: "deploy/corp-attacker-foothold", dr: "",                     dlc: true,  so: false }
+    "corp":     { label: "corp",                   om: "asset", ta: "crown-pii,crown-ops", fn: "corp-ext", fp: "deploy/corp-attacker-foothold", dr: "",                     dlc: true,  so: false }
   };
   function pageControl() {
     var running = !!(S.status && S.status.running);
