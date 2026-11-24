@@ -130,6 +130,44 @@ sudo k3s kubectl describe node | grep -A8 "Allocated resources"
 
 **함의**: ① 자원 여유 충분(노드 10% 사용, 6코어, 디스크 32G) — 2번째 클러스터 수용 가능. ② **corp는 이미 네임스페이스로 14일째 존재하나 워크로드(파드) 0** — 어느 방향이든 corp 워크로드 재배포 필요. ③ k3d 분리는 **Docker 데몬 복구부터** 필요.
 
+### 6. 전환 표면·관측 파이프라인 (corp 배치 결정용)
+
+**(나) corp 별도 클러스터 시 바뀌어야 하는 지점** (레포 + 실측):
+
+| # | 위치 | 현재 | 근거 |
+|---|---|---|---|
+| 1 | VM C baseline 리셋 | `target.kubeconfig` → `192.168.16.128:6443` | config |
+| 2 | VM A 발판 exec | `exec_kubeconfig`/foothold → `:6443` | `gen-*-kubeconfig.sh` |
+| 3 | VM D 방어 패치 적용 | `/home/vm-d/.kube/vmb-admin.kubeconfig` → `192.168.16.128:6443` | 실측 |
+| 4 | god-view 로그 수집 5종 | `vmc-sync-*` 전부 vmb-admin로 단일 k3s pull | 실측 |
+| 5 | 공격 엔드포인트 | `192.168.16.128:30080` | config |
+
+→ (나)는 kubeconfig 3곳(A·C·D 전부 현재 `192.168.16.128:6443`) + 관측 5서비스 + 엔드포인트를 corp용으로 복제하는 작업. (가)는 이 배선이 이미 corp까지 돌아감(`vmc-sync-corp-services.sh`, dblog 서비스가 corp-crown 커버).
+
+**VM C — god-view sync 상태 (11:58)**
+| 서비스 | 상태 |
+|---|---|
+| `capstone-sync-audit` / `-dblog` / `-falco` / `-applog` | **active** |
+| `capstone-falco-tail` | inactive (falco sync 자체는 active라 데이터는 흐름) |
+
+- dblog 서비스 설명: "VM B database·corp-crown → VM C god-view" (한 서비스가 둘 커버)
+- ShopFlow 로그 live(11:58 갱신): `vmb-applog.log` 32MB · `vmb-audit.log` 6.3MB · `vmb-dblog.log` 160MB · `vmb-falco.log` 8.2MB
+- corp 로그 **stale**(corp 워크로드 내려감): `vmb-corp-postgres.log`·`vmb-dblog-corp.log` Nov 23 11:03 · `vmb-corp-samba.log` 0B · `vmb-corp-waf.log` Nov 23 04:07
+
+**VM D (192.168.16.131) — 방어자**
+| 항목 | 값 |
+|---|---|
+| `defense-harness` | **active** (python3 pid=329545, `:8000`) |
+| 패치 적용 kubeconfig | `/home/vm-d/.kube/vmb-admin.kubeconfig` → `server: https://192.168.16.128:6443` (단일 k3s) |
+| `attack_endpoint` | `127.0.0.1:30080` (방어자라 사실상 미사용) |
+
+**VM B — corp 네임스페이스 잔여 객체(파드 0)**
+| 네임스페이스 | 객체 수(all/cm/secret/networkpolicy) |
+|---|---|
+| corp-ext · corp-dmz · corp-internal · corp-crown · corp-defense | 15 · 26 · 16 · 10 · 1 |
+
+- 설정·서비스·시크릿·NetworkPolicy는 남아 있고 **워크로드(파드)만 내려감** → 재배포 = `kubectl apply -f k8s/corp/`
+
 ### 미결정 (점검 아님 — 본 로그 범위 밖)
 
 - corp 배치: (가) 네임스페이스 현행 유지 vs (나) k3d 별도 클러스터 분리
