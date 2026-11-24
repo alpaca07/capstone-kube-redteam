@@ -168,8 +168,41 @@ sudo k3s kubectl describe node | grep -A8 "Allocated resources"
 
 - 설정·서비스·시크릿·NetworkPolicy는 남아 있고 **워크로드(파드)만 내려감** → 재배포 = `kubectl apply -f k8s/corp/`
 
-### 미결정 (점검 아님 — 본 로그 범위 밖)
+### 7. 아레나 격리 검증 (corp 재배포 후 — (가) 네임스페이스 공존 방식)
 
-- corp 배치: (가) 네임스페이스 현행 유지 vs (나) k3d 별도 클러스터 분리
-- Neo4j 아레나 격리 정책: C(단일 DB + 운영 규율) 확정 여부
-- `attacker_ssh`(2.7) 활성화 여부
+corp 워크로드 재배포 완료(8 Deployment Running, 로컬 이미지 `attacker-toolkit`·`corp-waf` containerd 존재 확인).
+
+**네트워크 (cross-arena) — 라이브 `nc` 프로브**
+| 방향/구간 | 프로브 | 결과 |
+|---|---|---|
+| corp→ShopFlow | `postgres.database:5432`(ClusterIP) · `192.168.16.128:30080`(NodePort) | **둘 다 차단(timeout)** |
+| ShopFlow→corp | `postgres.corp-crown:5432` · `waf.corp-dmz:80` | **둘 다 차단** |
+| corp 존 내부 | ext→WAF **open** · ext→Tomcat/Jenkins/crown **차단** | WAF 유일진입·건너뛰기 차단(README 4a) |
+| corp→정상경로 | DNS `kube-dns:53` **open** · 외부 `192.168.16.129:8000` **open** | 격리가 과하지 않음(콜백 정상) |
+
+근거 정책: `egress-isolate-shopflow`(corp 4개 ns, egress=외부+corp+DNS만, 클러스터 CIDR `10.42/10.43` except) + corp `default-deny-ingress`.
+
+**채점 소스 — 아레나별 자동 분리 (대시보드 타깃→배선, `server.py`)**
+| 설정 | corp 타깃 | ShopFlow 타깃 |
+|---|---|---|
+| DB 크라운 로그 | `--db-log-corp` → `vmb-dblog-corp.log` | `vmb-dblog.log` |
+| DB 크라운 롤 | `[]` | `appuser,legacy_admin` |
+| baseline 리셋 | 전체 | `--shopflow-only`(corp 생략) |
+| 크라운 목표물 | `crown-ops`(ops_secrets)+`crown-pii`(customers) | `crown-secrets`(internal_secrets)+`crown-pii` |
+
+→ god-view가 corp 런에선 corp DB 로그만, ShopFlow 런에선 ShopFlow DB 로그만 읽음 — 로그 소스 자체가 바뀌어 교차 오탐 경로 없음.
+
+**탐색그래프 (Neo4j) — episode 분리 + KG 온전**
+- `:Explore` episode별 노드: 0=6 · 1=27 · 2=132 · 3=29 · 4=155 · 5=36 · 9000=1 (과거 런 잔여, episode 키로 분리)
+- `:Asset` episode별: 0=20 · 1=24 · 2=58 · 3=29 · 4=108 · 5=25
+- KG(비 `:Explore`/`:Asset`/`:Counter`): **25,639 노드** — episode 리셋과 무관하게 온전
+- `reset_episode()`가 런 시작 때 해당 episode만 `DETACH DELETE` → 한 번에 한 아레나면 교차 없음
+
+**종합**: 네트워크·채점은 아레나별 **하드 격리 확인(라이브)**. 탐색그래프는 **episode-번호 스코프**(아레나 스코프 아님) — "한 번에 하나 + 아레나 간 `promote --load` 비전파"(C) 전제에서 격리 성립. 두 아레나 그래프 동시 보존이 필요하면 회차번호 네임스페이싱(선택).
+
+### 결정·미결정
+
+- **corp 배치 → (가) 네임스페이스 공존 채택** — 재배포 + 격리 검증 완료(§7). (나) k3d 분리는 전환 표면 5곳(§6) 대비 실익 낮아 보류.
+- **Neo4j 격리 → C(단일 DB + 운영 규율)** — KG 학습지식 미유입 상태, "한 번에 하나 + 비전파"로 운용.
+- (미결정) `attacker_ssh`(2.7) 활성화 — neo4j 백엔드라 학습 리셋은 `reset_episode`가 담당, 현재 불필요.
+- (readiness) corp-services 로그 sync 활성화 — corp 런 전 god-view가 corp 서비스 로그(postgres/samba/waf) 보도록.
