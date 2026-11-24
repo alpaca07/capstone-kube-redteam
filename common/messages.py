@@ -153,6 +153,7 @@ class DefenseTurnStart(Payload):
     last_verdict_detail: Optional[str] = None                           # 판정 사유 한 줄(예: "재생 후 크라운 재도달 ['customers_pii'] → 공격 재현됨(무효 패치)")
     last_crowns_reached: list[str] = Field(default_factory=list)        # 전 라운드에서 공격자가 반출한 크라운 자산(예: ["customers_pii"])
     window_start_ts: Optional[float] = None                             # 이 라운드 t0(공격 시작 벽시계). 방어 observer 가 since_ts 하한으로 사용 → 이전 run/회차/verify 이벤트 유입 차단(scorer 의 crowns_in_window(t0,…) 와 동일 기준). 미수신(구 오케)이면 None → 기존 _cursor 폴백
+    arena_namespaces: Optional[list[str]] = None                        # 이 런의 아레나 네임스페이스 allowlist(운영 경계). observer/topology/patcher 가 이 밖 네임스페이스는 안 봄·안 건드림 → 공유 클러스터((가))의 corp↔ShopFlow 교차오염 차단. 공격 정보 아님(어느 ns를 방어하나일 뿐 — scorer --shopflow-only 와 동급). 미수신(구 오케)이면 None → 전역(기존 동작)
 
 
 # ───────────────── ④ defense_turn_result (B→C) ─────────────────

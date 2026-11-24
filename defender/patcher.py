@@ -93,6 +93,7 @@ class _Op:
     svc: str = ""                      # patch_app: 대상 서비스 키(catalog-api, corp-tomcat 등 — 하드닝 파일명)
     restart_ns: str = ""               # patch_app: 재기동할 deployment 네임스페이스
     deploy_name: str = ""              # patch_app: 실제 Deployment 이름(ShopFlow=svc키와 동일, corp=별도)
+    ns: str = ""                       # [아레나 스코프] 이 op 이 작용하는 네임스페이스(가드 대상). 빈 값=클러스터 스코프(통과)
     label: str = ""
 
 
@@ -175,16 +176,16 @@ def render_op(step: PatchStep) -> Optional[_Op]:
             return None                # 알 수 없는 서비스 → 미지원
         ns, deploy_name = meta
         return _Op(kind="patch_app", svc=svc, restart_ns=ns, deploy_name=deploy_name,
-                   label=f"patch_app({svc})")
+                   ns=ns, label=f"patch_app({svc})")
     if "networkpolicy" in a or "netpol" in a or "network" in a:
         ns = _ns_from_target(tgt) or "database"
-        return _Op(kind="apply", manifest=_np_manifest(ns), label=f"NetworkPolicy({ns})")
+        return _Op(kind="apply", manifest=_np_manifest(ns), ns=ns, label=f"NetworkPolicy({ns})")
     # [Wave1] PodSecurity — privileged/hostPath 파드 admission 차단(T1611 예방). "pod"+"security"
     #   조합(또는 pss)으로 인식. pod-delete 분기(delete/remove/kill)보다 먼저 와 오인식 방지.
     if ("pod_security" in a or "podsecurity" in a or "pod security" in a
             or "pss" in a or ("pod" in a and "security" in a)):
         ns = _ns_from_target(tgt) or "default"
-        return _Op(kind="apply", manifest=_psa_manifest(ns), label=f"PodSecurity({ns})")
+        return _Op(kind="apply", manifest=_psa_manifest(ns), ns=ns, label=f"PodSecurity({ns})")
     if "rbac" in a or "role" in a:
         name = _strip_kind(tgt, "clusterrolebinding", "crb")
         # sa/serviceaccount 대상은 바인딩명을 특정 못 하므로 미지원(LLM이 바인딩명 주도록 유도)
@@ -199,7 +200,7 @@ def render_op(step: PatchStep) -> Optional[_Op]:
         if pod.split("-", 1)[0].lower() in _STATEFUL_POD_NAMES:
             return None                # 상태유지 데이터스토어 삭제 거부(자멸 가드레일 — 아래 주석)
         return _Op(kind="delete", del_kind="pod", del_name=pod, del_ns=ns,
-                   label=f"delete pod {ns or '?'}/{pod}")
+                   ns=ns, label=f"delete pod {ns or '?'}/{pod}")
     return None
 
 
@@ -240,11 +241,20 @@ class Patcher:
         return OpResult(ok, f"patch_app {op.svc}: 적용+재기동" if ok
                         else f"적용됐으나 재기동 실패: {getattr(ro, 'detail', '')}")
 
-    def apply_plan(self, plan: list[PatchStep]) -> PatchOutcome:
+    def apply_plan(self, plan: list[PatchStep], *, allow_ns: Optional[list] = None) -> PatchOutcome:
         rendered = [(s, render_op(s)) for s in plan]
         unsupported = [AppliedPatch(s.action, s.target, False, "미지원 액션")
                        for s, o in rendered if o is None]
         ops = [(s, o) for s, o in rendered if o is not None]
+
+        # [아레나 스코프 가드] allow_ns 밖 네임스페이스 op 은 실행 거부(안전망 — observer/topology 가 이미
+        #   걸러도 triage LLM 이 제안할 수 있어 패처에서 재차단). ns 빈(클러스터 스코프) op 은 통과.
+        if allow_ns:
+            _allow = set(allow_ns)
+            blocked = [AppliedPatch(s.action, s.target, False, f"아레나 밖({o.ns}) — 미적용")
+                       for s, o in ops if o.ns and o.ns not in _allow]
+            ops = [(s, o) for s, o in ops if not (o.ns and o.ns not in _allow)]
+            unsupported = unsupported + blocked
 
         if not ops:
             return PatchOutcome(applied=unsupported, patch_applied=False,

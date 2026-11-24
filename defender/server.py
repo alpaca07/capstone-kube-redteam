@@ -72,12 +72,13 @@ class DefenseHarness:
         self.emit_topology = emit_topology  # 방어 관점 토폴로지 스냅샷 포함 여부(대시보드 P7용)
         self._cursor: float = time.time()   # 마지막으로 본 로그 시각(증분 관측). 기동시각으로 초기화 — 재시작 직후 첫 턴이 1970부터의 백로그를 '현재 공격'으로 읽는 것 방지(window_start_ts 미수신 폴백)
 
-    def _topology(self) -> Optional[dict]:
-        """방어자 관점 토폴로지(대상을 훑어 재구성). 실패·비활성이면 None(판정 무관·표시 전용)."""
+    def _topology(self, namespaces: Optional[list] = None) -> Optional[dict]:
+        """방어자 관점 토폴로지(대상을 훑어 재구성). 실패·비활성이면 None(판정 무관·표시 전용).
+        namespaces 가 주어지면 그 아레나만 열거(공유 클러스터 교차오염 차단)."""
         if not self.emit_topology:
             return None
         try:
-            return enumerate_topology(self.cluster)
+            return enumerate_topology(self.cluster, namespaces=namespaces)
         except Exception:                   # noqa: BLE001 — 토폴로지 실패가 방어 턴을 깨면 안 됨
             return None
 
@@ -88,7 +89,7 @@ class DefenseHarness:
             floor = self._cursor
             if start.window_start_ts is not None:                   # 라운드 t0 하한 — 이전 run/회차/verify 이벤트 유입 차단(scorer 의 crowns_in_window(t0,…) 와 동일 기준)
                 floor = max(floor, start.window_start_ts)
-            obs = self.observer.collect(since_ts=floor)
+            obs = self.observer.collect(since_ts=floor, namespaces=start.arena_namespaces)   # 아레나 스코프 — 경계 밖 audit/falco 무시
             self._cursor = max(self._cursor, obs.until_ts)          # 커서 전진(다음 라운드 증분)
             report = filter_observations(obs)
             # 심판 피드백(전 라운드 판정 라벨) — 있으면 Triager 에 전달해 LLM user 메시지에 포함.
@@ -102,7 +103,7 @@ class DefenseHarness:
                     "last_crowns_reached": list(start.last_crowns_reached or []),
                 }
             triage = self.triager.triage(report, last_feedback=last_feedback)   # LLM(공격정보 없이 피드백만)
-            outcome = self.patcher.apply_plan(triage.patch_plan)
+            outcome = self.patcher.apply_plan(triage.patch_plan, allow_ns=start.arena_namespaces)   # 아레나 스코프 가드 — 경계 밖 패치 거부
 
             detected = [Detection(technique=d.mitre, evidence=d.evidence) for d in triage.detected]
             patch_set = [PatchItem(kind=_patch_kind(a.action), target=a.target, summary=a.detail)
@@ -115,7 +116,7 @@ class DefenseHarness:
                 detected=detected, patch_set=patch_set,
                 healthcheck_passed=outcome.healthcheck_passed,
                 patch_attempts=attempts, patch_note=outcome.note,
-                topology=self._topology(),          # 방어 관점 타깃 아키텍처(표시 전용)
+                topology=self._topology(start.arena_namespaces),   # 방어 관점 타깃 아키텍처(아레나 스코프, 표시 전용)
                 elapsed_sec=time.time() - t0)
         except Exception as e:              # noqa: BLE001 — 하네스 오류는 ERROR로 보고(루프 보호)
             import traceback

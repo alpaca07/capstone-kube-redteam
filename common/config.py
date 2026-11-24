@@ -185,6 +185,13 @@ class Config(BaseModel):
     attack: AttackConfig = Field(default_factory=AttackConfig)
     neo4j: Neo4jConfig = Field(default_factory=Neo4jConfig)
     refiner: RefinerConfig = Field(default_factory=RefinerConfig)
+    # 아레나별 네임스페이스 allowlist — 방어자 운영 경계(observer/topology/patcher 가 이 밖을 안 봄·안
+    #   건드림). 공유 클러스터((가) 네임스페이스 공존)에서 corp↔ShopFlow 교차오염 차단. 한 번에 한
+    #   아레나만 활성: shopflow_only→'shopflow', 아니면→'corp'. config.yaml 에서 덮어쓸 수 있음.
+    arena_namespaces: dict[str, list[str]] = Field(default_factory=lambda: {
+        "shopflow": ["frontend", "backend", "database", "internal", "targets"],
+        "corp": ["corp-ext", "corp-dmz", "corp-internal", "corp-crown"],
+    })
 
 
 # ───────────────────────── 로더 ─────────────────────────

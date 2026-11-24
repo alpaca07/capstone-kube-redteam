@@ -75,6 +75,7 @@ class RunParams:
     attack_endpoint: Optional[str] = None        # 첫 라운드 발판
     exec_namespace: Optional[str] = None         # in-cluster exec 발판 네임스페이스(대시보드 타깃→자동전환). None=공격자 config 기본
     exec_pod: Optional[str] = None               # kubectl exec 대상(deploy/… 또는 파드명). None=config 기본
+    arena_namespaces: Optional[list] = None      # 이 런의 아레나 네임스페이스 allowlist(운영 경계). 방어 DefenseTurnStart 로 전달 → observer/topology/patcher 가 이 밖을 안 봄·안 건드림. None=전역(기존 동작)
     goal: str = DEFAULT_ASSET_GOAL               # 공격자에게 줄 '무엇을'(asset 전체 선택 시 기본)
     ready_timeout_sec: float = 180.0             # revert 후 VM B 응답 대기 상한(일시정지·재개 지연 흡수)
     ready_interval_sec: float = 3.0              # ready 폴링 간격
@@ -327,6 +328,7 @@ class TurnSequencer:
                         last_verdict_detail=fb.get("last_verdict_detail"),
                         last_crowns_reached=fb.get("last_crowns_reached", []),
                         window_start_ts=t0,                             # 라운드 t0 — 방어 observer since_ts 하한(이전 run/회차/verify 유입 차단, scorer 와 동일 기준)
+                        arena_namespaces=self.params.arena_namespaces,  # 아레나 스코프 — 방어 관측·패치를 활성 아레나 ns 로 한정(공유 클러스터 교차오염 차단)
                     ),
                     episode=episode, round=rnd), "defense_turn")
             self._log(f"[ep{episode} R{rnd}]    → 방어 종료={defense.end_reason.value} "

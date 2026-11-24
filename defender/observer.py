@@ -157,17 +157,28 @@ class Observer:
         self.service_readers = service_readers or {}
         self.app_reader = app_reader
 
-    def collect(self, *, since_ts: float, until_ts: Optional[float] = None) -> Observation:
+    def collect(self, *, since_ts: float, until_ts: Optional[float] = None,
+                namespaces: Optional[list] = None) -> Observation:
         hi = until_ts if until_ts is not None else float("inf")
+        # [아레나 스코프] namespaces 가 주어지면 그 밖 네임스페이스의 audit/falco 는 무시(공유 클러스터
+        #   교차오염 차단). 네임스페이스 없는(클러스터 스코프 RBAC·호스트 syscall) 이벤트는 양쪽 공통
+        #   신호라 유지 — 패처 가드가 2차로 거른다. service/app 로그는 로그소스 자체가 아레나별이라 제외.
+        _allow = set(namespaces) if namespaces else None
         audit: list[AuditEntry] = []
         for line in self.audit_reader():
             e = parse_audit_line(line)
             if e is not None and since_ts < e.timestamp <= hi:
+                if _allow is not None and e.namespace and e.namespace not in _allow:
+                    continue
                 audit.append(e)
         falco: list[FalcoEvent] = []
         for line in self.falco_reader():
             f = parse_falco_line(line)
             if f is not None and since_ts < f.timestamp <= hi:
+                if _allow is not None:
+                    fns = f.fields.get("k8s.ns.name") or ""
+                    if fns and fns not in _allow:
+                        continue
                 falco.append(f)
         service: list[ServiceLogEntry] = []
         for source, reader in self.service_readers.items():

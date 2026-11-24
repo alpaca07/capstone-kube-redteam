@@ -135,7 +135,9 @@ def test_info_asymmetry_defense_start_has_no_attack_fields():
     assert not (fields & forbidden), f"공격 정보 유입: {fields & forbidden}"
     # window_start_ts: 이 라운드 t0(관측 윈도우 since_ts 하한, 시각 메타) — 공격 내용(명령·기법·타깃)을
     #   담지 않으므로 정보 비대칭 유지. scorer 의 crowns_in_window(t0,…) 와 동일한 t0 기준.
-    extra = fields - {"time_limit_sec", "window_start_ts"}
+    # arena_namespaces: 이 런의 아레나 네임스페이스 allowlist(운영 경계 — 어느 ns를 방어하나). 공격 내용이
+    #   아니라 scorer --shopflow-only 와 동급의 운영 범위라 정보 비대칭 유지.
+    extra = fields - {"time_limit_sec", "window_start_ts", "arena_namespaces"}
     assert all(f.startswith("last_") for f in extra), \
         f"last_ 프리픽스 없는 비표준 필드(심판 피드백/관측윈도우 외): {extra}"
 

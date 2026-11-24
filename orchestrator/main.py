@@ -181,7 +181,8 @@ def build_sequencer(cfg: Config, *, sink=None, progress=None, events=None,
             crown_skew_pad_sec=cfg.experiment.crown_skew_pad_sec,
             # exec_mode면 발판은 외부 URL 이 아니라 '클러스터 내부 파드'라 endpoint 를 비운다.
             attack_endpoint=(None if cfg.attack.exec_mode else cfg.target.attack_endpoint),
-            exec_namespace=cfg.attack.exec_namespace, exec_pod=cfg.attack.exec_pod)
+            exec_namespace=cfg.attack.exec_namespace, exec_pod=cfg.attack.exec_pod,
+            arena_namespaces=_arena_namespaces(cfg))
     return TurnSequencer(attacker=attacker, defender=defender, snapshots=baseline,
                          verifier=verifier, logs=logs, registry=registry,
                          objectives=objectives, truth=truth,
@@ -189,6 +190,14 @@ def build_sequencer(cfg: Config, *, sink=None, progress=None, events=None,
                          progress=progress, events=events, detail_dir=detail_dir,
                          episode_sink=episode_sink, kill_switch=kill_switch,
                          topo_reader=topo_reader, topo_namespaces=cfg.target.topo_namespaces)
+
+
+def _arena_namespaces(cfg: Config) -> Optional[list]:
+    """활성 아레나의 네임스페이스 allowlist(방어자 운영 경계). shopflow_only→'shopflow', 아니면→'corp'.
+    config.arena_namespaces 맵에서 뽑아 DefenseTurnStart 로 전달 → 공유 클러스터 교차오염 차단."""
+    arena = "shopflow" if bool(getattr(cfg.experiment, "shopflow_only", False)) else "corp"
+    ns = (getattr(cfg, "arena_namespaces", None) or {}).get(arena)
+    return list(ns) if ns else None
 
 
 def _params_from_args(cfg: Config, args: argparse.Namespace) -> RunParams:
@@ -211,7 +220,8 @@ def _params_from_args(cfg: Config, args: argparse.Namespace) -> RunParams:
         exec_namespace=cfg.attack.exec_namespace,   # 발판 override 반영(공격자에 StartTurn 으로 전달)
         exec_pod=cfg.attack.exec_pod,
         skip_revert=args.no_revert,
-        force_crown=args.force_crown)
+        force_crown=args.force_crown,
+        arena_namespaces=_arena_namespaces(cfg))
 
 
 # 새 런 시작 시 이관할 지난 런 산출물 — 대시보드 _ARCHIVE_* 와 동일 집합(라이브 디렉토리를 비워

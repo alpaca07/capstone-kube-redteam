@@ -75,6 +75,30 @@ def test_collect_window():
     assert len(narrow.audit) == 1                              # 03.2 만
 
 
+def test_collect_namespace_scope():
+    # [아레나 스코프] allowlist 밖 네임스페이스 audit/falco 는 무시, ns 없는 클러스터 스코프는 유지.
+    def _falco_ns(ns, ts):
+        return json.dumps({"rule": "Priv esc", "priority": "Warning", "output": "x",
+                           "time": ts, "output_fields": {"k8s.ns.name": ns}})
+    cluster_scoped = json.dumps({"verb": "delete", "user": {"username": ADMIN},
+                                 "objectRef": {"resource": "clusterrolebindings", "name": "x"},
+                                 "requestReceivedTimestamp": "2026-10-11T14:56:05.000000Z"})
+    obs = Observer(_reader([_audit_line(ns="database", ts="2026-10-11T14:56:03.100000Z"),
+                            _audit_line(ns="corp-crown", ts="2026-10-11T14:56:03.200000Z"),
+                            cluster_scoped]),
+                   _reader([_falco_ns("frontend", "2026-10-11T14:56:04.000000000Z"),
+                            _falco_ns("corp-internal", "2026-10-11T14:56:04.500000000Z")]))
+    allow = ["frontend", "backend", "database", "internal", "targets"]
+    t1 = parse_rfc3339("2026-10-11T14:56:10Z")
+    scoped = obs.collect(since_ts=0.0, until_ts=t1, namespaces=allow)
+    assert len(scoped.audit) == 2                              # database + 클러스터스코프(ns=""), corp-crown 제외
+    assert all(a.namespace in ("database", "") for a in scoped.audit)
+    assert len(scoped.falco) == 1                              # frontend 유지, corp-internal 제외
+    # namespaces=None → 전부(기존 동작 불변)
+    full = obs.collect(since_ts=0.0, until_ts=t1)
+    assert len(full.audit) == 3 and len(full.falco) == 2
+
+
 # ───────────── 필터 ─────────────
 def test_filter_drops_system_users_keeps_sa():
     obs = Observer(_reader([

@@ -181,6 +181,24 @@ def test_patcher_healthcheck_fail_flags():
     assert out.patch_applied and not out.healthcheck_passed        # 과잉차단 신호
 
 
+def test_patcher_arena_scope_guard():
+    # [아레나 스코프] allow_ns 밖 네임스페이스 op 은 실행 거부(ns 없는 클러스터 스코프는 통과).
+    cluster = _FakeCluster(healthy=True)
+    out = Patcher(cluster).apply_plan([
+        PatchStep(action="add_networkpolicy", target="database"),                 # 아레나 내 → 적용
+        PatchStep(action="delete_pod", target="corp-ext/corp-attacker-foothold-x"),  # corp → 거부
+        PatchStep(action="restrict_pod_security", target="corp-ext"),             # corp → 거부
+        PatchStep(action="restrict_rbac", target="clusterrolebinding/admin-tools-binding")],  # 클러스터 스코프 → 통과
+        allow_ns=["frontend", "backend", "database", "internal", "targets"])
+    blocked = [a for a in out.applied if "아레나 밖" in a.detail]
+    assert len(blocked) == 2 and all("corp-ext" in a.detail for a in blocked)
+    assert out.patch_applied                                       # database netpol + rbac 는 적용됨
+    # allow_ns=None 이면 가드 비활성 — corp-ext op 도 통과(기존 동작 불변)
+    out2 = Patcher(_FakeCluster(healthy=True)).apply_plan(
+        [PatchStep(action="restrict_pod_security", target="corp-ext")])
+    assert out2.patch_applied and not any("아레나 밖" in a.detail for a in out2.applied)
+
+
 def test_patcher_applies_pod_security():
     # [Wave1] restrict_pod_security 가 ns 라벨 apply 로 적용되고 healthcheck 통과
     cluster = _FakeCluster(healthy=True)
