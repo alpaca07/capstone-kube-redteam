@@ -1,10 +1,15 @@
-# HELIX 실서버 점검 로그 — 2026-11-24
+# HELIX 실서버 점검 로그
 
-> 실서버에서 **명령으로 직접 확인된 사실**만 기록한다. 설계·결정·추천은 범위 밖.
-> 점검 수행: 2026-11-24 (KST). 대상: VM A(공격)·VM B(대상)·VM C(오케스트레이터)·Neo4j.
-> 자격증명·토큰 실제 값은 기재하지 않는다(로컬 전용).
+> 실서버에서 **명령으로 직접 확인된 사실**만 날짜별로 기록한다. 설계·결정·추천은 범위 밖.
+> 자격증명·토큰 실제 값은 기재하지 않는다(로컬 전용). **최신 날짜가 위**, 새 점검은 새 `## YYYY-MM-DD` 섹션으로 추가.
 
-## 요약
+---
+
+## 2026-11-24
+
+점검 대상: VM A(공격)·VM B(대상)·VM C(오케스트레이터)·Neo4j. (KST)
+
+### 요약
 
 | 영역 | 핵심 확인 | 상태 |
 |---|---|---|
@@ -17,9 +22,7 @@
 | corp 배포 | 네임스페이스 5개 14일 존재, **파드 0**(워크로드 내려감) | 부분 |
 | Docker / k3d (VM B) | Docker 데몬 불가 · k3d 없음 | (나) 전제 미충족 |
 
----
-
-## 1. VM C (오케스트레이터) — `~/capstone/config.yaml`
+### 1. VM C (오케스트레이터) — `~/capstone/config.yaml`
 
 확인 방법: 파일 전체 열람.
 
@@ -32,9 +35,7 @@
 | `vmware` 블록 | agent · `snapshot_agent_url` · `vmx_path` · `vmrun_path` · `baseline_snapshot: clean-baseline` 존재 | 단 코드 경로는 `BaselineManager`(k8s 네이티브 리셋) 사용 — 스냅샷 매니저 미연결(레거시) |
 | `network.shared_token` | 기본 자리표시자 `CHANGE_ME` 미변경 | 위생 항목(로컬 LAN 전용이라 데모엔 무해) |
 
----
-
-## 2. VM A (공격) — 하네스 systemd·런타임
+### 2. VM A (공격) — 하네스 systemd·런타임
 
 ```bash
 ss -tlnp | grep ':8000'
@@ -58,9 +59,7 @@ sudo -n -l | grep -iE 'systemctl|ALL'
 
 **함의**: 하네스 재시작 자동화(`attacker_ssh`)의 전제조건(유닛명 일치·NOPASSWD·키 SSH·requiretty 없음)은 **모두 충족** — 켜는 데 남은 건 VM C config의 주석 해제뿐. `Type=simple`이라 재시작 후 `:8000` 바인드까지 콜드스타트 창 존재.
 
----
-
-## 3. VM A (공격) — `~/capstone/config.yaml`
+### 3. VM A (공격) — `~/capstone/config.yaml`
 
 확인 방법: 파일 전체 열람. (공격자 하네스가 실제로 읽는 config — VM C의 것과 별개)
 
@@ -81,9 +80,7 @@ sudo -n -l | grep -iE 'systemctl|ALL'
 
 **함의**: 공격자 탐색 그래프·자산·ATTEMPTS·closure가 **Neo4j에 영속**(in-RAM 아님). 따라서 `systemctl restart`는 학습을 비우지 못하며, 회차별 초기화는 앱의 `reset_episode()`가 담당한다.
 
----
-
-## 4. Neo4j (VM A 로컬 `bolt://127.0.0.1:7687`)
+### 4. Neo4j (VM A 로컬 `bolt://127.0.0.1:7687`)
 
 ```bash
 cypher-shell -u neo4j -p <pw> "CALL dbms.components() YIELD edition RETURN edition"
@@ -101,9 +98,7 @@ cypher-shell -u neo4j -p <pw> "MATCH (n) WHERE n.validation_level IS NOT NULL RE
 
 **함의**: ① community라 한 인스턴스에 복수 named database 불가. ② `promote --load`를 한 번도 실행한 적 없음 = KG에 **학습(실증) 지식 미유입, 아레나 중립**. ③ validation_level 보유 노드는 전부 THEORETICAL(제안) — 실증 승급(OBSERVED/VERIFIED) 0회.
 
----
-
-## 5. VM B (대상) — k3s 클러스터
+### 5. VM B (대상) — k3s 클러스터
 
 ```bash
 free -h; nproc; df -h /
@@ -115,7 +110,7 @@ sudo k3s kubectl get pods -A --no-headers | awk '{print $1}' | sort | uniq -c | 
 sudo k3s kubectl describe node | grep -A8 "Allocated resources"
 ```
 
-### 호스트 자원
+#### 호스트 자원
 | 항목 | 값 |
 |---|---|
 | RAM | 7.7Gi (used 1.9 · **available 5.4**) · swap 4Gi(127Mi 사용) |
@@ -125,7 +120,7 @@ sudo k3s kubectl describe node | grep -A8 "Allocated resources"
 | Docker | CLI 존재하나 **데몬 응답 불가**(현재 사용 불가) |
 | k3d | **미설치** |
 
-### 클러스터
+#### 클러스터
 | 항목 | 값 |
 |---|---|
 | 노드 | `vm-b` Ready control-plane · 44일 · `v1.36.5+k3s1` · IP `192.168.16.128` · containerd |
@@ -135,12 +130,8 @@ sudo k3s kubectl describe node | grep -A8 "Allocated resources"
 
 **함의**: ① 자원 여유 충분(노드 10% 사용, 6코어, 디스크 32G) — 2번째 클러스터 수용 가능. ② **corp는 이미 네임스페이스로 14일째 존재하나 워크로드(파드) 0** — 어느 방향이든 corp 워크로드 재배포 필요. ③ k3d 분리는 **Docker 데몬 복구부터** 필요.
 
----
-
-## 미결정 (점검 아님 — 본 로그 범위 밖)
+### 미결정 (점검 아님 — 본 로그 범위 밖)
 
 - corp 배치: (가) 네임스페이스 현행 유지 vs (나) k3d 별도 클러스터 분리
 - Neo4j 아레나 격리 정책: C(단일 DB + 운영 규율) 확정 여부
 - `attacker_ssh`(2.7) 활성화 여부
-
-> 다음 점검은 새 날짜 파일(`docs/field-inspection-YYYY-MM-DD.md`)로 추가.
