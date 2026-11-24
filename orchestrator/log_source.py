@@ -93,6 +93,15 @@ def map_falco_event(ev: dict) -> Optional[str]:
         return "T1548"   # [가] 권한상승 제어 악용 — setuid/capability 조작 툴
     if rule == "Cryptocurrency mining in container":
         return "T1496"   # 사후 — Resource Hijacking(마이너 프로세스 실행)
+    # ───── corp 아레나 ─────
+    #   ShopFlow 룰과 이름이 달라 위 가지에서 안 걸리던 관측 신호. falco-values 의
+    #   corp 커스텀 룰(모두 'corp' 태그)과 1:1. 기법 번호는 각 룰 tags 와 동일.
+    if rule == "corp DMZ web shell":
+        return "T1059"   # DMZ Tomcat/WAF 웹셸에서 sh·bash exec — 명령/스크립트 실행
+    if rule == "corp crown command exec":
+        return "T1059"   # crown-read wrapper 실행(Jenkins 경유 PostgreSQL 반출 트리거) — 실행
+    if rule == "corp lateral movement to crown":
+        return "T1210"   # 측면이동 — Jenkins(corp-internal) → PostgreSQL:5432 (ShopFlow DB 측면이동과 대칭)
     return None
 
 

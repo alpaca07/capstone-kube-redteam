@@ -198,6 +198,16 @@ def test_map_falco_wave1_escape_and_portscan():
     assert map_falco_event({"rule": "Port scan from foothold"}) == "T1046"
 
 
+def test_map_falco_corp_rules():
+    # corp 아레나 관측 룰 → 기법. 이전엔 전부 None 으로 떨어져 god-view 진실에서 탈락했음.
+    assert map_falco_event({"rule": "corp DMZ web shell"}) == "T1059"
+    assert map_falco_event({"rule": "corp crown command exec"}) == "T1059"
+    assert map_falco_event({"rule": "corp lateral movement to crown"}) == "T1210"
+    # ShopFlow 룰은 corp 가지에 닿지 않고 그대로 — 무영향 회귀 가드.
+    assert map_falco_event({"rule": "Lateral movement to database"}) == "T1210"
+    assert map_falco_event({"rule": "Terminal shell in container"}) == "T1059"
+
+
 def test_map_falco_privesc_and_capabuse():
     # [가] 핵심층 신규 절차 관측화 — 규칙명은 falco-values customRules 와 1:1.
     # 실제 공격자 상승(proc≠runc)만 기법으로 인정 — runc 컨테이너 init·date/sleep 양성 발화는 제외
