@@ -218,9 +218,12 @@ corp 워크로드 재배포 완료(8 Deployment Running, 로컬 이미지 `attac
 
 ### 10. 타깃 전환 격리 실증 (corp→ShopFlow)
 
-- **공격자(라이브)**: ShopFlow R1 wave1이 **`자산 0개(미탐색 0)·지난라운드침해 0건`**으로 시작 — 상주 하네스(PID 동일)인데 corp 최종 자산(14개) 미인수. `attacker/server.py:236` R1 조건(`round<=1`) → `reset_episode(1)`(`MATCH (n:Explore {episode:1}) DETACH DELETE`) → corp episode-1 노드 제거 후 백지 탐색. **공격자 전환 격리 확정.**
+- **공격자(라이브) — 전환 격리 완전 확정**: ShopFlow R1 wave1이 **`자산 0개(미탐색 0)·지난라운드침해 0건`**으로 시작 — 상주 하네스(PID 동일)인데 corp 최종 자산(14개) 미인수. `attacker/server.py:236` R1 조건(`round<=1`) → `reset_episode(1)`(`MATCH (n:Explore {episode:1}) DETACH DELETE`) → corp episode-1 노드 제거 후 백지 탐색. R3에서 `FLAG{shopflow_…}` 반출(크라운 도달), 공격 대상 전부 ShopFlow(`postgres.database`·`legacy_admin`·`internal_secrets`/`customers`) — **corp 흔적 0**.
 - **baseline revert 비대칭(라이브)**: corp 런(`so:false`)은 init 때 ShopFlow patch_app까지 역산(`main.py:127` `_corp_patch_app + _shopflow_patch_app`) → ShopFlow 4파드 재생성(kubectl age 38분). ShopFlow 단독 런(`so:true`)은 corp 무간섭. 리셋 범위 비대칭이지 학습·채점 누수 아님.
-- (진행) 방어 floor 전환 실증 — ShopFlow R1 저널에 corp 잔재(`crown-read`·`corp-tomcat/jenkins`·`crown-ops`) 0 확인 대기.
+- **방어 floor(시간) 확정**: ShopFlow R3 floor=R3 t0(~15:54)라 15:00 corp 런이 시간상 제외 — 시간 누수 0(`observer.py:170` audit·falco 둘 다 since_ts 하한).
+- **방어 아레나-범위 누수 발견(별개 축)** 🚨: ShopFlow R3 저널에 corp 3군데 — T1611 오탐(`corp-internal/redis`, 실재 redis가 Falco 발화), `delete_pod corp-ext/corp-attacker-foothold`, `restrict_pod_security corp-ext`. 원인: 방어자 전역 관측·패치(`topology._discover_namespaces` 전역, observer ns 필터 없음) — (가) 공유클러스터 성질. corp 런이 안 샜던 건 그땐 패치가 app 단위(target 키 지정)였기 때문.
+- **영향**: 채점 판정(차단) 무사(크라운 기반). 탐지 정밀도에 corp 오탐 혼입 + corp-ext 부작용(발판은 Deployment 자가복구, **PSA `enforce=baseline` 라벨 눌어붙음** → 수동 복구함).
+- **수정(라이브 점검 반영)**: 아레나 네임스페이스 스코프 — observer/topology/patcher 3중 방어. 커밋 `26853b2`(636 통과). 점검분: ns 맵 확정 ShopFlow`{frontend,backend,database,internal,targets}`/corp`{corp-ext,corp-dmz,corp-internal,corp-crown}`(`corp-defense`는 방어장비라 제외), Falco `k8s.ns.name` 채워짐(R3 렌더가 증명), corp-ext PSA 라벨 `kubectl label … enforce-` 수동 복구.
 
 ### 결정·미결정
 
@@ -230,4 +233,5 @@ corp 워크로드 재배포 완료(8 Deployment Running, 로컬 이미지 `attac
 - (readiness) corp-services 로그 sync 활성화 — corp 런 전 god-view가 corp 서비스 로그(postgres/samba/waf) 보도록.
 - **커서 버그(방어 observer) 수정·실증 완료**(§8·§9) — `window_start_ts` floor, 커밋 `cdcdcfa`. 재시작 직후 corp R1 유령 0.
 - **대시보드 skip 건강상태 '해당 없음' 수정**(§9) — 커밋 `994671d`, BUILD 18.
+- **방어 아레나 네임스페이스 스코프 구현 완료**(§10) — observer/topology/patcher 3중 방어, 커밋 `26853b2`, 636 통과. VM C·VM D 반영 대기. (가) 공유클러스터의 방어자 교차오염 봉합.
 - **공격자 전환 격리 실증 완료**(§10) — `자산 0개` 시작, `reset_episode` 동작 확인. (미결) 방어 floor 전환 실증은 ShopFlow R1 저널 대기.
