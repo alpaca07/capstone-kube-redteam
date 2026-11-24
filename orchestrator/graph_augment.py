@@ -34,6 +34,41 @@ _CROWN_KEYS = {
     "crown-resource-hijack": ("resource", "자원", "mining", "miner", "cpu", "hijack", "crypto", "xmrig"),
     "crown-container-deploy": ("container", "컨테이너", "deploy", "배포", "pod", "image", "runc", "privileged"),
 }
+# 크라운 → '확보한 데이터' 표본(표시 전용). 대상 DB 시드(k8s/services/database/11-postgres-initdb.yaml)에
+# 실제로 심어둔 반출물의 대표 행 — 심판이 접근기록으로 '실제 반출' 확정한 자산. 채점·truth·refiner 와 무관.
+_CROWN_LOOT_SAMPLE = {
+    "crown-pii": {
+        "table": "customers",
+        "exfiltrated_rows": 12,
+        "sample": [
+            {"name": "김민준", "email": "minjun.kim@example.com", "phone": "010-2345-6781",
+             "ssn": "900101-1xxxxxx", "address": "서울특별시 강남구 테헤란로 123", "tier": "vip"},
+            {"name": "이서연", "email": "seoyeon.lee@example.com", "phone": "010-3456-7892",
+             "ssn": "920214-2xxxxxx", "address": "부산광역시 해운대구 센텀로 45", "tier": "standard"},
+            {"name": "박도윤", "email": "doyoon.park@example.com", "phone": "010-4567-8903",
+             "ssn": "880330-1xxxxxx", "address": "인천광역시 연수구 송도로 7", "tier": "standard"},
+        ],
+    },
+    "crown-secrets": {
+        "table": "internal_secrets",
+        "exfiltrated_rows": 1,
+        "sample": [
+            {"key": "master_db_backup_credential", "value": "FLAG{shopflow_••••••••}",
+             "note": "④ 목표물 (값 기반 FLAG)"},
+        ],
+    },
+}
+
+
+def _crown_loot(cid: str, chans) -> Optional[dict]:
+    """'확보한 데이터' = 반출 표본(시드 실데이터, 있으면) + 통로. 표시 전용 — 판정·채점 무관."""
+    sample = _CROWN_LOOT_SAMPLE.get(cid)
+    if sample:
+        loot = dict(sample)
+        if chans:
+            loot["channel"] = list(chans)
+        return loot
+    return {"channel": list(chans)} if chans else None
 
 
 def _label(cid: str) -> str:
@@ -90,7 +125,7 @@ def inject_godview_findings(snapshot: Optional[dict], crowns, cvss_by_crown,
                      + ")으로 '실제 반출'을 확인했습니다."),
             "severity": cv.get("severity", ""),
             "evidence": "god-view 접근기록 확정" + (" (" + ", ".join(chans) + " 통로)" if chans else ""),
-            "loot": ({"channel": chans} if chans else None),
+            "loot": _crown_loot(cid, chans),
             "round": round,
             "cvss": ({k: cv.get(k) for k in ("score", "severity", "vector", "basis")} if cv else None),
         }
