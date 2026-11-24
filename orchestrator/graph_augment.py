@@ -34,12 +34,14 @@ _CROWN_KEYS = {
     "crown-resource-hijack": ("resource", "자원", "mining", "miner", "cpu", "hijack", "crypto", "xmrig"),
     "crown-container-deploy": ("container", "컨테이너", "deploy", "배포", "pod", "image", "runc", "privileged"),
 }
-# 크라운 → '확보한 데이터' 표본(표시 전용). 대상 DB 시드(k8s/services/database/11-postgres-initdb.yaml)에
-# 실제로 심어둔 반출물의 대표 행 — 심판이 접근기록으로 '실제 반출' 확정한 자산. 채점·truth·refiner 와 무관.
+# 크라운 → '확보한 데이터' 표본(표시 전용). 대상 DB 시드에 실제로 심어둔 반출물의 대표 행.
+#   ShopFlow: k8s/services/database/11-postgres-initdb.yaml (customers · internal_secrets)
+#   corp:     k8s/corp/crown/11-postgres-initdb.yaml       (customers · ops_secrets)
+# crown-secrets=ShopFlow 전용 · crown-ops=corp 전용 · crown-pii=공유(양쪽 동일 행, 총행수만 달라 생략).
+# 심판이 접근기록으로 '실제 반출' 확정한 자산. 채점·truth·refiner 와 무관.
 _CROWN_LOOT_SAMPLE = {
     "crown-pii": {
         "table": "customers",
-        "exfiltrated_rows": 12,
         "sample": [
             {"name": "김민준", "email": "minjun.kim@example.com", "phone": "010-2345-6781",
              "ssn": "900101-1xxxxxx", "address": "서울특별시 강남구 테헤란로 123", "tier": "vip"},
@@ -49,12 +51,29 @@ _CROWN_LOOT_SAMPLE = {
              "ssn": "880330-1xxxxxx", "address": "인천광역시 연수구 송도로 7", "tier": "standard"},
         ],
     },
-    "crown-secrets": {
+    "crown-secrets": {   # ShopFlow internal_secrets — 현실적 내부 비밀(값대조 FLAG 제거)
         "table": "internal_secrets",
-        "exfiltrated_rows": 1,
+        "exfiltrated_rows": 3,
         "sample": [
-            {"key": "master_db_backup_credential", "value": "FLAG{shopflow_••••••••}",
-             "note": "④ 목표물 (값 기반 FLAG)"},
+            {"key": "master_db_backup_credential",
+             "value": "postgresql://backup:B4ckup-Kv82p@db-backup.database.svc:5432/customerdb",
+             "note": "야간 DB 백업 접속 문자열"},
+            {"key": "payment_gateway_api_key", "value": "pgw_live_sf-7H2d9Kf0Lm3Qx8Zt",
+             "note": "결제 게이트웨이 라이브 API 키"},
+            {"key": "session_jwt_signing_key", "value": "hs256:a1f4c7e2b9d680371e5c0f9a2d4b6e8c",
+             "note": "세션 JWT 서명 비밀키"},
+        ],
+    },
+    "crown-ops": {       # corp ops_secrets — 운영 비밀
+        "table": "ops_secrets",
+        "exfiltrated_rows": 3,
+        "sample": [
+            {"key": "db_backup_dsn",
+             "value": "postgresql://backup:Nk8s-Bk9f@backup.corp.internal:5432/corpdb",
+             "note": "야간 백업 접속 문자열"},
+            {"key": "smtp_relay_password", "value": "r3lay-7Qm2x", "note": "사내 메일 릴레이 계정"},
+            {"key": "object_store_access_key", "value": "AKIA-CORP-7H2D9F0K31",
+             "note": "객체 저장소 접근키"},
         ],
     },
 }
