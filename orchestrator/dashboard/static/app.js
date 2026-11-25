@@ -32,7 +32,7 @@
 
   // ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (server.py 의 SERVER_BUILD 과 같은 값으로 함께 올린다).
   // 좌상단에 v<UI_BUILD> 를 표시하고, 서버가 보고한 server_build 와 다르면 '재시작 필요' 경고를 띄운다.
-  var UI_BUILD = 18;
+  var UI_BUILD = 19;
   function renderBuild(serverBuild) {
     var el = document.getElementById("build-tag");
     if (!el) return;
@@ -2487,6 +2487,12 @@
       var sb = $("#sidebar"), open = sb.classList.toggle("open");
       var bd = $("#sidebar-backdrop"); if (bd) bd.classList.toggle("on", open);
       this.setAttribute("aria-expanded", open ? "true" : "false");
+    };
+    var _tt = $("#theme-toggle");                      // 다크·라이트 전환(로컬 저장)
+    if (_tt) _tt.onclick = function () {
+      var next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", next);
+      try { localStorage.setItem("helix-theme", next); } catch (e) {}
     };
     var _bd = $("#sidebar-backdrop"); if (_bd) _bd.onclick = closeSidebar;
     var _sc = $("#sidebar-close"); if (_sc) _sc.onclick = closeSidebar;

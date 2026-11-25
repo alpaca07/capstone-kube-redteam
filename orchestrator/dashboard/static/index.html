@@ -6,6 +6,8 @@
   <title>Helix</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="stylesheet" href="/static/app.css">
+  <script>/* 테마 초기화 — 페인트 전 적용(깜빡임 방지). 저장값 없으면 OS 설정 따름. */
+    (function(){try{var t=localStorage.getItem('helix-theme');if(t!=='dark'&&t!=='light')t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
 </head>
 <body>
   <div class="app">
@@ -35,6 +37,7 @@
         <button class="nav-toggle" id="nav-toggle" aria-label="메뉴" aria-expanded="false">≡</button>
         <div class="topbar-title" id="page-title">보안 현황</div>
         <div class="topbar-status" id="run-status"><div class="sbar"><span class="sbar-state"><span class="sbar-dot"></span>연결 확인 중</span></div></div>
+        <button class="theme-toggle" id="theme-toggle" aria-label="다크·라이트 전환" title="다크·라이트 전환">◐</button>
       </header>
       <div class="view" id="view"></div>
     </main>

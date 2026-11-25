@@ -799,3 +799,39 @@ body.ag-full-lock { overflow: hidden; }
 /* 노드 상세 — 긴 경로·URL(토큰 경로·API 주소 등)이 박스를 벗어나지 않게 강제 줄바꿈 */
 .ag-desc, .ag-desc-main, .ag-sum, .ag-ev-sm, .ag-loot-v,
 .ag-side .rep-line span, .ag-side .rep-line a { overflow-wrap: anywhere; word-break: break-word; }
+
+/* ═══════════ 다크 테마 (data-theme="dark") ═══════════ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e141b; --surface: #161e28; --surface-2: #1d2733; --surface-3: #27323f;
+  --border: #293440; --border-strong: #3a4857;
+  --text: #e9eef4; --text-2: #a4b2c2; --text-3: #70808f;
+  --teal: #2dd4bf; --teal-600: #5eead4; --teal-soft: #113a35; --teal-ring: rgba(45,212,191,.4);
+  --atk: #ff6b6b; --atk-soft: #37191b;
+  --def: #5b9dfb; --def-soft: #16243c;
+  --sys: #94a3b8; --sys-soft: #222c37;
+  --crown: #f2b134; --crown-soft: #352a12;
+  --ok: #2ed19a; --ok-soft: #10342a;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 10px rgba(0,0,0,.35);
+  --shadow-pop: 0 8px 30px rgba(0,0,0,.5);
+}
+/* 하드코딩 색 다크 보정(토큰 밖 소수) */
+:root[data-theme="dark"] .b-crown,
+:root[data-theme="dark"] .b-fp,
+:root[data-theme="dark"] .zone-crown,
+:root[data-theme="dark"] .jwarn,
+:root[data-theme="dark"] .det-note.det-warn,
+:root[data-theme="dark"] .demo-banner { color: var(--crown); }
+:root[data-theme="dark"] .jwarn,
+:root[data-theme="dark"] .demo-banner { border-color: var(--crown-soft); }
+:root[data-theme="dark"] .ag-loot-v { color: #ffc0b4; background: #2a1719; }
+:root[data-theme="dark"] .grpt-find.sev-critical { border-left-color: var(--atk); }
+:root[data-theme="dark"] .sev-critical .grpt-sev { background: var(--atk); }
+:root[data-theme="dark"] .grpt-path b { color: var(--atk); }
+:root[data-theme="dark"] .topbar { background: rgba(20,27,36,.82); }
+
+/* 테마 토글 버튼 */
+.theme-toggle { margin-left: 10px; width: 32px; height: 32px; flex: none; display: flex; align-items: center;
+  justify-content: center; font-size: 16px; line-height: 1; background: var(--surface-2); color: var(--text-2);
+  border: 1px solid var(--border-strong); border-radius: 8px; cursor: pointer; }
+.theme-toggle:hover { color: var(--teal-600); border-color: var(--teal); }
