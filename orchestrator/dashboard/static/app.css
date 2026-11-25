@@ -94,6 +94,22 @@ html.dark .zone-bd.open { background: rgba(248,113,113,.12); }
 html.dark .zone-bd.closed { background: rgba(52,211,153,.12); }
 html.dark .zone-crown { color: #fbbf24; }
 html.dark .grpt-sev { color: #0e1420; }   /* 어두운 배경 위 뱃지 텍스트 */
+/* ── 다크모드: 라이트 전용 하드코딩 색 전면 보정 ── */
+/* 크라운(앰버) 텍스트 — 라이트 #9a6a0c → 다크 밝은 앰버 */
+html.dark .b-crown, html.dark .b-fp, html.dark .zone-bd.open + .zone-crown { color: #fbbf24; }
+/* 크라운 보더 — 라이트 #f3dca6/#f0d79a → 다크 어두운 앰버 */
+html.dark .demo-banner { border-color: #5a4512; }
+html.dark .jgroup.jg-flag, html.dark .jacc.jg-flag { border-color: rgba(251,191,36,.2); }
+html.dark .zone.crown { border-color: rgba(251,191,36,.2); }
+/* 위험 버튼 보더 */
+html.dark .btn-danger { border-color: rgba(248,113,113,.25); background: var(--surface); }
+html.dark .btn-danger:hover { background: rgba(248,113,113,.1); }
+/* 서비스 칩(타깃 구성도) — 이미 위에서 처리됐지만 보더 보강 */
+html.dark .ag-loot { border-color: rgba(248,113,113,.25); }
+/* 탐지 경고 텍스트 */
+html.dark .det-note.det-warn { color: #fbbf24; }
+/* 패치 전/후 비교 — 이미 위에서 처리 */
+/* 킬체인 칩 인라인 스타일 보정은 JS에서 — CSS로는 var(--crown) 기반이라 자동 대응 */
 /* 다크모드 테마 토글 버튼 */
 .theme-toggle { background: none; border: 1px solid var(--border); border-radius: 8px;
   width: 32px; height: 32px; font-size: 16px; color: var(--text-2); cursor: pointer;

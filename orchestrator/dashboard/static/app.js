@@ -32,7 +32,7 @@
 
   // ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (server.py 의 SERVER_BUILD 과 같은 값으로 함께 올린다).
   // 좌상단에 v<UI_BUILD> 를 표시하고, 서버가 보고한 server_build 와 다르면 '재시작 필요' 경고를 띄운다.
-  var UI_BUILD = 20;
+  var UI_BUILD = 21;
   function renderBuild(serverBuild) {
     var el = document.getElementById("build-tag");
     if (!el) return;
@@ -48,6 +48,7 @@
   function applyTheme() {
     document.documentElement.classList.toggle("dark", _dark);
     C_update();
+    VERDICT = _verdict();
     var btn = document.getElementById("theme-btn");
     if (btn) btn.textContent = _dark ? "☀" : "☾";
   }
@@ -60,13 +61,14 @@
     ok: "#34d399", teal: "#2dd4bf", grid: "#293549", muted: "#64748b", text: "#e4e9f1" };
   var C = Object.assign({}, C_LIGHT);
   function C_update() { var src = _dark ? C_DARK : C_LIGHT; for (var k in src) C[k] = src[k]; }
-  var VERDICT = {
+  function _verdict() { return {
     blocked: { label: "차단", color: C.ok, cls: "b-ok" },
     fake_patch: { label: "무효 패치", color: C.atk, cls: "b-atk" },
     not_blocked: { label: "미차단", color: C.atk, cls: "b-atk" },
     service_broken: { label: "무효 패치·서비스 중단", color: C.atk, cls: "b-atk" },
     inconclusive: { label: "판정 불가", color: C.sys, cls: "b-sys" }
-  };
+  }; }
+  var VERDICT = _verdict();
   // 핵심 자산 식별자 → 쉬운 말
   // 크라운 라벨 — 알려진 2종만 친화명, 그 외는 실제 크라운 id(대상)를 그대로 노출(목표는 설정 주도).
   function crownLabel(c) {
@@ -909,10 +911,11 @@
       '<div style="display:flex;gap:7px;flex-wrap:wrap">' +
       (function () {
         var tc = targetCrowns();
-        if (!tc) return (["1", "2", "3", "4"].map(function (s) { var on = (demo.flags_reached || []).indexOf(s) >= 0; return '<span class="chip" style="' + (on ? "background:var(--crown-soft);color:#9a6a0c;border-color:#f3dca6" : "") + '">' + s + "단계" + (on ? " ✓" : "") + "</span>"; }).join("")) +
+        var _crOn = "background:var(--crown-soft);color:var(--crown);border-color:" + (_dark ? "rgba(251,191,36,.2)" : "#f3dca6");
+        if (!tc) return (["1", "2", "3", "4"].map(function (s) { var on = (demo.flags_reached || []).indexOf(s) >= 0; return '<span class="chip" style="' + (on ? _crOn : "") + '">' + s + "단계" + (on ? " ✓" : "") + "</span>"; }).join("")) +
           ((demo.crowns_reached || []).map(function (c) { return '<span class="badge b-atk">' + esc(crownLabel(c)) + "</span>"; }).join(""));
         var cr = demo.crowns_reached || [];
-        return tc.map(function (c) { var on = cr.indexOf(c) >= 0; return '<span class="chip" style="' + (on ? "background:var(--crown-soft);color:#9a6a0c;border-color:#f3dca6" : "") + '">' + esc(crownLabel(c)) + (on ? " ✓" : "") + "</span>"; }).join("");
+        return tc.map(function (c) { var on = cr.indexOf(c) >= 0; return '<span class="chip" style="' + (on ? _crOn : "") + '">' + esc(crownLabel(c)) + (on ? " ✓" : "") + "</span>"; }).join("");
       })() +
       "</div></div>";
   }
@@ -2084,8 +2087,8 @@
       '<div class="legend ag-legend-st"><span class="agl-k">상태</span>' +
       '<span><span class="agls agls-run"></span>실행 중(맥동)</span>' +
       '<span><span class="agls agls-dead"></span>차단·중단(점선·흐림)</span>' +
-      '<span><span class="agls" style="background:#0d9488;border:none"></span>R# 생성 라운드(강조=현재 라운드 추가)</span>' +
-      (_perRound ? '<span><span class="agls" style="background:#64748b;border:none;opacity:.55"></span>직전 노드(점선·흐림, 맥락용)</span>' : "") +
+      '<span><span class="agls" style="background:' + C.teal + ';border:none"></span>R# 생성 라운드(강조=현재 라운드 추가)</span>' +
+      (_perRound ? '<span><span class="agls" style="background:' + C.sys + ';border:none;opacity:.55"></span>직전 노드(점선·흐림, 맥락용)</span>' : "") +
       (focus ? '<span class="agl-focus">· 선택 노드 계보만 선명 (노드 다시 클릭 → 해제)</span>' : "") + "</div></div>";
     var chips = (rounds && rounds.length) ? roundChipsHtml(rounds, selKey || "", "data-agrk") : "";
     var ctx = aggEp ? aggEp + "회차 종합 · 누적 그래프" : (rec ? (rec.episode || 1) + "회차 R" + rec.round + (_perRound ? " · 이 라운드 노드만(직전 노드는 점선)" : "") : "예시");
