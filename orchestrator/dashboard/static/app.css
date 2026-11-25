@@ -74,6 +74,17 @@ html.dark .det-why.det-fp { border-left-color: var(--crown); background: rgba(25
 html.dark .det-note.det-warn { background: rgba(251,191,36,.08); border-left-color: var(--crown); color: #fbbf24; }
 html.dark .ag-loot-h { background: rgba(248,113,113,.15); color: var(--atk); }
 html.dark .ag-loot-v { background: rgba(248,113,113,.06); color: #fca5a5; }
+html.dark .ag-wrap { background: var(--bg); }
+html.dark .ag-node.ag-find rect { filter: drop-shadow(0 1px 6px rgba(239,68,68,.4)); }
+html.dark .ag-node.ag-rcur:not(.ag-find) rect { filter: drop-shadow(0 0 5px rgba(45,212,191,.45)); }
+html.dark .ag-tool { background: var(--surface); border-color: var(--border-strong); color: var(--text-2); }
+html.dark .anl-item.sel { border-color: var(--atk); box-shadow: 0 0 0 1px var(--atk); }
+html.dark .anl-r { background: #475569; }
+html.dark .rchip-ep { background: rgba(45,212,191,.12); color: var(--teal); }
+html.dark .cvss-row { background: var(--surface-2); }
+html.dark .grpt-sum { background: var(--surface-2); }
+html.dark .grpt-find { background: var(--surface); }
+html.dark .brief-tl-c { background: var(--surface-2); }
 html.dark .jwarn { background: rgba(251,191,36,.08); border-color: #5a4512; color: #fbbf24; }
 html.dark .pba-before { border-color: rgba(248,113,113,.3); background: rgba(248,113,113,.08); }
 html.dark .pba-after { border-color: rgba(45,212,191,.3); background: rgba(45,212,191,.08); }

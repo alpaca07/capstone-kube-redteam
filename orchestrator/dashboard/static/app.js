@@ -32,7 +32,7 @@
 
   // ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (server.py 의 SERVER_BUILD 과 같은 값으로 함께 올린다).
   // 좌상단에 v<UI_BUILD> 를 표시하고, 서버가 보고한 server_build 와 다르면 '재시작 필요' 경고를 띄운다.
-  var UI_BUILD = 19;
+  var UI_BUILD = 20;
   function renderBuild(serverBuild) {
     var el = document.getElementById("build-tag");
     if (!el) return;
@@ -481,7 +481,7 @@
       var pts = s.points.map(function (v, i) { return X(i) + "," + Y(v); }).join(" ");
       body += '<polyline points="' + pts + '" fill="none" stroke="' + s.color + '" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>';
       s.points.forEach(function (v, i) { body += '<circle cx="' + X(i) + '" cy="' + Y(v) + '" r="2.6" fill="' + s.color + '"/>'; });
-      var li = s.points.length - 1; if (li >= 0) body += '<circle cx="' + X(li) + '" cy="' + Y(s.points[li]) + '" r="4" fill="' + s.color + '" stroke="#fff" stroke-width="1.5"/>';
+      var li = s.points.length - 1; if (li >= 0) body += '<circle cx="' + X(li) + '" cy="' + Y(s.points[li]) + '" r="4" fill="' + s.color + '" stroke="' + (_dark ? "#161d2b" : "#fff") + '" stroke-width="1.5"/>';
     });
     for (var i2 = 0; i2 < xmax; i2++) if (xmax <= 12 || i2 % 2 === 0)
       body += '<text x="' + X(i2) + '" y="' + (hh - 8) + '" text-anchor="middle" font-size="9">' + (i2 + 1) + "</text>";
@@ -1635,20 +1635,32 @@
   function kindLabel(k) { return ({ goal: "Goal", intent: "Intent", fact: "Fact", finding: "Finding", hint: "Hint" })[k] || k; }
   function kindLabelKo(k) { return ({ goal: "목표", intent: "의도", fact: "사실", finding: "발견", hint: "힌트" })[k] || k; }
   function kindLabelFull(k) { return ({ goal: "목표 · Goal", intent: "의도 · Intent", fact: "사실 · Fact", finding: "발견 · Finding", hint: "힌트 · Hint" })[k] || kindLabel(k); }
+  var _KC_LIGHT = { goal: { bg: "#fdf1dc", line: "#b8740a" }, intent: { bg: "#fdecec", line: "#d13b40" },
+    fact: { bg: "#e8f0fe", line: "#2f6fe0" },
+    finding: { bg: "#b11722", line: "#8a0f18", solid: true, fg: "#ffffff", fg2: "#ffd7db" },
+    hint: { bg: "#eef1f5", line: "#5b6676" }, _def: { bg: "#eef1f5", line: "#5b6676" } };
+  var _KC_DARK = { goal: { bg: "#2a2010", line: "#d4950e" }, intent: { bg: "#2a1418", line: "#f87171" },
+    fact: { bg: "#111c30", line: "#60a5fa" },
+    finding: { bg: "#7f1d1d", line: "#ef4444", solid: true, fg: "#fef2f2", fg2: "#fca5a5" },
+    hint: { bg: "#1c2536", line: "#94a3b8" }, _def: { bg: "#1c2536", line: "#94a3b8" } };
   function kindColor(k) {
-    // 발견(취약점 침해)=빨강 강조: 솔리드 채움으로 다른 노드와 확연히 구분(의도=연빨강 테두리와 혼동 방지).
-    return ({ goal: { bg: "#fdf1dc", line: "#b8740a" }, intent: { bg: "#fdecec", line: "#d13b40" },
-      fact: { bg: "#e8f0fe", line: "#2f6fe0" },
-      finding: { bg: "#b11722", line: "#8a0f18", solid: true, fg: "#ffffff", fg2: "#ffd7db" },
-      hint: { bg: "#eef1f5", line: "#5b6676" } })[k] || { bg: "#eef1f5", line: "#5b6676" };
+    var map = _dark ? _KC_DARK : _KC_LIGHT;
+    return map[k] || map._def;
   }
-  function relColor(r) { return ({ spawns: "#e5484d", yields: "#3b82f6", proves: "#b4303a", derived_from: "#94a3b8", enables: "#f59e0b" })[r] || "#94a3b8"; }
+  var _RC_LIGHT = { spawns: "#e5484d", yields: "#3b82f6", proves: "#b4303a", derived_from: "#94a3b8", enables: "#f59e0b" };
+  var _RC_DARK = { spawns: "#f87171", yields: "#60a5fa", proves: "#ef4444", derived_from: "#64748b", enables: "#fbbf24" };
+  function relColor(r) { var m = _dark ? _RC_DARK : _RC_LIGHT; return m[r] || (_dark ? "#64748b" : "#94a3b8"); }
   // 관계 — 사람이 읽는 우리말(엣지 의미가 더 직관적)
   function relLabel(r) { return ({ spawns: "파생", yields: "산출", proves: "입증", derived_from: "유도", enables: "활용" })[r] || r; }
   function relDesc(r) { return ({ spawns: "목표·사실이 새 의도를 낳음", yields: "의도가 사실을 산출", proves: "사실이 발견을 입증", derived_from: "사실이 다른 사실에서 유도됨", enables: "발견(자격증명·접근)을 활용하는 후속 의도를 낳음" })[r] || ""; }
   // 노드 상태 — 화면 표기는 쉬운 우리말(상태는 식별자 아닌 진행 상황이라 한글이 명확)
   function stateKo(s) { return ({ open: "대기", running: "실행 중", done: "완료", blocked: "차단", exhausted: "막다름", stopped: "중단", confirmed: "확인됨", claimed: "포착" })[s] || s; }
-  function stateColor(s) { return ({ running: "#0d9488", done: "#0ea371", blocked: "#e5484d", exhausted: "#e5920b", stopped: "#64748b", confirmed: "#2f6fe0", claimed: "#b4303a" })[s] || "#8a97ab"; }
+  function stateColor(s) {
+    var m = _dark
+      ? { running: "#2dd4bf", done: "#34d399", blocked: "#f87171", exhausted: "#fbbf24", stopped: "#94a3b8", confirmed: "#60a5fa", claimed: "#ef4444" }
+      : { running: "#0d9488", done: "#0ea371", blocked: "#e5484d", exhausted: "#e5920b", stopped: "#64748b", confirmed: "#2f6fe0", claimed: "#b4303a" };
+    return m[s] || (_dark ? "#64748b" : "#8a97ab");
+  }
   function mitreUrl(t) { return "https://attack.mitre.org/techniques/" + String(t).replace(".", "/") + "/"; }
   function truncate(s, n) { s = String(s == null ? "" : s); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
 
@@ -1870,10 +1882,10 @@
     // 대상 자산이 '목표 없음'으로 입증돼 플래너가 더 이상 거기 의도를 내지 않게 하는 신호.
     var clsBadge = "";
     if (n.kind === "fact" && n.promoted) {
-      clsBadge = '<span class="badge" style="background:#dc2626;color:#fff" title="이 사실이 플래너 심사를 통과해 대상 자산을 R'
+      clsBadge = '<span class="badge" style="background:' + (_dark ? "#991b1b" : "#dc2626") + ";color:" + (_dark ? "#fecaca" : "#fff") + '" title="이 사실이 플래너 심사를 통과해 대상 자산을 R'
         + n.promoted + '에 폐쇄로 승격. 이후 라운드부터 그 자산엔 새 의도 금지.">데드엔드 R' + n.promoted + '</span>';
     } else if (n.kind === "fact" && n.closure_candidate) {
-      clsBadge = '<span class="badge" style="background:#f59e0b;color:#0b0f1a" title="워커가 대상 자산을 데드엔드 후보로 표시. 다음 라운드 전에 플래너가 심사해 승격·거부를 결정.">데드엔드 후보</span>';
+      clsBadge = '<span class="badge" style="background:' + (_dark ? "#92400e" : "#f59e0b") + ";color:" + (_dark ? "#fef3c7" : "#0b0f1a") + '" title="워커가 대상 자산을 데드엔드 후보로 표시. 다음 라운드 전에 플래너가 심사해 승격·거부를 결정.">데드엔드 후보</span>';
     }
     var head = '<div class="ag-ph"><span class="badge" style="background:' + col.bg + ";color:" + col.line + '">' + kindLabelFull(n.kind) + "</span>" +
       (n.godview ? '<span class="badge b-ok" title="심판 god-view 접근기록으로 확정된 침해">god-view 확정</span>' : "") +
@@ -2021,31 +2033,34 @@
       var rnd = (n.round != null && isFinite(n.round) && n.round > 0) ? n.round : null;
       var rcur = (rnd != null && curRound != null && rnd === curRound);
       var rtw = (rnd != null && rnd >= 10) ? 25 : 21;
+      var _rCur = _dark ? "#2dd4bf" : "#0d9488", _rOther = _dark ? "#64748b" : "#9aa6b6", _rFg = _dark ? "#0e1420" : "#fff";
       var rTag = rnd != null ? '<g class="ag-rtag' + (rcur ? " cur" : "") + '"><rect x="' + (p.x + 8) + '" y="' + (p.y - 8) +
-        '" width="' + rtw + '" height="15" rx="7.5" fill="' + (rcur ? "#0d9488" : "#9aa6b6") + '"/>' +
-        '<text x="' + (p.x + 8 + rtw / 2) + '" y="' + (p.y + 3) + '" text-anchor="middle" font-size="9" font-weight="700" fill="#fff">R' + rnd + "</text></g>" : "";
+        '" width="' + rtw + '" height="15" rx="7.5" fill="' + (rcur ? _rCur : _rOther) + '"/>' +
+        '<text x="' + (p.x + 8 + rtw / 2) + '" y="' + (p.y + 3) + '" text-anchor="middle" font-size="9" font-weight="700" fill="' + _rFg + '">R' + rnd + "</text></g>" : "";
       // god-view 확정 발견(심판 주입) — 노드 우상단에 표식. 공격자 자기보고 발견과 구분.
+      var _gvBg = _dark ? "#059669" : "#0ea371", _gvFg = _dark ? "#0e1420" : "#fff";
       var gvTag = n.godview ? '<g class="ag-gv"><rect x="' + (p.x + NW - 62) + '" y="' + (p.y - 8) +
-        '" width="58" height="15" rx="7.5" fill="#0ea371"/><text x="' + (p.x + NW - 33) + '" y="' + (p.y + 3) +
-        '" text-anchor="middle" font-size="8.5" font-weight="700" fill="#fff">god-view</text></g>' : "";
+        '" width="58" height="15" rx="7.5" fill="' + _gvBg + '"/><text x="' + (p.x + NW - 33) + '" y="' + (p.y + 3) +
+        '" text-anchor="middle" font-size="8.5" font-weight="700" fill="' + _gvFg + '">god-view</text></g>' : "";
       // 폐쇄(closure) 표식 — fact 노드 전용. 승격(promoted>0) = 빨강 '데드엔드', 후보만 = 앰버 '후보'.
       // 'promoted' 는 승격 라운드(정수) — 플래너 1차가 근거 통과시킨 뒤 asset_graph 에 폐쇄 태그가 달린 것.
+      var _deadBg = _dark ? "#991b1b" : "#dc2626", _candBg = _dark ? "#92400e" : "#f59e0b", _candFg = _dark ? "#fef3c7" : "#0b0f1a";
+      var _ctxBg = _dark ? "#475569" : "#64748b", _badgeFg = _dark ? "#0e1420" : "#fff";
       var clsTag = "";
       if (n.kind === "fact") {
         if (n.promoted) {
           clsTag = '<g class="ag-clsd"><rect x="' + (p.x + NW - 62) + '" y="' + (p.y + NH - 7) +
-            '" width="58" height="15" rx="7.5" fill="#dc2626"/><text x="' + (p.x + NW - 33) + '" y="' + (p.y + NH + 4) +
-            '" text-anchor="middle" font-size="8.5" font-weight="700" fill="#fff">데드엔드</text></g>';
+            '" width="58" height="15" rx="7.5" fill="' + _deadBg + '"/><text x="' + (p.x + NW - 33) + '" y="' + (p.y + NH + 4) +
+            '" text-anchor="middle" font-size="8.5" font-weight="700" fill="' + _badgeFg + '">데드엔드</text></g>';
         } else if (n.closure_candidate) {
           clsTag = '<g class="ag-clsc"><rect x="' + (p.x + NW - 50) + '" y="' + (p.y + NH - 7) +
-            '" width="46" height="15" rx="7.5" fill="#f59e0b"/><text x="' + (p.x + NW - 27) + '" y="' + (p.y + NH + 4) +
-            '" text-anchor="middle" font-size="8.5" font-weight="700" fill="#0b0f1a">데드엔드?</text></g>';
+            '" width="46" height="15" rx="7.5" fill="' + _candBg + '"/><text x="' + (p.x + NW - 27) + '" y="' + (p.y + NH + 4) +
+            '" text-anchor="middle" font-size="8.5" font-weight="700" fill="' + _candFg + '">데드엔드?</text></g>';
         }
       }
-      // 직전 부모(맥락) 표식 — 라운드별 보기에서 끌어온 한 단계 위 부모. 라운드 태그 오른쪽에.
       var ctxTag = isCtx ? '<g class="ag-ctxtag"><rect x="' + (p.x + 8 + rtw + 4) + '" y="' + (p.y - 8) +
-        '" width="54" height="15" rx="7.5" fill="#64748b"/><text x="' + (p.x + 8 + rtw + 4 + 27) + '" y="' + (p.y + 3) +
-        '" text-anchor="middle" font-size="8.5" font-weight="700" fill="#fff">직전 노드</text></g>' : "";
+        '" width="54" height="15" rx="7.5" fill="' + _ctxBg + '"/><text x="' + (p.x + 8 + rtw + 4 + 27) + '" y="' + (p.y + 3) +
+        '" text-anchor="middle" font-size="8.5" font-weight="700" fill="' + _badgeFg + '">직전 노드</text></g>' : "";
       return '<g class="' + cls + (rcur ? " ag-rcur" : "") + '" data-nid="' + n.id + '"' + (delay ? ' style="animation-delay:' + delay + 'ms"' : "") + ' opacity="' + op + '">' +
         '<rect x="' + p.x + '" y="' + p.y + '" width="' + NW + '" height="' + NH + '" rx="10" fill="' + col.bg + '" stroke="' + col.line + '" stroke-width="' + (sel ? 2.8 : (col.solid ? 1.6 : 1.2)) + '"' + (dead || isCtx ? ' stroke-dasharray="5 3"' : "") + "/>" +
         '<text class="agk" x="' + (p.x + 13) + '" y="' + (p.y + 21) + '" font-size="9.5" font-weight="700" fill="' + l1col + '">' + l1 + "</text>" + stBadge +
