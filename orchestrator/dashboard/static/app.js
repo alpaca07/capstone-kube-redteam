@@ -32,7 +32,7 @@
 
   // ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (server.py 의 SERVER_BUILD 과 같은 값으로 함께 올린다).
   // 좌상단에 v<UI_BUILD> 를 표시하고, 서버가 보고한 server_build 와 다르면 '재시작 필요' 경고를 띄운다.
-  var UI_BUILD = 18;
+  var UI_BUILD = 19;
   function renderBuild(serverBuild) {
     var el = document.getElementById("build-tag");
     if (!el) return;
@@ -43,9 +43,23 @@
                      : ("빌드 v" + UI_BUILD);
   }
 
-  // ───────── 색 상수(의미색 — CSS 변수와 1:1) ─────────
-  var C = { atk: "#e5484d", def: "#3b82f6", sys: "#64748b", crown: "#e5920b",
-    ok: "#0ea371", teal: "#0d9488", grid: "#e3e8ee", muted: "#8a97ab" };
+  // ───────── 다크모드 ─────────
+  var _dark = localStorage.getItem("helix-dark") === "1";
+  function applyTheme() {
+    document.documentElement.classList.toggle("dark", _dark);
+    C_update();
+    var btn = document.getElementById("theme-btn");
+    if (btn) btn.textContent = _dark ? "☀" : "☾";
+  }
+  function toggleTheme() { _dark = !_dark; localStorage.setItem("helix-dark", _dark ? "1" : "0"); applyTheme(); }
+
+  // ───────── 색 상수(의미색 — CSS 변수와 1:1, 다크모드 연동) ─────────
+  var C_LIGHT = { atk: "#e5484d", def: "#3b82f6", sys: "#64748b", crown: "#e5920b",
+    ok: "#0ea371", teal: "#0d9488", grid: "#e3e8ee", muted: "#8a97ab", text: "#0f1b2d" };
+  var C_DARK = { atk: "#f87171", def: "#60a5fa", sys: "#94a3b8", crown: "#fbbf24",
+    ok: "#34d399", teal: "#2dd4bf", grid: "#293549", muted: "#64748b", text: "#e4e9f1" };
+  var C = Object.assign({}, C_LIGHT);
+  function C_update() { var src = _dark ? C_DARK : C_LIGHT; for (var k in src) C[k] = src[k]; }
   var VERDICT = {
     blocked: { label: "차단", color: C.ok, cls: "b-ok" },
     fake_patch: { label: "무효 패치", color: C.atk, cls: "b-atk" },
@@ -1996,7 +2010,7 @@
       var isCtx = !!ctxIds[n.id];   // 라운드별 보기에서 맥락으로 끌어온 직전 부모
       var cls = "ag-node" + (n._new ? " ag-new" : "") + (n.state === "running" ? " ag-run" : "") + (dead ? " ag-dead" : "") + (n.kind === "finding" ? " ag-find" : "") + (isCtx ? " ag-ctx" : "");
       var delay = n._new ? (nIdx++ * 55) : 0;
-      var l1col = col.solid ? col.fg2 : col.line, l2col = col.solid ? col.fg : "#0f1b2d";
+      var l1col = col.solid ? col.fg2 : col.line, l2col = col.solid ? col.fg : C.text;
       var l1 = kindLabelKo(n.kind) + (n.technique ? " · " + esc(n.technique) : "");
       var l2 = esc(truncate(n.summary || kindLabelKo(n.kind), 16));
       // 상태 뱃지 — 대기·완료·막다름 외 의미 있는 상태(실행 중·차단·중단·확인됨·포착)만.
@@ -2481,6 +2495,7 @@
   function closeSidebar() { $("#sidebar").classList.remove("open"); var bd = $("#sidebar-backdrop"); if (bd) bd.classList.remove("on"); $("#nav-toggle").setAttribute("aria-expanded", "false"); }
 
   async function boot() {
+    applyTheme();        // 다크모드 localStorage 복원(렌더 전 — 깜빡임 방지)
     renderBuild(null);   // 최초엔 프런트 버전만(서버 응답 오면 poll 이 불일치 경고 갱신)
     buildNav();
     $("#nav-toggle").onclick = function () {
@@ -2490,6 +2505,7 @@
     };
     var _bd = $("#sidebar-backdrop"); if (_bd) _bd.onclick = closeSidebar;
     var _sc = $("#sidebar-close"); if (_sc) _sc.onclick = closeSidebar;
+    var _tb = $("#theme-btn"); if (_tb) _tb.onclick = function () { toggleTheme(); render(); };
     window.addEventListener("hashchange", onHash);
     // 그래프 전체화면 종료 — Esc 키, 또는 브라우저가 네이티브 전체화면을 빠져나갈 때 오버레이도 해제
     document.addEventListener("keydown", function (e) { if (e.key === "Escape" && agFull) setAgFull(false); });

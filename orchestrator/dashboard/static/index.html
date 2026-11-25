@@ -6,6 +6,7 @@
   <title>Helix</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="stylesheet" href="/static/app.css">
+  <script>if(localStorage.getItem("helix-dark")==="1")document.documentElement.classList.add("dark")</script>
 </head>
 <body>
   <div class="app">
@@ -26,6 +27,7 @@
       <div class="sidebar-foot">
         <span class="mono" id="conn-dot"></span>
         <span id="conn-text" class="mono">연결 확인 중</span>
+        <button class="theme-toggle" id="theme-btn" title="다크모드 전환" aria-label="다크모드 전환">☾</button>
       </div>
     </aside>
     <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
