@@ -26,7 +26,7 @@ _CONFIG_OPERATORS: frozenset[str] = frozenset({"eq", "in", "exists", "equals"})
 CROWN_CHANNEL = "crown"
 TECHNIQUE_CHANNELS: frozenset[str] = frozenset({"falco", "audit"})
 
-_TID = re.compile(r"^T\d{4}(\.\d{3})?$")
+_TID = re.compile(r"^(T\d{4}(\.\d{3})?|WEB_[A-Z]+)$")  # ATT&CK(T####) + 자체 웹 취약점(WEB_*)
 _CVE = re.compile(r"^CVE-\d{4}-\d+$")
 _CWE = re.compile(r"^CWE-\d+$")
 _SLUG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")

@@ -416,9 +416,15 @@ def _build_env(env: dict, nodes: list[Node], rels: list[Rel],
     if proc.get("status"): pprops["status"] = proc["status"]
     mint("Procedure", proc["id"], pprops)
     if env.get("technique"):
+        tech_id = env["technique"]
+        # ATT&CK 그래프에 없는 자체 기법(WEB_SQLI 등)이면 Technique 노드를 직접 생성 —
+        # ATT&CK 소스(attack)가 만든 기법은 이미 존재하므로 MERGE 로 중복 안 생김.
+        if not tech_id.startswith("T"):
+            nodes.append({"label": "Technique", "id": tech_id,
+                          "props": {"name": tech_id.replace("_", " ").title()}})
         # 기법이 SubTechnique(점 포함, 예 T1552.001)면 라벨을 맞춰야 적재 때 MATCH 된다(안 그러면 고아 Procedure)
-        rels.append({"type": "REALIZED_BY", "from_label": _tech_label(env["technique"]),
-                     "from_id": env["technique"], "to_label": "Procedure", "to_id": proc["id"], "props": {}})
+        rels.append({"type": "REALIZED_BY", "from_label": _tech_label(tech_id),
+                     "from_id": tech_id, "to_label": "Procedure", "to_id": proc["id"], "props": {}})
 
     # Step(실행 시퀀스) — Procedure -HAS_STEP-> Step. 범용 명령 레시피($VAR 자리, 워커가 관측으로 채움).
     for st in proc.get("steps", []):
