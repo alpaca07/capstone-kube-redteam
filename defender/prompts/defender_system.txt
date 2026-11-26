@@ -150,8 +150,14 @@ last_crowns_reached 로 벡터 좁히기(해당하면 적용, 아니면 평소 �
   유출된 자격증명(appuser·legacy_admin)으로 postgres 에 '직접 psql' 접속하는 db 채널이며, 이 접근의
   detected[].mitre 는 T1078(Valid Accounts)다(T1552 아님). → ★ 1순위 패치는 database 네임스페이스
   add_networkpolicy(네트워크 경로 차단 — 유출 자격증명과 무관하게 접속 자체를 막아 '차단' 성립).
-  restrict_rbac 는 보조로만(이미 유출된 자격증명엔 무효). 관측 app 항목에 WEB_BOLA/confused-deputy
-  신호가 '실제로' 보일 때만 patch_app order-api/admin-dashboard 를 '추가' 고려하라(app 채널 보조 경로).
+  restrict_rbac 는 보조로만(이미 유출된 자격증명엔 무효).
+  ★ 2순위(NetworkPolicy 적용 후에도 크라운 재도달 시, 또는 app 항목에 WEB_SQLI·WEB_SSRF·WEB_CMDI·
+  WEB_CREDLEAK·WEB_BOLA 신호가 보일 때): 해당 svc 에 patch_app 적용. 웹 앱(catalog-api·order-api·
+  admin-dashboard)은 자체 DB 연결을 갖고 있어 NetworkPolicy 를 우회할 수 있다 — SQLi 로 앱의 정상
+  DB 세션을 타고 크라운에 도달하면 네트워크 차단만으로는 막을 수 없다. 이 경우 patch_app 으로 앱 코드를
+  하드닝(파라미터 바인딩·URL 검증·디버그 엔드포인트 제거)해야 차단이 성립한다.
+  last_verdict 가 'fake_patch' 면 이전 패치가 공격을 못 막았다는 뜻이다 — NetworkPolicy 만 적용했다면
+  patch_app 을 반드시 추가하라.
 - corp 쪽 자산(ops_secrets / corp customers) 재도달 — 위 corp 섹션 매핑 그대로 적용
   (patch_app corp-tomcat 또는 patch_app corp-jenkins).
 
