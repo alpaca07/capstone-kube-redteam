@@ -35,6 +35,22 @@
   --font-mono: "SFMono-Regular", ui-monospace, "SF Mono", "Cascadia Code", Consolas, "D2Coding", "Noto Sans KR", monospace;
 }
 
+/* ── 다크모드 ── */
+html.dark {
+  color-scheme: dark;
+  --bg: #0e1420; --surface: #161d2b; --surface-2: #1c2536; --surface-3: #243044;
+  --border: #293549; --border-strong: #384862;
+  --text: #e4e9f1; --text-2: #98a5ba; --text-3: #64748b;
+  --teal: #2dd4bf; --teal-600: #14b8a6; --teal-soft: rgba(45,212,191,.12); --teal-ring: rgba(45,212,191,.3);
+  --atk: #f87171; --atk-soft: rgba(248,113,113,.12);
+  --def: #60a5fa; --def-soft: rgba(96,165,250,.12);
+  --sys: #94a3b8; --sys-soft: rgba(148,163,184,.1);
+  --crown: #fbbf24; --crown-soft: rgba(251,191,36,.12);
+  --ok: #34d399; --ok-soft: rgba(52,211,153,.12);
+  --shadow: 0 1px 3px rgba(0,0,0,.3), 0 2px 10px rgba(0,0,0,.25);
+  --shadow-pop: 0 8px 32px rgba(0,0,0,.5);
+}
+
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
@@ -46,6 +62,59 @@ body {
 a { color: var(--teal-600); text-decoration: none; }
 button { font-family: inherit; }
 :focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; border-radius: 4px; }
+
+/* 다크모드 세부 보정 — 반투명·그라디언트·하드코딩 색 */
+html.dark .topbar { background: rgba(22,29,43,.82); }
+html.dark .modal-ov { background: rgba(0,0,0,.6); }
+html.dark .zone.crown { background: linear-gradient(180deg, rgba(251,191,36,.08), var(--surface) 62%); }
+html.dark .demo-banner { background: rgba(251,191,36,.1); border-color: #5a4512; color: #fbbf24; }
+html.dark .demo-banner b { color: #fde68a; }
+html.dark .b-crown, html.dark .b-fp { background: rgba(251,191,36,.12); color: #fbbf24; }
+html.dark .det-why.det-fp { border-left-color: var(--crown); background: rgba(251,191,36,.08); }
+html.dark .det-note.det-warn { background: rgba(251,191,36,.08); border-left-color: var(--crown); color: #fbbf24; }
+html.dark .ag-loot-h { background: rgba(248,113,113,.15); color: var(--atk); }
+html.dark .ag-loot-v { background: rgba(248,113,113,.06); color: #fca5a5; }
+html.dark .ag-wrap { background: var(--bg); }
+html.dark .ag-node.ag-find rect { filter: drop-shadow(0 1px 6px rgba(239,68,68,.4)); }
+html.dark .ag-node.ag-rcur:not(.ag-find) rect { filter: drop-shadow(0 0 5px rgba(45,212,191,.45)); }
+html.dark .ag-tool { background: var(--surface); border-color: var(--border-strong); color: var(--text-2); }
+html.dark .anl-item.sel { border-color: var(--atk); box-shadow: 0 0 0 1px var(--atk); }
+html.dark .anl-r { background: #475569; }
+html.dark .rchip-ep { background: rgba(45,212,191,.12); color: var(--teal); }
+html.dark .cvss-row { background: var(--surface-2); }
+html.dark .grpt-sum { background: var(--surface-2); }
+html.dark .grpt-find { background: var(--surface); }
+html.dark .brief-tl-c { background: var(--surface-2); }
+html.dark .jwarn { background: rgba(251,191,36,.08); border-color: #5a4512; color: #fbbf24; }
+html.dark .pba-before { border-color: rgba(248,113,113,.3); background: rgba(248,113,113,.08); }
+html.dark .pba-after { border-color: rgba(45,212,191,.3); background: rgba(45,212,191,.08); }
+html.dark .svc-chip { background: rgba(96,165,250,.1); color: #93bbfd; border-color: rgba(96,165,250,.2); }
+html.dark .svc-chip.ext { background: rgba(248,113,113,.1); color: #fca5a5; border-color: rgba(248,113,113,.2); }
+html.dark .zone-bd.open { background: rgba(248,113,113,.12); }
+html.dark .zone-bd.closed { background: rgba(52,211,153,.12); }
+html.dark .zone-crown { color: #fbbf24; }
+html.dark .grpt-sev { color: #0e1420; }   /* 어두운 배경 위 뱃지 텍스트 */
+/* ── 다크모드: 라이트 전용 하드코딩 색 전면 보정 ── */
+/* 크라운(앰버) 텍스트 — 라이트 #9a6a0c → 다크 밝은 앰버 */
+html.dark .b-crown, html.dark .b-fp, html.dark .zone-bd.open + .zone-crown { color: #fbbf24; }
+/* 크라운 보더 — 라이트 #f3dca6/#f0d79a → 다크 어두운 앰버 */
+html.dark .demo-banner { border-color: #5a4512; }
+html.dark .jgroup.jg-flag, html.dark .jacc.jg-flag { border-color: rgba(251,191,36,.2); }
+html.dark .zone.crown { border-color: rgba(251,191,36,.2); }
+/* 위험 버튼 보더 */
+html.dark .btn-danger { border-color: rgba(248,113,113,.25); background: var(--surface); }
+html.dark .btn-danger:hover { background: rgba(248,113,113,.1); }
+/* 서비스 칩(타깃 구성도) — 이미 위에서 처리됐지만 보더 보강 */
+html.dark .ag-loot { border-color: rgba(248,113,113,.25); }
+/* 탐지 경고 텍스트 */
+html.dark .det-note.det-warn { color: #fbbf24; }
+/* 패치 전/후 비교 — 이미 위에서 처리 */
+/* 킬체인 칩 인라인 스타일 보정은 JS에서 — CSS로는 var(--crown) 기반이라 자동 대응 */
+/* 다크모드 테마 토글 버튼 */
+.theme-toggle { background: none; border: 1px solid var(--border); border-radius: 8px;
+  width: 32px; height: 32px; font-size: 16px; color: var(--text-2); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; padding: 0; flex: none; }
+.theme-toggle:hover { border-color: var(--teal); color: var(--teal); }
 
 /* ───────── 셸 ───────── */
 .app { display: grid; grid-template-columns: var(--sb-w) 1fr; height: 100%; }
@@ -92,6 +161,7 @@ button { font-family: inherit; }
   display: flex; align-items: center; gap: 8px; padding: 11px 18px; border-top: 1px solid var(--border);
   font-size: 11px; color: var(--text-2); font-family: var(--font-mono);
 }
+.sidebar-foot .theme-toggle { margin-left: auto; }
 #conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sys); flex: none; }
 #conn-dot.live { background: var(--ok); }
 #conn-dot.off { background: var(--atk); }
@@ -800,38 +870,4 @@ body.ag-full-lock { overflow: hidden; }
 .ag-desc, .ag-desc-main, .ag-sum, .ag-ev-sm, .ag-loot-v,
 .ag-side .rep-line span, .ag-side .rep-line a { overflow-wrap: anywhere; word-break: break-word; }
 
-/* ═══════════ 다크 테마 (data-theme="dark") ═══════════ */
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --bg: #0e141b; --surface: #161e28; --surface-2: #1d2733; --surface-3: #27323f;
-  --border: #293440; --border-strong: #3a4857;
-  --text: #e9eef4; --text-2: #a4b2c2; --text-3: #70808f;
-  --teal: #2dd4bf; --teal-600: #5eead4; --teal-soft: #113a35; --teal-ring: rgba(45,212,191,.4);
-  --atk: #ff6b6b; --atk-soft: #37191b;
-  --def: #5b9dfb; --def-soft: #16243c;
-  --sys: #94a3b8; --sys-soft: #222c37;
-  --crown: #f2b134; --crown-soft: #352a12;
-  --ok: #2ed19a; --ok-soft: #10342a;
-  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 10px rgba(0,0,0,.35);
-  --shadow-pop: 0 8px 30px rgba(0,0,0,.5);
-}
-/* 하드코딩 색 다크 보정(토큰 밖 소수) */
-:root[data-theme="dark"] .b-crown,
-:root[data-theme="dark"] .b-fp,
-:root[data-theme="dark"] .zone-crown,
-:root[data-theme="dark"] .jwarn,
-:root[data-theme="dark"] .det-note.det-warn,
-:root[data-theme="dark"] .demo-banner { color: var(--crown); }
-:root[data-theme="dark"] .jwarn,
-:root[data-theme="dark"] .demo-banner { border-color: var(--crown-soft); }
-:root[data-theme="dark"] .ag-loot-v { color: #ffc0b4; background: #2a1719; }
-:root[data-theme="dark"] .grpt-find.sev-critical { border-left-color: var(--atk); }
-:root[data-theme="dark"] .sev-critical .grpt-sev { background: var(--atk); }
-:root[data-theme="dark"] .grpt-path b { color: var(--atk); }
-:root[data-theme="dark"] .topbar { background: rgba(20,27,36,.82); }
-
-/* 테마 토글 버튼 */
-.theme-toggle { margin-left: 10px; width: 32px; height: 32px; flex: none; display: flex; align-items: center;
-  justify-content: center; font-size: 16px; line-height: 1; background: var(--surface-2); color: var(--text-2);
-  border: 1px solid var(--border-strong); border-radius: 8px; cursor: pointer; }
-.theme-toggle:hover { color: var(--teal-600); border-color: var(--teal); }
+/* (data-theme 방식 제거됨 — html.dark 클래스 방식으로 통합, 파일 상단 참조) */

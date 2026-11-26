@@ -32,7 +32,7 @@ app = FastAPI(title="Helix — 공수 루프 관제 대시보드")
 
 # ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (app.js 의 UI_BUILD 과 같은 값으로 함께 올린다).
 # /api/status 로 내보내 대시보드가 '서버가 최신 코드로 재시작됐는지' 좌상단 버전으로 확인한다.
-SERVER_BUILD = 19
+SERVER_BUILD = 21
 
 # 실험 프로세스 상태(단일 워커 전제: 한 번에 하나만).
 _run: dict = {"proc": None, "started": None, "params": None, "id": None}
