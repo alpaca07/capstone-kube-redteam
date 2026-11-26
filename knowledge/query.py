@@ -247,6 +247,21 @@ def knowledge_for_terms(session: Session, terms: Iterable[str]) -> dict:
                 tech = dict(tech)
                 tech["cves"] = [cve]          # 통일(techniques_for_cve 는 단일 cve 조회)
                 _accum(tech, t)
+    # ④ 핵심층(AUTHORED) 절차 기법 — CVE/Product 경로 없이도 항상 후보에 포함.
+    # WEB_SQLI 등 자체 기법은 NVD 그래프에 없어 ①②③ 경로로 발견 불가 → 여기서 보장.
+    core = _rows(session.run(
+        "MATCH (p:Procedure {status:'AUTHORED'})-[:REALIZED_BY]-(t) "
+        "WHERE t:Technique OR t:SubTechnique "
+        "RETURN DISTINCT t.id AS technique, t.name AS name, p.env AS env"))
+    for r in core:
+        tid = r["technique"]
+        if not _env_allowed(r.get("env", "")):
+            continue                       # 아레나 스코프 필터 적용
+        if tid not in agg:                 # 이미 CVE 경로로 발견됐으면 중복 안 넣음
+            agg[tid] = {"technique": tid, "name": r.get("name", ""),
+                        "confidence": 0.60, "via": "core-procedure",
+                        "cves": [], "terms": ["core"]}
+
     aggregate = sorted(agg.values(), key=lambda x: x["confidence"], reverse=True)
     return {"by_term": by_term, "aggregate": aggregate}
 

