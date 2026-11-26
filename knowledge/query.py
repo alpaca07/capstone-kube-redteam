@@ -12,9 +12,26 @@
 """
 from __future__ import annotations
 
+import os
 from typing import Iterable
 
 from .graph_writer import Session   # Protocol: run(query, **params)
+
+# ── 아레나 스코프 KG 필터 ──
+# 환경변수 CAPSTONE_KG_EXCLUDE_ENV 로 절차 env 접두사를 제외한다(쉼표 구분).
+# ShopFlow 단독: CAPSTONE_KG_EXCLUDE_ENV=corp  → corp-* 절차 미노출
+# corp 단독:    CAPSTONE_KG_EXCLUDE_ENV=shopflow,killchain → shopflow-*/killchain-* 미노출
+# 미설정:        전체 노출(기존 동작)
+_KG_EXCLUDE_ENV = [x.strip() for x in os.environ.get("CAPSTONE_KG_EXCLUDE_ENV", "").split(",") if x.strip()]
+
+
+def _env_allowed(env: str) -> bool:
+    """절차의 env 값이 현재 아레나 스코프에서 허용되는지."""
+    if not _KG_EXCLUDE_ENV:
+        return True  # 필터 미설정 → 전체 허용
+    e = (env or "").lower()
+    return not any(e.startswith(ex.lower()) for ex in _KG_EXCLUDE_ENV)
+
 
 # 직접 매핑 출처별 신뢰도(플래너 가중치용).
 _SOURCE_CONF = {"curated": 0.95, "kev": 0.90, "ctid": 0.70, "llm": 0.50}
@@ -314,6 +331,9 @@ def procedure_for_technique(session: Session, tech_id: str) -> list[dict]:
                     "cve": r.get("cve"), "cwe": r.get("cwe"), "status": r.get("status"),
                     "preconditions": pres, "expected_results": ers, "steps": steps,
                     "cleanup": cleans, "advisory": advs})
+    # [아레나 스코프] 환경변수 필터 — ShopFlow 단독이면 corp 절차 제외(역도 동일).
+    if _KG_EXCLUDE_ENV:
+        out = [p for p in out if _env_allowed(p.get("env", ""))]
     # AUTHORED(실행가능·타깃정합 핵심층 절차) 우선 — THEORETICAL(nvd 스텁)이 상한에서 핵심 절차를
     # 밀어내지 않게. 안정 정렬이라 같은 상태끼리는 원래 순서 유지.
     out.sort(key=lambda p: 0 if (p.get("status") or "").upper() == "AUTHORED" else 1)
