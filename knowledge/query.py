@@ -259,7 +259,7 @@ def knowledge_for_terms(session: Session, terms: Iterable[str]) -> dict:
             continue                       # 아레나 스코프 필터 적용
         if tid not in agg:                 # 이미 CVE 경로로 발견됐으면 중복 안 넣음
             agg[tid] = {"technique": tid, "name": r.get("name", ""),
-                        "confidence": 0.60, "via": "core-procedure",
+                        "confidence": 0.85, "via": "core-procedure",
                         "cves": [], "terms": ["core"]}
 
     aggregate = sorted(agg.values(), key=lambda x: x["confidence"], reverse=True)
