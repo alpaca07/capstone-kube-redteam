@@ -32,7 +32,7 @@
 
   // ⬆⬆ 빌드 버전 — 패치할 때마다 +1 (server.py 의 SERVER_BUILD 과 같은 값으로 함께 올린다).
   // 좌상단에 v<UI_BUILD> 를 표시하고, 서버가 보고한 server_build 와 다르면 '재시작 필요' 경고를 띄운다.
-  var UI_BUILD = 21;
+  var UI_BUILD = 22;
   function renderBuild(serverBuild) {
     var el = document.getElementById("build-tag");
     if (!el) return;
@@ -1664,7 +1664,9 @@
       : { running: "#0d9488", done: "#0ea371", blocked: "#e5484d", exhausted: "#e5920b", stopped: "#64748b", confirmed: "#2f6fe0", claimed: "#b4303a" };
     return m[s] || (_dark ? "#64748b" : "#8a97ab");
   }
-  function mitreUrl(t) { return "https://attack.mitre.org/techniques/" + String(t).replace(".", "/") + "/"; }
+  // WEB_* 자체 기법 → ATT&CK 부모 기법으로 매핑(링크용)
+  var _WEB_MITRE = { WEB_SQLI:"T1190", WEB_SSRF:"T1190", WEB_BOLA:"T1190", WEB_CMDI:"T1059", WEB_CREDLEAK:"T1552" };
+  function mitreUrl(t) { var m = _WEB_MITRE[t] || t; return "https://attack.mitre.org/techniques/" + String(m).replace(".", "/") + "/"; }
   function truncate(s, n) { s = String(s == null ? "" : s); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
 
   function demoAttackGraph() {

