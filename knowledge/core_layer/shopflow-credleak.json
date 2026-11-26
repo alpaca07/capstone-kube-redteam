@@ -1,0 +1,42 @@
+{
+  "_note": "핵심층 환경 — ShopFlow debug 엔드포인트 자격증명 유출(B0). catalog-api·order-api 의 /debug/config 가 env 를 그대로 노출해 DB_PASSWORD 를 평문으로 새는 '운영 제거 누락' 취약점. 메인 킬체인 ①(wiki 런북)의 대체 진입점 — 더 단순(curl 한 줄)하지만 유출되는 role 이 앱 전용(shopflow_app)이라 god-view 크라운에서 빠질 수 있음. 방어: patch_app catalog-api 또는 order-api(/debug/config 제거).",
+
+  "env": "shopflow-credleak",
+  "technique": "T1552.001",
+  "cwe": "CWE-215",
+
+  "procedure": {
+    "id": "PROC-shopflow-credleak",
+    "name": "debug 엔드포인트에서 DB 자격증명 평문 수집",
+    "description": "frontend 발판에서 catalog-api 또는 order-api 의 /debug/config 를 호출하면 환경변수(DB_HOST·DB_USER·DB_PASSWORD)가 JSON 으로 그대로 반환된다. 이 자격증명으로 postgres 에 직접 접속(③④)할 수 있다. ★ 주의: 유출되는 role 은 shopflow_app(앱 전용)이라 appuser/legacy_admin 과 달리 god-view 크라운 actor 스코핑에서 빠질 수 있음.",
+    "status": "AUTHORED",
+    "steps": [
+      {"id": "STEP-credleak-catalog", "seq": 1,
+       "command": "curl -s http://catalog-api.backend.svc.cluster.local:8080/debug/config",
+       "description": "catalog-api 환경변수 전체 노출 — DB_PASSWORD 평문 확인"},
+      {"id": "STEP-credleak-order", "seq": 2,
+       "command": "curl -s http://order-api.backend.svc.cluster.local:8080/debug/config",
+       "description": "order-api 에서도 동일하게 노출 확인(이중 경로)"}
+    ]
+  },
+
+  "preconditions": [
+    {
+      "id": "PRE-credleak-debug-reachable",
+      "name": "발판에서 backend API debug 엔드포인트 도달 가능",
+      "description": "frontend 발판에서 backend 네임스페이스의 catalog-api/order-api 에 HTTP 요청을 보낼 수 있고, /debug/config 가 제거되지 않은 상태."
+    }
+  ],
+
+  "expected_results": [
+    {
+      "id": "ER-credleak-progress",
+      "name": "debug 엔드포인트 자격증명 유출 흔적 (진행도)",
+      "kind": "progress",
+      "outcome": {"id": "AO-credential-access", "name": "자격증명 수집"},
+      "conditions": [
+        {"channel": "app", "field": "technique", "operator": "eq", "expected": "WEB_CREDLEAK"}
+      ]
+    }
+  ]
+}

