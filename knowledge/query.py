@@ -247,41 +247,59 @@ def knowledge_for_terms(session: Session, terms: Iterable[str]) -> dict:
                 tech = dict(tech)
                 tech["cves"] = [cve]          # 통일(techniques_for_cve 는 단일 cve 조회)
                 _accum(tech, t)
-    # ④ 핵심층(AUTHORED) 절차 기법 — CVE/Product 경로 없이도 항상 후보에 포함.
-    # WEB_SQLI 등 자체 기법은 NVD 그래프에 없어 ①②③ 경로로 발견 불가 → 여기서 보장.
+    # ④ 자체 기법(ATT&CK에 없는) 절차 — aggregate 와 별도로 core_procedures 에 분리.
+    # ATT&CK 소스(KS-mitre-attack)가 만든 Technique 은 CVE 경로로 발견 가능하므로 제외하고,
+    # WEB_SQLI 등 자체 기법만 수집해 플래너가 limit 경쟁 없이 항상 볼 수 있게 한다.
     core = _rows(session.run(
         "MATCH (p:Procedure {status:'AUTHORED'})-[:REALIZED_BY]-(t) "
-        "WHERE t:Technique OR t:SubTechnique "
-        "RETURN DISTINCT t.id AS technique, t.name AS name, p.env AS env"))
+        "WHERE (t:Technique OR t:SubTechnique) "
+        "AND NOT EXISTS { MATCH (t)-[:SUPPORTED_BY]->(:KnowledgeSource {id:'KS-mitre-attack'}) } "
+        "RETURN DISTINCT t.id AS technique, p.env AS env, "
+        "p.name AS proc_name, p.description AS description"))
+    core_procs = []
+    seen_tech: set[str] = set()
     for r in core:
         tid = r["technique"]
         if not _env_allowed(r.get("env", "")):
-            continue                       # 아레나 스코프 필터 적용
-        if tid not in agg:                 # 이미 CVE 경로로 발견됐으면 중복 안 넣음
-            agg[tid] = {"technique": tid, "name": r.get("name", ""),
-                        "confidence": 0.85, "via": "core-procedure",
-                        "cves": [], "terms": ["core"]}
+            continue
+        if tid not in seen_tech:
+            seen_tech.add(tid)
+            core_procs.append({
+                "technique": tid,
+                "env": r.get("env", ""),
+                "description": r.get("description") or r.get("proc_name", "")
+            })
 
     aggregate = sorted(agg.values(), key=lambda x: x["confidence"], reverse=True)
-    return {"by_term": by_term, "aggregate": aggregate}
+    return {"by_term": by_term, "aggregate": aggregate, "core_procedures": core_procs}
 
 
 def render_kg_candidates(knowledge: dict, *, limit: int = 12) -> str:
     """knowledge_for_terms 결과 → 플래너 프롬프트용 텍스트 블록(없으면 빈 문자열).
 
-    플래너가 LLM 으로 자산과 바인딩하도록 '후보 기법+근거 CVE+매칭 용어'를 간결히 나열한다.
-    기계적 '정답'이 아니라 '참고 후보'임을 분명히(플래너가 취사선택).
+    2구역 렌더링:
+      1구역 — CVE/Product 그래프 발견 기법(기존, limit 적용). 플래너가 자산과 바인딩해 technique 선택.
+      2구역 — 검증된 자체 기법 절차(core_procedures, limit 별도). ATT&CK에 없는 환경 맞춤 절차라
+              CVE 경로로 발견 불가 → 별도 구역으로 항상 노출해 플래너가 대안으로 선택 가능하게 한다.
     """
     agg = (knowledge or {}).get("aggregate", [])[:limit]
-    if not agg:
+    core = (knowledge or {}).get("core_procedures", [])
+    if not agg and not core:
         return ""
     lines = []
+    # 1구역: CVE/Product 그래프 발견 기법
     for a in agg:
         name = f" {a['name']}" if a.get("name") else ""
         terms = ", ".join(a.get("terms", []))
         cves = ", ".join(a.get("cves", [])[:3])
         conf = a.get("confidence", 0.0)
         lines.append(f"- {a['technique']}{name} (conf {conf:.2f}; matches: {terms}; via {cves})")
+    # 2구역: 검증된 공격 절차 (자체 기법 — ATT&CK에 없는 환경 맞춤)
+    if core:
+        lines.append("")
+        lines.append("[검증된 공격 절차 — 현재 환경 적용 가능]")
+        for c in core:
+            lines.append(f"- {c['technique']} [{c['env']}]: {c['description']}")
     return "\n".join(lines)
 
 
