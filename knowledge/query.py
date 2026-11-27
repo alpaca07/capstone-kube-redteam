@@ -294,12 +294,13 @@ def render_kg_candidates(knowledge: dict, *, limit: int = 12) -> str:
         cves = ", ".join(a.get("cves", [])[:3])
         conf = a.get("confidence", 0.0)
         lines.append(f"- {a['technique']}{name} (conf {conf:.2f}; matches: {terms}; via {cves})")
-    # 2구역: 검증된 공격 절차 (자체 기법 — ATT&CK에 없는 환경 맞춤)
+    # 2구역: 자체 기법 — 1구역과 동일 형식으로 렌더해 플래너가 선택 가능하게 한다.
+    # 별도 섹션 헤더 없이 연속 목록. 플래너 프롬프트가 "ATT&CK techniques / MITRE id"를
+    # 기대하므로, 형식이 다르면 무시됨 → 동일 형식이 핵심.
     if core:
-        lines.append("")
-        lines.append("[검증된 공격 절차 — 현재 환경 적용 가능]")
         for c in core:
-            lines.append(f"- {c['technique']} [{c['env']}]: {c['description']}")
+            desc_short = (c.get("description") or "")[:80].rstrip()
+            lines.append(f"- {c['technique']} (conf 0.95; matches: {c['env']}; via AUTHORED — {desc_short})")
     return "\n".join(lines)
 
 
