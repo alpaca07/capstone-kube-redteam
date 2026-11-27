@@ -327,14 +327,23 @@ def procedure_for_technique(session: Session, tech_id: str) -> list[dict]:
     반환: [{procedure, name, description, env, cve, cwe, status,
             preconditions:[{name, description, config_key, expected_value}], expected_results:[{id, name, kind}]}]
     """
+    # 역매핑: 플래너가 WEB_* → ATT&CK id 로 변환해도 워커가 원래 절차를 받도록.
+    # 예) WEB_CMDI → T1059 변환 → procedure_for_technique("T1059") 호출 시 WEB_CMDI 절차도 반환.
+    _WEB_PARENT: dict[str, list[str]] = {
+        "T1190": ["WEB_SQLI", "WEB_SSRF", "WEB_BOLA"],
+        "T1059": ["WEB_CMDI"], "T1059.004": ["WEB_CMDI"],
+        "T1552": ["WEB_CREDLEAK"], "T1552.001": ["WEB_CREDLEAK"],
+    }
     t = (tech_id or "").strip()
     if not t:
         return []
+    web_ids = _WEB_PARENT.get(t, [])
     rows = _rows(session.run(
-        "WITH $id AS qid, split($id,'.')[0] AS base "
+        "WITH $id AS qid, split($id,'.')[0] AS base, $wids AS wids "
         "MATCH (tech)-[:REALIZED_BY]->(p:Procedure) "
         "WHERE (tech:Technique OR tech:SubTechnique) AND "
-        "(tech.id = qid OR (qid = base AND tech.id STARTS WITH (base + '.'))) "
+        "(tech.id = qid OR (qid = base AND tech.id STARTS WITH (base + '.')) "
+        "OR tech.id IN wids) "
         "OPTIONAL MATCH (p)-[:REQUIRES]->(pre:Precondition) "
         "OPTIONAL MATCH (pre)-[rc:REQUIRES_CONFIGURATION]->(cfg:Configuration) "
         "OPTIONAL MATCH (p)-[:PRODUCES]->(er:ExpectedResult) "
@@ -347,7 +356,7 @@ def procedure_for_technique(session: Session, tech_id: str) -> list[dict]:
         "collect(DISTINCT {id: er.id, name: er.name, kind: er.kind}) AS expected_results, "
         "collect(DISTINCT {seq: s.seq, command: s.command, description: s.description}) AS steps, "
         "collect(DISTINCT {name: cl.name, description: cl.description}) AS cleanup",
-        id=t))
+        id=t, wids=web_ids))
     out = []
     for r in rows:
         if not r.get("procedure"):
